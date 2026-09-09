@@ -1,4 +1,5 @@
 import random
+import asyncio
 import db
 import hashlib
 import discord
@@ -11,19 +12,61 @@ def seed(*parts):
     return int(hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12], 16)
 
 def setup(bot):
+    class LobbyView(discord.ui.View):
+        def __init__(self, game, session_id):
+            super().__init__(timeout=31); self.game=game; self.session_id=session_id; self.message=None; self.remaining=30
+        async def on_timeout(self):
+            await db.close_session(self.session_id, "cancelled")
+            if self.message:
+                try: await self.message.edit(embed=embed(f"{self.game.title()} • Lobby Closed ⏰","No players joined before the 30-second countdown ended. Game cancelled.",discord.Color.red()),view=None)
+                except discord.HTTPException: pass
+        @discord.ui.button(label="Join Game",emoji="🎮",style=discord.ButtonStyle.success)
+        async def join(self,interaction,button):
+            ok=await db.join_session(self.session_id,interaction.user.id)
+            if not ok: return await interaction.response.send_message("❌ Lobby is closed.",ephemeral=True)
+            await interaction.response.send_message(f"✅ {interaction.user.mention} joined **{self.game.title()}**! Watch the lobby countdown.",ephemeral=True)
+        @discord.ui.button(label="How to Play",emoji="📖",style=discord.ButtonStyle.primary)
+        async def how(self,interaction,button):
+            e=embed(f"How to Play • {self.game.title()}","**1. Join** the lobby before the timer ends.\n**2. Wait** for the 30-second countdown.\n**3. Start:** the bot creates the scenario automatically.\n**4. Play:** use the action buttons/turn commands to make decisions.\n**5. Progress:** earn virtual coins, XP, loot and achievements.\n\n💾 Everything is saved to PostgreSQL.\n\n⚠️ If **0 players** have joined when the timer ends, the lobby is cancelled automatically.",discord.Color.green())
+            await interaction.response.send_message(embed=e,ephemeral=True)
+
+    async def lobby_countdown(message,game,sid,view):
+        view.message=message
+        for remaining in range(30,0,-1):
+            view.remaining=remaining
+            try:
+                rows=await db.session_players(sid)
+                e=embed(f"{game.title()} • Lobby 🎮",f"**Session:** #{sid}\n\n📖 **How to play**\nJoin with **🎮 Join Game**. The game starts automatically after 30 seconds. During the game, follow the action buttons and turn prompts. Your rewards and progress are saved.\n\n👥 **Players:** {len(rows)}\n⏱️ **Starting in: {remaining}s**",discord.Color.blurple())
+                e.set_footer(text="No players joined by the end = lobby automatically cancelled.")
+                await message.edit(embed=e,view=view)
+            except discord.HTTPException: return
+            await asyncio.sleep(1)
+        rows=await db.session_players(sid)
+        if not rows:
+            await db.close_session(sid,"cancelled")
+            try: await message.edit(embed=embed(f"{game.title()} • Cancelled ⏰","The 30-second lobby ended with **0 players**. Nothing was charged or changed.",discord.Color.red()),view=None)
+            except discord.HTTPException: pass
+            return
+        await db.close_session(sid,"active")
+        try: await message.edit(embed=embed(f"{game.title()} • GAME STARTED 🚀",f"**{len(rows)} player(s)** joined! The game is now starting.\n\n🎯 Make decisions when the bot presents each turn.\n💾 XP, coins and progression are saved.",discord.Color.green()),view=None)
+        except discord.HTTPException: pass
+
     @bot.tree.command(name="startgame", description="Start a persistent multiplayer game")
     @app_commands.describe(game="Game name")
     async def startgame(i, game: str):
         allowed={"heist","kingdom","assassin","blackmarket","escape","outbreak","conquest","treasure","arena","casino","detective","zombie","race","pirate","dungeon"}
         game=game.lower().strip()
         if game not in allowed: return await i.response.send_message("❌ Unknown game. Choose a supported game.",ephemeral=True)
-        sid=await db.new_session(i.guild_id,game,i.user.id,{"round":1,"players":[],"seed":random.randint(1,999999)})
-        if sid: await db.join_session(sid,i.user.id)
-        e=embed(f"{game.title()} • Lobby 🎮",f"Session: #{sid or "local"}\\nHost: {i.user.mention}\\n\\nUse /gamejoin to join.",discord.Color.blurple())
-        e.add_field(name="🎯 Objective",value="Complete the scenario, earn points and virtual coins.",inline=False)
-        e.add_field(name="💾 Persistence",value="PostgreSQL saves player/session data when DATABASE_URL is configured.",inline=False)
-        await i.response.send_message(embed=e)
-
+        sid=await db.new_session(i.guild_id,game,i.user.id,{"round":1,"seed":random.randint(1,999999)})
+        if sid is None: return await i.response.send_message("⚠️ PostgreSQL is not connected. Set DATABASE_URL on Render.",ephemeral=True)
+        view=LobbyView(game,sid)
+        e=embed(f"{game.title()} • Lobby 🎮",f"**Session:** #{sid}\n\n📖 **How to play**\nYou have **30 seconds** to join. Press **🎮 Join Game**. When the timer ends, the game starts automatically. If nobody joins, it ends automatically.\n\n👤 Host: {i.user.mention}\n👥 Players: 1\n⏱️ Starting in: **30s**",discord.Color.blurple())
+        e.add_field(name="🪙 Economy",value="Virtual coins + XP",inline=True)
+        e.add_field(name="💾 Persistence",value="PostgreSQL",inline=True)
+        await i.response.send_message(embed=e,view=view)
+        await db.join_session(sid,i.user.id)
+        msg=await i.original_response()
+        asyncio.create_task(lobby_countdown(msg,game,sid,view))
     @bot.tree.command(name="play", description="Take a turn in a game session")
     @app_commands.describe(session_id="Session ID", decision="Your decision")
     async def play(i, session_id:int, decision:str):
