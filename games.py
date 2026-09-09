@@ -289,7 +289,7 @@ def setup(bot):
       "dungeon":("Dungeon 🏰","Multiplayer adventure with classes, loot, enemies and bosses.")
     }
     for name,(title,desc) in games.items():
-        async def game_command(i, _title=title, _desc=desc):
+        async def game_command(i, _title: str = title, _desc: str = desc):
             e=embed(_title,_desc,discord.Color.blurple())
             e.add_field(name="🎮 Status",value="Game module initialized — ready for the next turn.",inline=False)
             e.add_field(name="🪙 Economy",value="Virtual points only; no real-money value.",inline=False)
