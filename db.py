@@ -1,4 +1,4 @@
-import os, asyncpg
+import os, asyncpg, json
 DATABASE_URL=os.getenv("DATABASE_URL"); _pool=None
 async def init_db():
  global _pool
@@ -30,6 +30,19 @@ async def add_xp(g,u,n):
 async def game_stat(g,u,game,win,score):
  if _pool: await _pool.execute("INSERT INTO player_stats VALUES($1,$2,$3,$4,$5,$6,'{}') ON CONFLICT(guild_id,user_id,game) DO UPDATE SET wins=player_stats.wins+$4,losses=player_stats.losses+$5,score=player_stats.score+$6",g,u,game,int(win),int(not win),score)
 async def new_session(g,game,u,state=None):
- if _pool:return await _pool.fetchval("INSERT INTO game_sessions(guild_id,game,owner_id,state) VALUES($1,$2,$3,$4) RETURNING id",g,game,u,state or {})
+ if _pool:
+  return await _pool.fetchval("INSERT INTO game_sessions(guild_id,game,owner_id,state,status) VALUES($1,$2,$3,$4::jsonb,'lobby') RETURNING id",g,game,u,json.dumps(state or {}))
+async def session_info(s):
+ if not _pool:return None
+ return await _pool.fetchrow("SELECT * FROM game_sessions WHERE id=$1",s)
+async def session_players(s):
+ if not _pool:return []
+ return await _pool.fetch("SELECT user_id FROM game_players WHERE session_id=$1 ORDER BY user_id",s)
 async def join_session(s,u):
- if _pool:await _pool.execute("INSERT INTO game_players(session_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",s,u)
+ if not _pool:return False
+ row=await _pool.fetchrow("SELECT status FROM game_sessions WHERE id=$1",s)
+ if not row or row["status"]!="lobby":return False
+ await _pool.execute("INSERT INTO game_players(session_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",s,u)
+ return True
+async def close_session(s,status="cancelled"):
+ if _pool:await _pool.execute("UPDATE game_sessions SET status=$2 WHERE id=$1",s,status)
