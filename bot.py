@@ -193,20 +193,46 @@ async def modcase(i, action: app_commands.Choice[str], target: discord.Member, r
     e.set_footer(text=f"AirCommander Case • {code}")
     await i.response.send_message(embed=e)
 
-@bot.tree.command(name="suggestionlab", description="Submit a suggestion for voting")
-@app_commands.describe(suggestion="Your suggestion")
-async def suggestionlab(i,suggestion:str):
+@bot.tree.command(name="suggestionlab", description="Create or manage a suggestion")
+@app_commands.describe(action="Create, update status, or add staff response", suggestion="Suggestion text for create", suggestion_id="Suggestion number for staff actions", status="New status", staff_response="Staff response")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Create",value="create"),
+    app_commands.Choice(name="Set Status",value="status"),
+    app_commands.Choice(name="Staff Response",value="response")
+])
+@app_commands.choices(status=[
+    app_commands.Choice(name="Pending",value="Pending"),
+    app_commands.Choice(name="Under Review",value="Under Review"),
+    app_commands.Choice(name="Approved",value="Approved"),
+    app_commands.Choice(name="Rejected",value="Rejected"),
+    app_commands.Choice(name="Implemented",value="Implemented")
+])
+async def suggestionlab(i, action: app_commands.Choice[str], suggestion: str=None, suggestion_id: int=None, status: app_commands.Choice[str]=None, staff_response: str=None):
     if not i.guild: return await i.response.send_message("Server only.",ephemeral=True)
-    sid=await db.save_suggestion(i.guild.id,i.user.id,suggestion)
-    e=air_embed("SuggestionLab • New Suggestion",suggestion,discord.Color.gold())
-    e.add_field(name="Status",value="Pending",inline=True)
-    e.add_field(name="Author",value=i.user.mention,inline=True)
-    e.add_field(name="Voting",value="👍 Approve    👎 Reject",inline=False)
-    if sid: e.set_footer(text=f"Suggestion #{sid} • Staff review required")
+    if action.value == "create":
+        if not suggestion: return await i.response.send_message("Provide suggestion text.",ephemeral=True)
+        sid=await db.save_suggestion(i.guild.id,i.user.id,suggestion)
+        e=air_embed("SuggestionLab • New Suggestion",suggestion,discord.Color.gold())
+        e.add_field(name="Status",value="Pending",inline=True)
+        e.add_field(name="Author",value=i.user.mention,inline=True)
+        e.add_field(name="Voting",value="👍 Approve    👎 Reject",inline=False)
+        if sid: e.set_footer(text=f"Suggestion #{sid} • Staff review")
+        await i.response.send_message(embed=e)
+        msg=await i.original_response()
+        await msg.add_reaction("👍"); await msg.add_reaction("👎")
+        return
+    if not i.user.guild_permissions.manage_guild:
+        return await i.response.send_message("Manage Server permission required for staff actions.",ephemeral=True)
+    if not suggestion_id: return await i.response.send_message("Provide suggestion_id.",ephemeral=True)
+    if action.value=="status" and not status: return await i.response.send_message("Choose a status.",ephemeral=True)
+    if action.value=="response" and not staff_response: return await i.response.send_message("Provide staff_response.",ephemeral=True)
+    ok=await db.update_suggestion(suggestion_id,i.guild.id,status.value if status else None,staff_response if action.value=="response" else None)
+    if not ok: return await i.response.send_message("Suggestion not found.",ephemeral=True)
+    e=air_embed(f"SuggestionLab • #{suggestion_id}","Suggestion workflow updated.",discord.Color.green())
+    e.add_field(name="Action",value=action.name,inline=True)
+    if status: e.add_field(name="Status",value=status.name,inline=True)
+    if staff_response: e.add_field(name="Staff Response",value=staff_response[:1024],inline=False)
     await i.response.send_message(embed=e)
-    msg=await i.original_response()
-    await msg.add_reaction("👍")
-    await msg.add_reaction("👎")
 
 @bot.tree.command(name="airscan", description="Generate a full AirCommander intelligence report")
 async def airscan(i):
