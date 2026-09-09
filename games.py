@@ -1,4 +1,5 @@
 import random
+import db
 import hashlib
 import discord
 from discord import app_commands
@@ -10,6 +11,22 @@ def seed(*parts):
     return int(hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12], 16)
 
 def setup(bot):
+    @bot.tree.command(name="profile", description="Show your persistent game profile")
+    async def profile(i):
+        p=await db.get_player(i.guild_id,i.user.id)
+        e=embed("Player Profile 🧑‍✈️",f"{i.user.mention}'s AirCommander game profile")
+        e.add_field(name="🪙 Coins",value=str(p["coins"]),inline=True)
+        e.add_field(name="⭐ XP",value=str(p["xp"]),inline=True)
+        e.add_field(name="🏅 Level",value=str(p["level"]),inline=True)
+        await i.response.send_message(embed=e)
+
+    @bot.tree.command(name="gamejoin", description="Join a game session")
+    @app_commands.describe(session_id="Session ID")
+    async def gamejoin(i,session_id:int):
+        await db.join_session(session_id,i.user.id)
+        e=embed("Game Lobby 🎮",f"{i.user.mention} joined session **#{session_id}**.",discord.Color.green())
+        await i.response.send_message(embed=e)
+
     @bot.tree.command(name="whatif", description="Preview the possible result of an action")
     @app_commands.describe(action="Action to preview")
     async def whatif(i, action: str):
