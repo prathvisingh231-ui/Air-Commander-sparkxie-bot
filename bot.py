@@ -23,11 +23,11 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}, 200
+    return {"status": "ok", "discord": bot.is_ready() if "bot" in globals() else False}, 200
 
 def run_web():
     port = int(os.getenv("PORT", "10000"))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, threaded=True, use_reloader=False)
 
 intents = discord.Intents.default()
 intents.members = True
@@ -259,5 +259,6 @@ async def airscan(i):
     await i.followup.send(embed=e)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
+    threading.Thread(target=run_web, daemon=True, name="render-health").start()
+    print(f"Health server starting on 0.0.0.0:{os.getenv('PORT', '10000')}")
     bot.run(TOKEN)
