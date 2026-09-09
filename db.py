@@ -1,11 +1,21 @@
-import os, asyncpg, json
+import os, asyncpg, json, asyncio
+from urllib.parse import urlparse
 DATABASE_URL=os.getenv("DATABASE_URL"); _pool=None
 async def init_db():
  global _pool
- if _pool or not DATABASE_URL:return
- _pool=await asyncpg.create_pool(DATABASE_URL,min_size=1,max_size=8)
- async with _pool.acquire() as c:
-  await c.execute("""CREATE TABLE IF NOT EXISTS players(guild_id BIGINT,user_id BIGINT,coins BIGINT DEFAULT 100,xp BIGINT DEFAULT 0,level INT DEFAULT 1,PRIMARY KEY(guild_id,user_id));
+ if _pool or not DATABASE_URL:
+  if not DATABASE_URL: print("⚠️ DATABASE_URL is not set; database features are disabled.")
+  return
+ parsed=urlparse(DATABASE_URL)
+ host=(parsed.hostname or "").lower()
+ if host.startswith("db.") and host.endswith(".supabase.co"):
+  print("❌ Supabase direct database URL detected. Render uses IPv4, while Supabase direct connections are IPv6 on free projects. Use Supabase Connect → Session pooler (port 5432) in DATABASE_URL.")
+  return
+ for attempt in range(1,4):
+  try:
+   _pool=await asyncpg.create_pool(DATABASE_URL,min_size=1,max_size=8,command_timeout=30,timeout=15)
+   async with _pool.acquire() as c:
+    await c.execute("""CREATE TABLE IF NOT EXISTS players(guild_id BIGINT,user_id BIGINT,coins BIGINT DEFAULT 100,xp BIGINT DEFAULT 0,level INT DEFAULT 1,PRIMARY KEY(guild_id,user_id));
 CREATE TABLE IF NOT EXISTS player_stats(guild_id BIGINT,user_id BIGINT,game TEXT,wins INT DEFAULT 0,losses INT DEFAULT 0,score BIGINT DEFAULT 0,data JSONB DEFAULT '{}'::jsonb,PRIMARY KEY(guild_id,user_id,game));
 CREATE TABLE IF NOT EXISTS inventories(guild_id BIGINT,user_id BIGINT,item TEXT,quantity INT DEFAULT 0,PRIMARY KEY(guild_id,user_id,item));
 CREATE TABLE IF NOT EXISTS game_sessions(id BIGSERIAL PRIMARY KEY,guild_id BIGINT,game TEXT,owner_id BIGINT,state JSONB DEFAULT '{}'::jsonb,status TEXT DEFAULT 'active',created_at TIMESTAMPTZ DEFAULT NOW());
@@ -15,6 +25,14 @@ CREATE TABLE IF NOT EXISTS missions(id BIGSERIAL PRIMARY KEY,guild_id BIGINT,use
 CREATE TABLE IF NOT EXISTS bounties(id BIGSERIAL PRIMARY KEY,guild_id BIGINT,target_id BIGINT,creator_id BIGINT,challenge TEXT,reward INT,completed BOOLEAN DEFAULT FALSE,created_at TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS market(guild_id BIGINT,item TEXT,price INT,stock INT DEFAULT 1,PRIMARY KEY(guild_id,item));
 CREATE TABLE IF NOT EXISTS territories(guild_id BIGINT,territory TEXT,owner_team TEXT,level INT DEFAULT 1,resources INT DEFAULT 100,PRIMARY KEY(guild_id,territory));""")
+   print("✅ PostgreSQL connected and Air Commander tables are ready.")
+   return
+  except Exception as e:
+   _pool=None
+   print(f"⚠️ PostgreSQL connection attempt {attempt}/3 failed: {type(e).__name__}: {e}")
+   if attempt < 3: await asyncio.sleep(attempt*3)
+ print("❌ PostgreSQL unavailable. Discord bot will stay online; database-backed features will be unavailable until DATABASE_URL is fixed.")
+
 async def ensure_player(g,u):
  if _pool: await _pool.execute("INSERT INTO players(guild_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING",g,u)
 async def get_player(g,u):
