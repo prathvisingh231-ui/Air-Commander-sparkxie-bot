@@ -16,6 +16,8 @@ def setup(bot):
         def __init__(self, game, session_id):
             super().__init__(timeout=31); self.game=game; self.session_id=session_id; self.message=None; self.remaining=30
         async def on_timeout(self):
+            info=await db.session_info(self.session_id)
+            if not info or info["status"] != "lobby": return
             await db.close_session(self.session_id, "cancelled")
             if self.message:
                 try: await self.message.edit(embed=embed(f"{self.game.title()} • Lobby Closed ⏰","No players joined before the 30-second countdown ended. Game cancelled.",discord.Color.red()),view=None)
