@@ -11,6 +11,40 @@ def seed(*parts):
     return int(hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12], 16)
 
 def setup(bot):
+    @bot.tree.command(name="startgame", description="Start a persistent multiplayer game")
+    @app_commands.describe(game="Game name")
+    async def startgame(i, game: str):
+        allowed={"heist","kingdom","assassin","blackmarket","escape","outbreak","conquest","treasure","arena","casino","detective","zombie","race","pirate","dungeon"}
+        game=game.lower().strip()
+        if game not in allowed: return await i.response.send_message("❌ Unknown game. Choose a supported game.",ephemeral=True)
+        sid=await db.new_session(i.guild_id,game,i.user.id,{"round":1,"players":[],"seed":random.randint(1,999999)})
+        if sid: await db.join_session(sid,i.user.id)
+        e=embed(f"{game.title()} • Lobby 🎮",f"Session: #{sid or "local"}\\nHost: {i.user.mention}\\n\\nUse /gamejoin to join.",discord.Color.blurple())
+        e.add_field(name="🎯 Objective",value="Complete the scenario, earn points and virtual coins.",inline=False)
+        e.add_field(name="💾 Persistence",value="PostgreSQL saves player/session data when DATABASE_URL is configured.",inline=False)
+        await i.response.send_message(embed=e)
+
+    @bot.tree.command(name="play", description="Take a turn in a game session")
+    @app_commands.describe(session_id="Session ID", decision="Your decision")
+    async def play(i, session_id:int, decision:str):
+        roll=random.randint(1,100); win=roll>=55
+        outcome=random.choice(["Success!","Partial success.","A surprise event occurred!","You found a bonus!","The plan backfired — recover and continue."])
+        coins=random.randint(10,40) if win else random.randint(2,12); xp=15 if win else 5
+        await db.add_coins(i.guild_id,i.user.id,coins); await db.add_xp(i.guild_id,i.user.id,xp)
+        e=embed("Game Turn 🎲",f"Session #{session_id}\\nDecision: {decision}",discord.Color.green() if win else discord.Color.orange())
+        e.add_field(name="🎲 Roll",value=str(roll),inline=True); e.add_field(name="📜 Outcome",value=outcome,inline=False)
+        e.add_field(name="🪙 Reward",value=f"+{coins} coins",inline=True); e.add_field(name="⭐ XP",value=f"+{xp} XP",inline=True)
+        e.set_footer(text="Virtual gameplay • Rewards saved to profile"); await i.response.send_message(embed=e)
+
+    @bot.tree.command(name="leaderboard", description="Show the server game leaderboard")
+    async def leaderboard(i):
+        if not db._pool: return await i.response.send_message(embed=embed("Leaderboard 🏆","Set DATABASE_URL on Render to enable persistent leaderboard data."))
+        rows=await db._pool.fetch("SELECT user_id,coins,xp,level FROM players WHERE guild_id=$1 ORDER BY xp DESC,coins DESC LIMIT 10",i.guild_id)
+        lines=[]
+        for n,row in enumerate(rows,1):
+            m=i.guild.get_member(row["user_id"]); name=m.display_name if m else f"User {row["user_id"]}"
+            lines.append(f"**{n}.** {name} — ⭐ {row["xp"]} XP • 🪙 {row["coins"]} • Lv {row["level"]}")
+        await i.response.send_message(embed=embed("AirCommander Leaderboard 🏆","\\n".join(lines) or "No players yet.",discord.Color.gold()))
     @bot.tree.command(name="profile", description="Show your persistent game profile")
     async def profile(i):
         p=await db.get_player(i.guild_id,i.user.id)
