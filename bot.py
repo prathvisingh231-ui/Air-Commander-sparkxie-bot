@@ -4,6 +4,7 @@ import threading
 from flask import Flask
 import discord
 import db
+import games
 from discord import app_commands
 from discord.ext import commands
 
@@ -32,6 +33,7 @@ intents = discord.Intents.default()
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 start_time = time.time()
+games.setup(bot)
 
 @bot.event
 async def on_ready():
