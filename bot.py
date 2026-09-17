@@ -5,6 +5,7 @@ from flask import Flask
 import discord
 import db
 import games
+import basic_commands
 from discord import app_commands
 from discord.ext import commands
 
@@ -14,7 +15,6 @@ GUILD_ID = os.getenv("GUILD_ID")
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN environment variable is required")
 
-# Render Web Service health server
 app = Flask(__name__)
 
 @app.get("/")
@@ -31,9 +31,13 @@ def run_web():
 
 intents = discord.Intents.default()
 intents.members = True
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 start_time = time.time()
+bot._air_start_time = start_time
+
 games.setup(bot)
+basic_commands.setup(bot)
 
 @bot.event
 async def on_ready():
@@ -53,72 +57,75 @@ async def on_ready():
 
 @bot.tree.command(name="ping", description="Check the bot's latency.")
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(f"Pong! 🏓 {round(bot.latency * 1000)}ms")
+    e = discord.Embed(title="✈️ Air Commander • Ping", description="Gateway connection check", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.add_field(name="Latency", value=f"**{round(bot.latency * 1000)} ms**", inline=True)
+    e.set_footer(text="Air Commander • System online")
+    await interaction.response.send_message(embed=e)
 
-@bot.tree.command(name="help", description="Show the basic bot commands.")
+@bot.tree.command(name="help", description="Show Air Commander command categories.")
 async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(title="Air Commander — Commands", color=discord.Color.blurple())
-    embed.add_field(name="/ping", value="Check bot latency.", inline=False)
-    embed.add_field(name="/help", value="Show this command list.", inline=False)
-    embed.add_field(name="/about", value="Show bot information.", inline=False)
-    embed.add_field(name="/serverinfo", value="Show server information.", inline=False)
-    embed.add_field(name="/userinfo", value="Show user information.", inline=False)
-    embed.add_field(name="/avatar", value="Show a user's avatar.", inline=False)
-    embed.add_field(name="/uptime", value="Show bot uptime.", inline=False)
-    await interaction.response.send_message(embed=embed)
+    e = discord.Embed(title="✈️ Air Commander • Command Center", description="A clean command index for your server.", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.add_field(name="🛠️ Utility", value="`/ping` `/help` `/about` `/uptime` `/botinfo`\n`/serverinfo` `/membercount` `/userinfo` `/membercard`\n`/avatar` `/servericon` `/banner` `/channelinfo` `/roleinfo`", inline=False)
+    e.add_field(name="🛡️ Moderation", value="`/clear` `/kick` `/ban` `/unban` `/timeout` `/untimeout`\n`/slowmode` `/lock` `/unlock` `/nick` `/role`", inline=False)
+    e.add_field(name="📢 Community", value="`/say` `/announce` `/poll`", inline=False)
+    e.add_field(name="🛰️ Air Commander Intelligence", value="`/ghostscan` `/activitymap` `/airscan` `/modcase` `/suggestionlab`", inline=False)
+    e.add_field(name="🎮 Games & Fun", value="Use the game commands already installed by Air Commander.", inline=False)
+    e.set_footer(text="Air Commander • Use /help whenever you need the command map")
+    await interaction.response.send_message(embed=e)
 
 @bot.tree.command(name="about", description="Show information about Air Commander.")
 async def about(interaction: discord.Interaction):
-    embed = discord.Embed(title="Air Commander", description="All-in-one Discord bot.", color=discord.Color.blurple())
-    embed.add_field(name="Developer", value="Prithvi", inline=True)
-    embed.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
-    embed.add_field(name="Library", value="discord.py", inline=True)
-    await interaction.response.send_message(embed=embed)
+    e = discord.Embed(title="✈️ Air Commander", description="All-in-one Discord command, moderation and game system.", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.add_field(name="Developer", value="Prithvi", inline=True)
+    e.add_field(name="Servers", value=str(len(bot.guilds)), inline=True)
+    e.add_field(name="Library", value="discord.py", inline=True)
+    e.add_field(name="Status", value="🟢 Online", inline=True)
+    e.add_field(name="Slash Commands", value=str(len(bot.tree.get_commands())), inline=True)
+    e.set_footer(text="Air Commander • Built for clean server management")
+    await interaction.response.send_message(embed=e)
 
-@bot.tree.command(name="serverinfo", description="Show information about this server.")
+@bot.tree.command(name="serverinfo", description="Show detailed server information.")
 async def serverinfo(interaction: discord.Interaction):
     guild = interaction.guild
     if not guild:
-        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-        return
-    embed = discord.Embed(title=guild.name, color=discord.Color.blurple())
-    if guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-    embed.add_field(name="Server ID", value=str(guild.id), inline=False)
-    embed.add_field(name="Members", value=str(guild.member_count), inline=True)
-    embed.add_field(name="Channels", value=str(len(guild.channels)), inline=True)
-    embed.add_field(name="Roles", value=str(len(guild.roles)), inline=True)
-    await interaction.response.send_message(embed=embed)
+        return await interaction.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
+    bots = sum(1 for m in guild.members if m.bot)
+    e = discord.Embed(title=f"✈️ {guild.name} • Server Overview", description="A quick snapshot of this Discord server.", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    if guild.icon: e.set_thumbnail(url=guild.icon.url)
+    e.add_field(name="👥 Members", value=f"Total **{guild.member_count}**\nHumans **{guild.member_count-bots}**\nBots **{bots}**", inline=True)
+    e.add_field(name="🗂️ Structure", value=f"Channels **{len(guild.channels)}**\nRoles **{len(guild.roles)}**\nCategories **{len(guild.categories)}**", inline=True)
+    e.add_field(name="🔐 Security", value=f"Verification **{guild.verification_level.name}**\n2FA moderation **{'On' if guild.mfa_level else 'Off'}**", inline=True)
+    e.add_field(name="📅 Created", value=discord.utils.format_dt(guild.created_at, "F"), inline=False)
+    e.set_footer(text=f"Server ID • {guild.id}")
+    await interaction.response.send_message(embed=e)
 
-@bot.tree.command(name="userinfo", description="Show information about a user.")
+@bot.tree.command(name="userinfo", description="Show detailed information about a user.")
 @app_commands.describe(user="The user to inspect")
 async def userinfo(interaction: discord.Interaction, user: discord.Member | None = None):
     user = user or interaction.user
-    embed = discord.Embed(title=f"User Info — {user}", color=discord.Color.blurple())
-    embed.set_thumbnail(url=user.display_avatar.url)
-    embed.add_field(name="Username", value=str(user), inline=False)
-    embed.add_field(name="User ID", value=str(user.id), inline=False)
-    embed.add_field(name="Joined Server", value=discord.utils.format_dt(user.joined_at, "F") if user.joined_at else "Unknown", inline=False)
-    embed.add_field(name="Account Created", value=discord.utils.format_dt(user.created_at, "F"), inline=False)
-    await interaction.response.send_message(embed=embed)
+    e = discord.Embed(title=f"✈️ User Profile • {user.display_name}", description=f"Detailed profile for {user.mention}.", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.set_thumbnail(url=user.display_avatar.url)
+    e.add_field(name="Identity", value=f"Username: **{user}**\nID: `{user.id}`\nBot: **{'Yes' if user.bot else 'No'}**", inline=True)
+    e.add_field(name="Dates", value=f"Created: {discord.utils.format_dt(user.created_at,'R')}\nJoined: {discord.utils.format_dt(user.joined_at,'R') if user.joined_at else 'Unknown'}", inline=True)
+    e.add_field(name="Top Role", value=user.top_role.mention, inline=True)
+    await interaction.response.send_message(embed=e)
 
 @bot.tree.command(name="avatar", description="Show a user's avatar.")
 @app_commands.describe(user="The user whose avatar you want to see")
 async def avatar(interaction: discord.Interaction, user: discord.User | None = None):
     user = user or interaction.user
-    embed = discord.Embed(title=f"{user.display_name}'s Avatar", color=discord.Color.blurple())
-    embed.set_image(url=user.display_avatar.replace(size=1024).url)
-    await interaction.response.send_message(embed=embed)
+    e = discord.Embed(title=f"✈️ {user.display_name} • Avatar", color=discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.set_image(url=user.display_avatar.replace(size=1024).url)
+    e.set_footer(text=f"User ID • {user.id}")
+    await interaction.response.send_message(embed=e)
 
-@bot.tree.command(name="uptime", description="Show how long the bot has been online.")
+@bot.tree.command(name="uptime", description="Show how long Air Commander has been online.")
 async def uptime(interaction: discord.Interaction):
     seconds = int(time.time() - start_time)
-    days, seconds = divmod(seconds, 86400)
-    hours, seconds = divmod(seconds, 3600)
-    minutes, seconds = divmod(seconds, 60)
-    await interaction.response.send_message(
-        f"⏱️ Uptime: **{days}d {hours}h {minutes}m {seconds}s**"
-    )
+    days, seconds = divmod(seconds, 86400); hours, seconds = divmod(seconds, 3600); minutes, seconds = divmod(seconds, 60)
+    e = discord.Embed(title="✈️ Air Commander • Uptime", description="System availability", color=discord.Color.green(), timestamp=discord.utils.utcnow())
+    e.add_field(name="Online For", value=f"**{days}d {hours}h {minutes}m {seconds}s**", inline=False)
+    await interaction.response.send_message(embed=e)
 
 @bot.event
 async def on_message(message):
@@ -131,7 +138,9 @@ async def on_message(message):
     await bot.process_commands(message)
 
 def air_embed(title, description="", color=None):
-    return discord.Embed(title=f"✈️ {title}", description=description, color=color or discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e = discord.Embed(title=f"✈️ {title}", description=description, color=color or discord.Color.blurple(), timestamp=discord.utils.utcnow())
+    e.set_footer(text="Air Commander • Intelligence System")
+    return e
 
 @bot.tree.command(name="ghostscan", description="Scan inactive/ghost members")
 @app_commands.describe(days="Joined before this many days ago")
@@ -140,10 +149,9 @@ async def ghostscan(i, days: app_commands.Range[int,1,365]=30):
     await i.response.defer()
     cutoff=discord.utils.utcnow().timestamp()-days*86400
     ghosts=[m for m in i.guild.members if not m.bot and m.joined_at and m.joined_at.timestamp()<cutoff]
-    e=air_embed("GhostScan",f"Inactive-member candidates using a {days}-day threshold.",discord.Color.orange())
-    e.add_field(name="Scanned",value=str(len(i.guild.members)),inline=True)
-    e.add_field(name="Candidates",value=str(len(ghosts)),inline=True)
-    e.add_field(name="Note",value="Old joins are candidates. Accurate inactivity uses activity history collected while Air Commander is online.",inline=False)
+    e=air_embed("GhostScan",f"Inactive-member candidates using a **{days}-day** threshold.",discord.Color.orange())
+    e.add_field(name="Scanned",value=str(len(i.guild.members)),inline=True); e.add_field(name="Candidates",value=str(len(ghosts)),inline=True)
+    e.add_field(name="Method",value="Old joins are candidates. Activity history is based on messages collected while Air Commander is online.",inline=False)
     if ghosts: e.add_field(name="Candidates",value="\n".join(f"• {m.mention} — joined {discord.utils.format_dt(m.joined_at,'R')}" for m in ghosts[:20]),inline=False)
     await i.followup.send(embed=e)
 
@@ -152,17 +160,14 @@ async def activitymap(i):
     if not i.guild: return await i.response.send_message("Server only.", ephemeral=True)
     rows=await db.activity_counts(i.guild.id)
     e=air_embed("ActivityMap","Live activity collected while Air Commander is online.",discord.Color.teal())
-    if rows:
-        lines=[]
-        for row in rows:
-            ch=i.guild.get_channel(row["channel_id"])
-            if ch: lines.append(f"• {ch.mention} — {row['messages']} messages")
-        e.add_field(name="Most Active Channels",value="\n".join(lines) or "No recorded activity yet.",inline=False)
-    else: e.add_field(name="Activity",value="No stored activity yet. Start chatting and Air Commander will build the map.",inline=False)
+    lines=[]
+    for row in rows or []:
+        ch=i.guild.get_channel(row["channel_id"])
+        if ch: lines.append(f"• {ch.mention} — **{row['messages']}** messages")
+    e.add_field(name="Most Active Channels",value="\n".join(lines) or "No recorded activity yet.",inline=False)
     cats={}
     for ch in i.guild.text_channels:
-        key=ch.category.name if ch.category else "No Category"
-        cats[key]=cats.get(key,0)+1
+        key=ch.category.name if ch.category else "No Category"; cats[key]=cats.get(key,0)+1
     e.add_field(name="Channel Distribution",value="\n".join(f"• {k}: {v} channels" for k,v in sorted(cats.items(),key=lambda x:x[1],reverse=True)[:10]) or "None",inline=False)
     await i.response.send_message(embed=e)
 
@@ -171,9 +176,8 @@ async def activitymap(i):
 async def membercard(i, member: discord.Member=None):
     if not i.guild: return await i.response.send_message("Server only.", ephemeral=True)
     member=member or i.user
-    e=air_embed(f"MemberCard • {member.display_name}","Detailed member profile.",discord.Color.blurple())
-    e.set_thumbnail(url=member.display_avatar.url)
-    e.add_field(name="Identity",value=f"{member.mention}\n{member.id}\nBot: {'Yes' if member.bot else 'No'}",inline=True)
+    e=air_embed(f"MemberCard • {member.display_name}","Detailed member profile.",discord.Color.blurple()); e.set_thumbnail(url=member.display_avatar.url)
+    e.add_field(name="Identity",value=f"{member.mention}\n`{member.id}`\nBot: {'Yes' if member.bot else 'No'}",inline=True)
     e.add_field(name="Dates",value=f"Created {discord.utils.format_dt(member.created_at,'R')}\nJoined {discord.utils.format_dt(member.joined_at,'R') if member.joined_at else 'Unknown'}",inline=True)
     e.add_field(name="Roles",value=", ".join(r.mention for r in member.roles[1:])[:1024] or "None",inline=False)
     await i.response.send_message(embed=e)
@@ -183,55 +187,32 @@ async def membercard(i, member: discord.Member=None):
 @app_commands.choices(action=[app_commands.Choice(name=x.title(),value=x) for x in ("warn","kick","ban","timeout","unban","other")])
 async def modcase(i, action: app_commands.Choice[str], target: discord.Member, reason: str, evidence: str="Not provided"):
     if not i.guild: return await i.response.send_message("Server only.",ephemeral=True)
-    if not i.user.guild_permissions.moderate_members and not i.user.guild_permissions.manage_guild:
-        return await i.response.send_message("Moderation permission required.",ephemeral=True)
+    if not i.user.guild_permissions.moderate_members and not i.user.guild_permissions.manage_guild: return await i.response.send_message("Moderation permission required.",ephemeral=True)
     code=await db.next_case(i.guild.id,target.id,i.user.id,action.value,reason,evidence)
     e=air_embed(f"ModCase • {code}","Persistent Air Commander moderation record.",discord.Color.red())
-    e.add_field(name="Action",value=action.name.upper(),inline=True)
-    e.add_field(name="Target",value=f"{target.mention}\n{target.id}",inline=True)
-    e.add_field(name="Moderator",value=i.user.mention,inline=True)
-    e.add_field(name="Reason",value=reason[:1024],inline=False)
-    e.add_field(name="Evidence",value=evidence[:1024],inline=False)
-    e.set_footer(text=f"AirCommander Case • {code}")
+    e.add_field(name="Action",value=action.name.upper(),inline=True); e.add_field(name="Target",value=f"{target.mention}\n{target.id}",inline=True); e.add_field(name="Moderator",value=i.user.mention,inline=True)
+    e.add_field(name="Reason",value=reason[:1024],inline=False); e.add_field(name="Evidence",value=evidence[:1024],inline=False); e.set_footer(text=f"AirCommander Case • {code}")
     await i.response.send_message(embed=e)
 
 @bot.tree.command(name="suggestionlab", description="Create or manage a suggestion")
 @app_commands.describe(action="Create, update status, or add staff response", suggestion="Suggestion text for create", suggestion_id="Suggestion number for staff actions", status="New status", staff_response="Staff response")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Create",value="create"),
-    app_commands.Choice(name="Set Status",value="status"),
-    app_commands.Choice(name="Staff Response",value="response")
-])
-@app_commands.choices(status=[
-    app_commands.Choice(name="Pending",value="Pending"),
-    app_commands.Choice(name="Under Review",value="Under Review"),
-    app_commands.Choice(name="Approved",value="Approved"),
-    app_commands.Choice(name="Rejected",value="Rejected"),
-    app_commands.Choice(name="Implemented",value="Implemented")
-])
+@app_commands.choices(action=[app_commands.Choice(name="Create",value="create"),app_commands.Choice(name="Set Status",value="status"),app_commands.Choice(name="Staff Response",value="response")])
+@app_commands.choices(status=[app_commands.Choice(name=x,value=x) for x in ("Pending","Under Review","Approved","Rejected","Implemented")])
 async def suggestionlab(i, action: app_commands.Choice[str], suggestion: str=None, suggestion_id: int=None, status: app_commands.Choice[str]=None, staff_response: str=None):
     if not i.guild: return await i.response.send_message("Server only.",ephemeral=True)
     if action.value == "create":
         if not suggestion: return await i.response.send_message("Provide suggestion text.",ephemeral=True)
         sid=await db.save_suggestion(i.guild.id,i.user.id,suggestion)
-        e=air_embed("SuggestionLab • New Suggestion",suggestion,discord.Color.gold())
-        e.add_field(name="Status",value="Pending",inline=True)
-        e.add_field(name="Author",value=i.user.mention,inline=True)
-        e.add_field(name="Voting",value="👍 Approve    👎 Reject",inline=False)
+        e=air_embed("SuggestionLab • New Suggestion",suggestion,discord.Color.gold()); e.add_field(name="Status",value="Pending",inline=True); e.add_field(name="Author",value=i.user.mention,inline=True); e.add_field(name="Voting",value="👍 Approve    👎 Reject",inline=False)
         if sid: e.set_footer(text=f"Suggestion #{sid} • Staff review")
-        await i.response.send_message(embed=e)
-        msg=await i.original_response()
-        await msg.add_reaction("👍"); await msg.add_reaction("👎")
-        return
-    if not i.user.guild_permissions.manage_guild:
-        return await i.response.send_message("Manage Server permission required for staff actions.",ephemeral=True)
+        await i.response.send_message(embed=e); msg=await i.original_response(); await msg.add_reaction("👍"); await msg.add_reaction("👎"); return
+    if not i.user.guild_permissions.manage_guild: return await i.response.send_message("Manage Server permission required for staff actions.",ephemeral=True)
     if not suggestion_id: return await i.response.send_message("Provide suggestion_id.",ephemeral=True)
     if action.value=="status" and not status: return await i.response.send_message("Choose a status.",ephemeral=True)
     if action.value=="response" and not staff_response: return await i.response.send_message("Provide staff_response.",ephemeral=True)
     ok=await db.update_suggestion(suggestion_id,i.guild.id,status.value if status else None,staff_response if action.value=="response" else None)
     if not ok: return await i.response.send_message("Suggestion not found.",ephemeral=True)
-    e=air_embed(f"SuggestionLab • #{suggestion_id}","Suggestion workflow updated.",discord.Color.green())
-    e.add_field(name="Action",value=action.name,inline=True)
+    e=air_embed(f"SuggestionLab • #{suggestion_id}","Suggestion workflow updated.",discord.Color.green()); e.add_field(name="Action",value=action.name,inline=True)
     if status: e.add_field(name="Status",value=status.name,inline=True)
     if staff_response: e.add_field(name="Staff Response",value=staff_response[:1024],inline=False)
     await i.response.send_message(embed=e)
@@ -240,27 +221,20 @@ async def suggestionlab(i, action: app_commands.Choice[str], suggestion: str=Non
 async def airscan(i):
     if not i.guild: return await i.response.send_message("Server only.",ephemeral=True)
     if not i.user.guild_permissions.manage_guild: return await i.response.send_message("Manage Server permission required.",ephemeral=True)
-    await i.response.defer()
-    g=i.guild
-    bots=sum(1 for m in g.members if m.bot)
-    admin=[r for r in g.roles if r!=g.default_role and r.permissions.administrator]
+    await i.response.defer(); g=i.guild; bots=sum(1 for m in g.members if m.bot); admin=[r for r in g.roles if r!=g.default_role and r.permissions.administrator]
     uncategorized=[ch for ch in g.channels if isinstance(ch,(discord.TextChannel,discord.VoiceChannel)) and ch.category is None]
-    e=air_embed("AirScan • Intelligence Report",f"Security, moderation, activity and configuration snapshot for {g.name}.",discord.Color.blurple())
+    e=air_embed("AirScan • Intelligence Report",f"Security, moderation, activity and configuration snapshot for **{g.name}**.",discord.Color.blurple())
     if g.icon: e.set_thumbnail(url=g.icon.url)
-    e.add_field(name="MEMBERS",value=f"Total {g.member_count}\nHumans {g.member_count-bots}\nBots {bots}",inline=True)
-    e.add_field(name="CHANNELS",value=f"Total {len(g.channels)}\nText {len(g.text_channels)}\nVoice {len(g.voice_channels)}\nCategories {len(g.categories)}",inline=True)
-    e.add_field(name="ROLES",value=f"Total {len(g.roles)}\nAdmin roles {len(admin)}",inline=True)
+    e.add_field(name="MEMBERS",value=f"Total {g.member_count}\nHumans {g.member_count-bots}\nBots {bots}",inline=True); e.add_field(name="CHANNELS",value=f"Total {len(g.channels)}\nText {len(g.text_channels)}\nVoice {len(g.voice_channels)}\nCategories {len(g.categories)}",inline=True); e.add_field(name="ROLES",value=f"Total {len(g.roles)}\nAdmin roles {len(admin)}",inline=True)
     e.add_field(name="SECURITY",value=("Warning: "+", ".join(r.mention for r in admin[:8]) if admin else "No extra Administrator roles detected"),inline=False)
     e.add_field(name="CONFIGURATION",value=f"Verification {g.verification_level.name}\n2FA moderation {'Enabled' if g.mfa_level else 'Disabled'}\nSystem channel {g.system_channel.mention if g.system_channel else 'None'}",inline=False)
-    e.add_field(name="STRUCTURE",value=f"Uncategorized channels {len(uncategorized)}\nText channels {len(g.text_channels)}\nRoles {len(g.roles)}",inline=False)
-    e.add_field(name="TICKETS / LOGGING",value="AirScan reports visible Discord configuration. It does not falsely claim to know third-party bot internals.",inline=False)
-    e.add_field(name="ACTIVITY",value="Message activity is being collected in PostgreSQL for ActivityMap and future intelligence scans.",inline=False)
-    e.set_footer(text="AirCommander Intelligence • Live scan")
+    e.add_field(name="STRUCTURE",value=f"Uncategorized channels: **{len(uncategorized)}**",inline=False)
     await i.followup.send(embed=e)
 
-
-          
-if __name__ == "__main__":
+def main():
     threading.Thread(target=run_web, daemon=True, name="render-health").start()
-    print(f"Health server starting on 0.0.0.0:{os.getenv('PORT', '10000')}")
+    print(f"Health server starting on 0.0.0.0:{os.getenv('PORT','10000')}")
     bot.run(TOKEN)
+
+if __name__ == "__main__":
+    main()
