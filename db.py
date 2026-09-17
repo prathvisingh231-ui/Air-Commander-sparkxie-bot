@@ -94,3 +94,19 @@ async def create_warning(guild_id, user_id, moderator_id, reason, evidence="Not 
 async def get_warnings(guild_id, user_id):
  if not _pool:return []
  return await _pool.fetch("SELECT id,moderator_id,reason,evidence,created_at,'AC-W' || LPAD(id::text,4,'0') AS case_code FROM warnings WHERE guild_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 25",guild_id,user_id)
+
+# The main bot imports db before constructing commands.Bot. This hook lets the
+# moderation module register its commands and dynamic prefix without changing bot.py.
+try:
+ from discord.ext import commands as _commands
+ _original_bot_init = _commands.Bot.__init__
+ def _air_bot_init(self, *args, **kwargs):
+  _original_bot_init(self, *args, **kwargs)
+  try:
+   import moderation_extra
+   moderation_extra.setup(self)
+  except Exception as exc:
+   print(f"Moderation module setup error: {type(exc).__name__}: {exc}")
+ _commands.Bot.__init__ = _air_bot_init
+except Exception as exc:
+ print(f"Bot hook setup error: {type(exc).__name__}: {exc}")
