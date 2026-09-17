@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import db
+import cmdmaker
 
 
 def clean_embed(title, description="", color=None):
@@ -117,3 +118,7 @@ def setup(bot: commands.Bot):
         await i.response.send_message(embed=e)
 
     bot.tree.add_command(prefix_group)
+
+    # Custom command builder: /cmdmaker is registered through the same startup
+    # hook used by moderation, so bot.py does not need another architectural hook.
+    cmdmaker.setup(bot)
