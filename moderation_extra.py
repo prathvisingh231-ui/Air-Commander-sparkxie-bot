@@ -26,6 +26,14 @@ def setup(bot: commands.Bot):
         except Exception as exc:
             print(f"Prefix load error: {exc}")
 
+    async def dynamic_prefix(_bot, message):
+        if message.guild:
+            return bot._air_prefixes.get(message.guild.id, "!")
+        return "!"
+
+    # discord.py accepts a callable prefix. This makes /prefix set actually
+    # change the prefix used by normal text commands without restarting.
+    bot.command_prefix = dynamic_prefix
     bot._air_load_prefixes = load_prefixes
 
     @bot.tree.command(name="warn", description="Warn a member and save a persistent moderation record")
