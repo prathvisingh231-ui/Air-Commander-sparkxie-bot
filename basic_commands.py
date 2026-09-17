@@ -11,6 +11,16 @@ def embed(title, description="", color=discord.Color.blurple()):
     return e
 
 
+def format_count(number: int) -> str:
+    if number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.1f}B".rstrip("0").rstrip(".")
+    if number >= 1_000_000:
+        return f"{number / 1_000_000:.1f}M".rstrip("0").rstrip(".")
+    if number >= 1_000:
+        return f"{number / 1_000:.1f}k".rstrip("0").rstrip(".")
+    return str(number)
+
+
 def setup(bot: commands.Bot):
     @bot.tree.command(name="clear", description="Delete recent messages")
     @app_commands.describe(amount="Number of messages to delete (1-100)")
@@ -142,7 +152,10 @@ def setup(bot: commands.Bot):
     @app_commands.checks.has_permissions(manage_guild=True)
     async def announce(i: discord.Interaction, message: str):
         e = embed("Announcement", message, discord.Color.gold())
-        e.set_author(name=i.guild.name, icon_url=i.guild.icon.url if i.guild.icon else discord.Embed.Empty)
+        if i.guild.icon:
+            e.set_author(name=i.guild.name, icon_url=i.guild.icon.url)
+        else:
+            e.set_author(name=i.guild.name)
         await i.response.send_message(embed=e)
 
     @bot.tree.command(name="poll", description="Create a simple yes/no poll")
@@ -177,7 +190,7 @@ def setup(bot: commands.Bot):
 
     @bot.tree.command(name="channelinfo", description="Show channel information")
     @app_commands.describe(channel="Channel to inspect")
-    async def channelinfo(i: discord.Interaction, channel: discord.abc.GuildChannel | None = None):
+    async def channelinfo(i: discord.Interaction, channel: discord.TextChannel | None = None):
         c=channel or i.channel
         e=embed(f"Channel Info • {c.name}")
         e.add_field(name="ID", value=str(c.id), inline=True); e.add_field(name="Type", value=str(c.type), inline=True); e.add_field(name="Category", value=c.category.name if c.category else "None", inline=True)
@@ -194,8 +207,15 @@ def setup(bot: commands.Bot):
     @bot.tree.command(name="botinfo", description="Show Air Commander status")
     async def botinfo(i: discord.Interaction):
         uptime=int(time.time()-bot._air_start_time) if hasattr(bot,"_air_start_time") else 0
+        total_members = sum(g.member_count or len(g.members) for g in bot.guilds)
         e=embed("Air Commander • System Status", "Clean, fast and ready.", discord.Color.blurple())
-        e.add_field(name="Servers", value=str(len(bot.guilds)), inline=True); e.add_field(name="Latency", value=f"{round(bot.latency*1000)} ms", inline=True); e.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
+        e.add_field(name="Servers", value=f"{len(bot.guilds):,}", inline=True)
+        e.add_field(name="Members", value=f"{total_members:,} ({format_count(total_members)})", inline=True)
+        e.add_field(name="Latency", value=f"{round(bot.latency*1000)} ms", inline=True)
+        e.add_field(name="Uptime", value=f"{uptime//3600}h {(uptime%3600)//60}m", inline=True)
+        e.add_field(name="Who made it", value="<@1504354088538869892>\n<@880350253239373855>", inline=True)
+        e.add_field(name="Support Server", value="[Join the Air Commander Support Server](https://discord.gg/hVpaK2gbhh)", inline=True)
+        e.set_thumbnail(url=bot.user.display_avatar.url)
         await i.response.send_message(embed=e)
 
     @bot.tree.error
