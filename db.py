@@ -1,6 +1,7 @@
 import os, asyncpg, json, asyncio
 from urllib.parse import urlparse
 DATABASE_URL=os.getenv("DATABASE_URL"); _pool=None
+
 async def init_db():
  global _pool
  if _pool or not DATABASE_URL:
@@ -24,7 +25,9 @@ CREATE TABLE IF NOT EXISTS achievements(guild_id BIGINT,user_id BIGINT,achieveme
 CREATE TABLE IF NOT EXISTS missions(id BIGSERIAL PRIMARY KEY,guild_id BIGINT,user_id BIGINT,mission TEXT,reward INT,completed BOOLEAN DEFAULT FALSE,created_at TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS bounties(id BIGSERIAL PRIMARY KEY,guild_id BIGINT,target_id BIGINT,creator_id BIGINT,challenge TEXT,reward INT,completed BOOLEAN DEFAULT FALSE,created_at TIMESTAMPTZ DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS market(guild_id BIGINT,item TEXT,price INT,stock INT DEFAULT 1,PRIMARY KEY(guild_id,item));
-CREATE TABLE IF NOT EXISTS territories(guild_id BIGINT,territory TEXT,owner_team TEXT,level INT DEFAULT 1,resources INT DEFAULT 100,PRIMARY KEY(guild_id,territory));""")
+CREATE TABLE IF NOT EXISTS territories(guild_id BIGINT,territory TEXT,owner_team TEXT,level INT DEFAULT 1,resources INT DEFAULT 100,PRIMARY KEY(guild_id,territory));
+CREATE TABLE IF NOT EXISTS guild_settings(guild_id BIGINT PRIMARY KEY,prefix TEXT NOT NULL DEFAULT '!');
+CREATE TABLE IF NOT EXISTS warnings(id BIGSERIAL PRIMARY KEY,guild_id BIGINT NOT NULL,user_id BIGINT NOT NULL,moderator_id BIGINT NOT NULL,reason TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT 'Not provided',created_at TIMESTAMPTZ DEFAULT NOW());""")
    print("✅ PostgreSQL connected and Air Commander tables are ready.")
    return
   except Exception as e:
@@ -64,3 +67,30 @@ async def join_session(s,u):
  return True
 async def close_session(s,status="cancelled"):
  if _pool:await _pool.execute("UPDATE game_sessions SET status=$2 WHERE id=$1",s,status)
+
+async def set_prefix(guild_id, prefix):
+ if _pool:
+  await _pool.execute("INSERT INTO guild_settings(guild_id,prefix) VALUES($1,$2) ON CONFLICT(guild_id) DO UPDATE SET prefix=EXCLUDED.prefix",guild_id,prefix)
+
+async def get_prefix(guild_id):
+ if not _pool:return "!"
+ value=await _pool.fetchval("SELECT prefix FROM guild_settings WHERE guild_id=$1",guild_id)
+ return value or "!"
+
+async def all_prefixes():
+ if not _pool:return {}
+ rows=await _pool.fetch("SELECT guild_id,prefix FROM guild_settings")
+ return {row["guild_id"]: row["prefix"] for row in rows}
+
+async def create_warning(guild_id, user_id, moderator_id, reason, evidence="Not provided"):
+ if not _pool:
+  return "AC-W0000", 0
+ async with _pool.acquire() as conn:
+  async with conn.transaction():
+   warning_id=await conn.fetchval("INSERT INTO warnings(guild_id,user_id,moderator_id,reason,evidence) VALUES($1,$2,$3,$4,$5) RETURNING id",guild_id,user_id,moderator_id,reason,evidence)
+   count=await conn.fetchval("SELECT COUNT(*) FROM warnings WHERE guild_id=$1 AND user_id=$2",guild_id,user_id)
+ return f"AC-W{warning_id:04d}", int(count)
+
+async def get_warnings(guild_id, user_id):
+ if not _pool:return []
+ return await _pool.fetch("SELECT id,moderator_id,reason,evidence,created_at,'AC-W' || LPAD(id::text,4,'0') AS case_code FROM warnings WHERE guild_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 25",guild_id,user_id)
