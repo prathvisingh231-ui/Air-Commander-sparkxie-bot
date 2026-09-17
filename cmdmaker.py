@@ -1,5 +1,6 @@
 import re
 import random
+import asyncio
 import discord
 from discord import app_commands
 import db
@@ -31,17 +32,15 @@ def render_text(text: str, interaction: discord.Interaction) -> str:
 
 
 def execute_prompt(prompt: str, interaction: discord.Interaction):
-    """Safe mini-interpreter for custom commands; never executes Python/code from prompts."""
+    """Safe mini-interpreter; prompts are never executed as Python or shell code."""
     raw = prompt.strip()
     low = raw.lower()
 
-    # Random choice: "random: apple | banana | orange"
     if low.startswith("random:"):
         choices = [x.strip() for x in raw.split(":", 1)[1].split("|") if x.strip()]
         if choices:
             return render_text(random.choice(choices), interaction), None
 
-    # Dice: "roll 1-100" / "roll a d20"
     match = re.search(r"roll\s+(?:a\s+)?d(\d+)", low)
     if match:
         sides = max(2, min(int(match.group(1)), 1000000))
@@ -51,7 +50,6 @@ def execute_prompt(prompt: str, interaction: discord.Interaction):
         a, b = sorted((int(match.group(1)), int(match.group(2))))
         return f"🎲 **{random.randint(a, b)}**", None
 
-    # Embed syntax: "embed | title | description"
     if low.startswith("embed"):
         parts = [x.strip() for x in raw.split("|", 2)]
         if len(parts) >= 3:
@@ -59,7 +57,6 @@ def execute_prompt(prompt: str, interaction: discord.Interaction):
             e.set_footer(text="Air Commander • Custom Command")
             return None, e
 
-    # Server/member information shortcuts.
     if "member count" in low or "how many members" in low:
         if interaction.guild:
             return f"👥 **{interaction.guild.member_count:,}** members are in **{interaction.guild.name}**.", None
@@ -72,12 +69,10 @@ def execute_prompt(prompt: str, interaction: discord.Interaction):
         e.set_image(url=interaction.user.display_avatar.replace(size=1024).url)
         return None, e
 
-    # Explicit reply/message instructions. Also supports placeholders.
     for prefix in ("reply:", "respond:", "say:", "send:", "message:"):
         if low.startswith(prefix):
             return render_text(raw[len(prefix):].strip(), interaction), None
 
-    # Safe fallback: treat the prompt as the custom command's response template.
     return render_text(raw, interaction), None
 
 
@@ -150,6 +145,15 @@ def _remove_existing(bot, guild_id, name):
 
 
 async def load_custom_commands(bot):
+    # db.init_db() runs in bot.on_ready. Wait briefly for that pool when this
+    # listener fires alongside the main ready handler.
+    for _ in range(60):
+        if db._pool:
+            break
+        await asyncio.sleep(0.5)
+    if not db._pool:
+        print("⚠️ Custom command loader skipped: database unavailable.")
+        return
     await _ensure_table()
     rows = await _all()
     loaded = 0
@@ -183,7 +187,7 @@ def setup(bot):
             return await interaction.response.send_message("❌ Command name must contain letters or numbers.", ephemeral=True)
         if name in {"cmdmaker", "cmdlist", "cmddelete", "help", "ping"}:
             return await interaction.response.send_message("❌ That command name is reserved.", ephemeral=True)
-        if len(name) < 1 or len(name) > 32:
+        if len(name) > 32:
             return await interaction.response.send_message("❌ Command name must be 1–32 characters.", ephemeral=True)
         if not usage.strip() or len(usage) > 100:
             return await interaction.response.send_message("❌ Usage must be 1–100 characters.", ephemeral=True)
@@ -192,7 +196,8 @@ def setup(bot):
 
         await interaction.response.defer(ephemeral=True)
         await _ensure_table()
-        await _save(interaction.guild.id, name, usage.strip(), prompt.strip(), interaction.user.id)
+        if not await _save(interaction.guild.id, name, usage.strip(), prompt.strip(), interaction.user.id):
+            return await interaction.followup.send("❌ Database is unavailable, so the command could not be saved.", ephemeral=True)
         _remove_existing(bot, interaction.guild.id, name)
         bot.tree.add_command(_make_command(bot, interaction.guild.id, name, usage.strip(), prompt.strip()), guild=interaction.guild, override=True)
         try:
@@ -205,7 +210,7 @@ def setup(bot):
         e.add_field(name="Command", value=f"`/{name}`", inline=True)
         e.add_field(name="Usage", value=usage.strip(), inline=True)
         e.add_field(name="How it works", value=prompt.strip()[:1024], inline=False)
-        e.add_field(name="Supported placeholders", value="`{user}` `{{username}}` `{{userid}}` `{{server}}` `{{membercount}}` `{{channel}}`", inline=False)
+        e.add_field(name="Supported placeholders", value="`{user}` `{username}` `{userid}` `{server}` `{membercount}` `{channel}`", inline=False)
         e.set_footer(text="Air Commander • Custom command saved to the database")
         await interaction.followup.send(embed=e, ephemeral=True)
 
@@ -239,3 +244,4 @@ def setup(bot):
         await interaction.response.send_message(embed=e, ephemeral=True)
 
     bot._air_load_custom_commands = load_custom_commands
+    bot.add_listener(lambda: load_custom_commands(bot), "on_ready")
