@@ -258,6 +258,31 @@ async def airscan(i):
     e.set_footer(text="AirCommander Intelligence • Live scan")
     await i.followup.send(embed=e)
 
+# =========================================================
+# COLORS
+# =========================================================
+
+AIR_GREEN = 0x90C11A
+SUCCESS = 0x57F287
+WARNING = 0xFEE75C
+ERROR = 0xED4245
+INFO = 0x5865F2
+ORANGE = 0xFAA61A
+
+
+# =========================================================
+# EMBED HELPER
+# =========================================================
+
+def make_embed(title, description="", color=AIR_GREEN):
+    return discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=discord.utils.utcnow()
+    )
+    
+
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True, name="render-health").start()
     print(f"Health server starting on 0.0.0.0:{os.getenv('PORT', '10000')}")
