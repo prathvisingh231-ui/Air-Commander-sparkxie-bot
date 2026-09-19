@@ -56,8 +56,9 @@ def run_web():
 # =========================================================
 
 intents = discord.Intents.default()
-intents.members = True
+
 intents.message_content = True
+intents.members = True
 
 bot = commands.Bot(
     command_prefix=",",
