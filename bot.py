@@ -7024,17 +7024,15 @@ async def open_ticket_advanced(
         view=TicketAdvancedView(),
         ephemeral=True
     )
-
-
 # =========================================================
 # PREFIX — ,ticket advanced
 # =========================================================
-@ticket_prefix.command(
+@prefix_ticket.command(
     name="advanced"
 )
 @commands.guild_only()
 @commands.has_permissions(manage_guild=True)
-async def ticket_prefix_advanced(ctx):
+async def prefix_ticket_advanced(ctx):
 
     config = await get_or_create_ticket_config(
         ctx.guild.id
@@ -7044,8 +7042,6 @@ async def ticket_prefix_advanced(ctx):
         embed=ticket_advanced_embed(config),
         view=TicketAdvancedView()
     )
-
-
 # =========================================================
 # SLASH — /ticket-advanced
 # =========================================================
@@ -7061,8 +7057,6 @@ async def ticket_advanced_command(
 ):
 
     await open_ticket_advanced(interaction)
-
-
 # =========================================================
 # AUTO CLOSE CHECKER
 # =========================================================
