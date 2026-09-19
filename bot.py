@@ -6242,6 +6242,465 @@ class TicketPanelEditSelectView(
 # 🎨 ADD EDIT BUTTON TO PANEL MANAGER
 # =========================================================
 
+
+    # =========================================================
+# 🧾 TICKET TRANSCRIPT GENERATOR
+# =========================================================
+
+async def build_ticket_transcript(channel):
+
+    lines = []
+
+    try:
+
+        async for message in channel.history(
+            limit=None,
+            oldest_first=True
+        ):
+
+            # -------------------------------------------------
+            # 🕐 Timestamp
+            # -------------------------------------------------
+
+            timestamp = discord.utils.format_dt(
+                message.created_at,
+                "F"
+            )
+
+            # -------------------------------------------------
+            # 👤 Author
+            # -------------------------------------------------
+
+            author = (
+                f"{message.author} "
+                f"({message.author.id})"
+            )
+
+            # -------------------------------------------------
+            # 💬 Message Content
+            # -------------------------------------------------
+
+            content = (
+                message.clean_content
+                if message.content
+                else ""
+            )
+
+            if not content:
+                content = "[No text content]"
+
+            # -------------------------------------------------
+            # 📎 Attachments
+            # -------------------------------------------------
+
+            if message.attachments:
+
+                attachment_urls = "\n".join(
+                    f"    📎 {attachment.url}"
+                    for attachment in message.attachments
+                )
+
+                content += (
+                    "\n"
+                    + attachment_urls
+                )
+
+            # -------------------------------------------------
+            # 🔗 Embeds
+            # -------------------------------------------------
+
+            if message.embeds:
+
+                for embed in message.embeds:
+
+                    if embed.title:
+
+                        content += (
+                            f"\n    "
+                            f"[Embed Title: {embed.title}]"
+                        )
+
+                    if embed.description:
+
+                        content += (
+                            f"\n    "
+                            f"[Embed Description: "
+                            f"{embed.description}]"
+                        )
+
+            # -------------------------------------------------
+            # 📝 Final Line
+            # -------------------------------------------------
+
+            lines.append(
+                f"[{timestamp}] "
+                f"{author}: "
+                f"{content}"
+            )
+
+    except discord.Forbidden:
+
+        lines.append(
+            "[ERROR] Bot does not have permission "
+            "to read this channel history."
+        )
+
+    except discord.HTTPException:
+
+        lines.append(
+            "[ERROR] Discord API error while "
+            "reading channel history."
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Transcript error: {e}"
+        )
+
+        lines.append(
+            f"[ERROR] Transcript generation failed: {e}"
+        )
+
+    if not lines:
+
+        return "No messages were found in this ticket."
+
+    return "\n".join(lines)
+
+
+# =========================================================
+# 📄 CREATE TRANSCRIPT FILE
+# =========================================================
+
+def create_transcript_file(
+    ticket_number,
+    transcript
+):
+
+    # Discord upload limit ke liye safety limit
+    max_size = 7_500_000
+
+    data = transcript.encode(
+        "utf-8",
+        errors="replace"
+    )
+
+    # ---------------------------------------------------------
+    # ⚠️ Large Transcript Protection
+    # ---------------------------------------------------------
+
+    if len(data) > max_size:
+
+        warning = (
+            "\n\n"
+            "==================================================\n"
+            "⚠️ TRANSCRIPT TRUNCATED\n"
+            "The transcript was too large to fit in one file.\n"
+            "==================================================\n"
+        ).encode("utf-8")
+
+        data = (
+            data[:max_size - len(warning)]
+            + warning
+        )
+
+    return discord.File(
+        fp=io.BytesIO(data),
+        filename=(
+            f"ticket-{ticket_number}-transcript.txt"
+        )
+    )
+
+# =========================================================
+# 📋 TICKET LOG EMBED
+# =========================================================
+
+def build_ticket_log_embed(
+    title,
+    ticket,
+    guild,
+    actor=None,
+    color=None,
+    reason=None
+):
+
+    if color is None:
+
+        color = discord.Color.blurple()
+
+    ticket_number = ticket.get(
+        "ticket_number",
+        "Unknown"
+    )
+
+    user_id = ticket.get(
+        "user_id"
+    )
+
+    channel_id = ticket.get(
+        "channel_id"
+    )
+
+    embed = discord.Embed(
+        title=title,
+        color=color,
+        timestamp=discord.utils.utcnow()
+    )
+
+    # ---------------------------------------------------------
+    # 🎫 Ticket
+    # ---------------------------------------------------------
+
+    embed.add_field(
+        name="🎫 Ticket",
+        value=f"`#{ticket_number}`",
+        inline=True
+    )
+
+    # ---------------------------------------------------------
+    # 👤 Owner
+    # ---------------------------------------------------------
+
+    if user_id:
+
+        embed.add_field(
+            name="👤 Opened By",
+            value=f"<@{user_id}>",
+            inline=True
+        )
+
+    # ---------------------------------------------------------
+    # 📁 Channel
+    # ---------------------------------------------------------
+
+    if channel_id:
+
+        embed.add_field(
+            name="📁 Channel",
+            value=f"<#{channel_id}>",
+            inline=True
+        )
+
+    # ---------------------------------------------------------
+    # 🛡️ Actor
+    # ---------------------------------------------------------
+
+    if actor:
+
+        embed.add_field(
+            name="🛡️ Action By",
+            value=actor.mention,
+            inline=True
+        )
+
+    # ---------------------------------------------------------
+    # 📝 Reason
+    # ---------------------------------------------------------
+
+    if reason:
+
+        embed.add_field(
+            name="📝 Reason",
+            value=str(reason)[:1024],
+            inline=False
+        )
+
+    embed.set_footer(
+        text="✈️ Air Commander • Ticket Logs"
+    )
+
+    return embed
+
+# =========================================================
+# 📋 SEND TICKET LOG
+# =========================================================
+
+async def send_ticket_log(
+    guild,
+    ticket,
+    title,
+    actor=None,
+    color=None,
+    reason=None
+):
+
+    try:
+
+        config = await get_or_create_ticket_config(
+            guild.id
+        )
+
+        log_channel_id = config.get(
+            "log_channel_id"
+        )
+
+        if not log_channel_id:
+
+            return
+
+        log_channel = guild.get_channel(
+            int(log_channel_id)
+        )
+
+        if not log_channel:
+
+            print(
+                "⚠️ Ticket log channel not found."
+            )
+
+            return
+
+        embed = build_ticket_log_embed(
+            title=title,
+            ticket=ticket,
+            guild=guild,
+            actor=actor,
+            color=color,
+            reason=reason
+        )
+
+        await log_channel.send(
+            embed=embed
+        )
+
+    except discord.Forbidden:
+
+        print(
+            "⚠️ Missing permission to send "
+            "ticket logs."
+        )
+
+    except discord.HTTPException as e:
+
+        print(
+            f"⚠️ Ticket log HTTP error: {e}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Ticket log error: {e}"
+        )
+# =========================================================
+# 🧾 SEND TICKET TRANSCRIPT
+# =========================================================
+
+async def send_ticket_transcript(
+    guild,
+    ticket,
+    transcript
+):
+
+    try:
+
+        config = await get_or_create_ticket_config(
+            guild.id
+        )
+
+        transcript_channel_id = config.get(
+            "transcript_channel_id"
+        )
+
+        if not transcript_channel_id:
+
+            return False
+
+        transcript_channel = guild.get_channel(
+            int(transcript_channel_id)
+        )
+
+        if not transcript_channel:
+
+            print(
+                "⚠️ Transcript channel not found."
+            )
+
+            return False
+
+        ticket_number = ticket.get(
+            "ticket_number",
+            "unknown"
+        )
+
+        user_id = ticket.get(
+            "user_id"
+        )
+
+        embed = discord.Embed(
+            title="🧾 Ticket Transcript",
+            description=(
+                "A ticket has been closed and "
+                "its transcript has been archived."
+            ),
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.add_field(
+            name="🎫 Ticket",
+            value=f"`#{ticket_number}`",
+            inline=True
+        )
+
+        embed.add_field(
+            name="👤 Opened By",
+            value=(
+                f"<@{user_id}>"
+                if user_id
+                else "Unknown"
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="📁 Channel",
+            value=(
+                f"<#{ticket.get('channel_id')}>"
+                if ticket.get("channel_id")
+                else "Unknown"
+            ),
+            inline=True
+        )
+
+        embed.set_footer(
+            text="✈️ Air Commander • Transcript Archive"
+        )
+
+        file = create_transcript_file(
+            ticket_number,
+            transcript
+        )
+
+        await transcript_channel.send(
+            embed=embed,
+            file=file
+        )
+
+        return True
+
+    except discord.Forbidden:
+
+        print(
+            "⚠️ Missing permission to send "
+            "ticket transcript."
+        )
+
+    except discord.HTTPException as e:
+
+        print(
+            f"⚠️ Transcript HTTP error: {e}"
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Transcript error: {e}"
+        )
+
+    return False
+
+
 # =========================================================
 # BOT STARTUP
 # =========================================================
