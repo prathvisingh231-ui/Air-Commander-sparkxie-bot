@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS territories(guild_id BIGINT,territory TEXT,owner_team
 CREATE TABLE IF NOT EXISTS guild_settings(guild_id BIGINT PRIMARY KEY,prefix TEXT NOT NULL DEFAULT '!');
 CREATE TABLE IF NOT EXISTS warnings(id BIGSERIAL PRIMARY KEY,guild_id BIGINT NOT NULL,user_id BIGINT NOT NULL,moderator_id BIGINT NOT NULL,reason TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT 'Not provided',created_at TIMESTAMPTZ DEFAULT NOW());""")
          await init_ticket_db()
+    await init_ticket_advanced_db()
    print("✅ PostgreSQL connected and Air Commander tables are ready.")
    return
   except Exception as e:
@@ -111,3 +112,63 @@ try:
  _commands.Bot.__init__ = _air_bot_init
 except Exception as exc:
  print(f"Bot hook setup error: {type(exc).__name__}: {exc}")
+
+
+# =========================================================
+# TICKET ADVANCED SETTINGS MIGRATION
+# =========================================================
+
+async def init_ticket_advanced_db():
+    global _pool
+
+    if _pool is None:
+        return
+
+    async with _pool.acquire() as conn:
+
+        await conn.execute("""
+            ALTER TABLE ticket_config
+            ADD COLUMN IF NOT EXISTS auto_close_minutes INTEGER DEFAULT 0
+        """)
+
+        await conn.execute("""
+            ALTER TABLE ticket_config
+            ADD COLUMN IF NOT EXISTS auto_delete_minutes INTEGER DEFAULT 0
+        """)
+
+        await conn.execute("""
+            ALTER TABLE ticket_config
+            ADD COLUMN IF NOT EXISTS user_can_close BOOLEAN DEFAULT TRUE
+        """)
+
+        await conn.execute("""
+            ALTER TABLE ticket_config
+            ADD COLUMN IF NOT EXISTS max_open_tickets INTEGER DEFAULT 1
+        """)
+
+        await conn.execute("""
+            ALTER TABLE ticket_config
+            ADD COLUMN IF NOT EXISTS ticket_naming TEXT
+            DEFAULT 'ticket-{number}-{user}'
+        """)
+     # =========================================================
+# GET OPEN TICKETS
+# =========================================================
+
+async def get_open_tickets(guild_id):
+    global _pool
+
+    if _pool is None:
+        return []
+
+    async with _pool.acquire() as conn:
+
+        rows = await conn.fetch("""
+            SELECT *
+            FROM tickets
+            WHERE guild_id = $1
+              AND status = 'open'
+            ORDER BY created_at ASC
+        """, guild_id)
+
+        return [dict(row) for row in rows]
