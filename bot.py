@@ -7030,19 +7030,6 @@ async def open_ticket_advanced(
 # PREFIX — ,ticket advanced
 # =========================================================
 
-@bot.group(
-    name="ticket",
-    invoke_without_command=True
-)
-@commands.guild_only()
-async def ticket_prefix(ctx):
-    if not ctx.invoked_subcommand:
-        await ctx.send(
-            "🎫 Use `,ticket config`, `,ticket send` or "
-            "`,ticket advanced`."
-        )
-
-
 @ticket_prefix.command(
     name="advanced"
 )
