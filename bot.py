@@ -2187,7 +2187,3425 @@ async def airscan(i):
         embed=e
     )
 
+# =========================================================
+# 🎫 AIR COMMANDER — TICKET DATABASE SYSTEM
+# =========================================================
 
+# ---------------------------------------------------------
+# 🎫 Ticket Tables
+# ---------------------------------------------------------
+
+async def init_ticket_db():
+
+    if not _pool:
+        print("⚠️ Ticket database disabled: PostgreSQL pool unavailable.")
+        return
+
+    async with _pool.acquire() as conn:
+
+        # =================================================
+        # 🎫 TICKET CONFIG
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_config (
+                guild_id BIGINT PRIMARY KEY,
+
+                enabled BOOLEAN DEFAULT TRUE,
+
+                category_id BIGINT,
+                log_channel_id BIGINT,
+                transcript_channel_id BIGINT,
+
+                support_role_ids JSONB DEFAULT '[]'::jsonb,
+                admin_role_ids JSONB DEFAULT '[]'::jsonb,
+
+                max_open_tickets INT DEFAULT 1,
+
+                user_can_close BOOLEAN DEFAULT TRUE,
+                user_can_reopen BOOLEAN DEFAULT TRUE,
+
+                auto_close_minutes INT DEFAULT 0,
+                auto_delete_minutes INT DEFAULT 0,
+
+                channel_name_format TEXT
+                    DEFAULT 'ticket-{number}',
+
+                close_message TEXT
+                    DEFAULT '🔒 This ticket has been closed.',
+
+                welcome_message TEXT
+                    DEFAULT '👋 Hello {user}! Support will be with you shortly.',
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # =================================================
+        # 📝 TICKET TEMPLATES
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_templates (
+                id BIGSERIAL PRIMARY KEY,
+
+                guild_id BIGINT NOT NULL,
+
+                name TEXT NOT NULL,
+                description TEXT
+                    DEFAULT 'No description provided.',
+
+                emoji TEXT DEFAULT '🎫',
+
+                category_id BIGINT,
+
+                support_role_ids JSONB
+                    DEFAULT '[]'::jsonb,
+
+                channel_name_format TEXT
+                    DEFAULT 'ticket-{number}',
+
+                max_open_tickets INT DEFAULT 1,
+
+                welcome_message TEXT
+                    DEFAULT '👋 Hello {user}! Support will be with you shortly.',
+
+                questions JSONB
+                    DEFAULT '[]'::jsonb,
+
+                enabled BOOLEAN DEFAULT TRUE,
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # =================================================
+        # 🧩 TICKET PANELS
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_panels (
+                id BIGSERIAL PRIMARY KEY,
+
+                guild_id BIGINT NOT NULL,
+
+                channel_id BIGINT,
+                message_id BIGINT,
+
+                title TEXT
+                    DEFAULT '🎫 Contact Support',
+
+                description TEXT
+                    DEFAULT 'Select a ticket type below to open a ticket.',
+
+                color BIGINT
+                    DEFAULT 5793266,
+
+                thumbnail_url TEXT,
+                image_url TEXT,
+
+                footer_text TEXT
+                    DEFAULT '✈️ Air Commander',
+
+                template_ids JSONB
+                    DEFAULT '[]'::jsonb,
+
+                panel_type TEXT
+                    DEFAULT 'buttons',
+
+                enabled BOOLEAN DEFAULT TRUE,
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # =================================================
+        # 🎟️ TICKETS
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS tickets (
+                id BIGSERIAL PRIMARY KEY,
+
+                guild_id BIGINT NOT NULL,
+
+                channel_id BIGINT,
+                user_id BIGINT NOT NULL,
+
+                template_id BIGINT,
+
+                ticket_number INT NOT NULL,
+
+                status TEXT
+                    DEFAULT 'open',
+
+                claimed_by BIGINT,
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                closed_at TIMESTAMPTZ,
+
+                closed_by BIGINT,
+
+                UNIQUE(guild_id, ticket_number)
+            );
+        """)
+
+        # =================================================
+        # 📋 TICKET EVENTS / LOG
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_events (
+                id BIGSERIAL PRIMARY KEY,
+
+                guild_id BIGINT NOT NULL,
+
+                ticket_id BIGINT,
+
+                event_type TEXT NOT NULL,
+
+                actor_id BIGINT,
+
+                details JSONB
+                    DEFAULT '{}'::jsonb,
+
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+
+        # =================================================
+        # 🔢 TICKET NUMBER SEQUENCE
+        # =================================================
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_counters (
+                guild_id BIGINT PRIMARY KEY,
+
+                last_number INT DEFAULT 0
+            );
+        """)
+
+    print("✅ Ticket database tables are ready.")
+
+
+# =========================================================
+# 🎫 Ticket Config Helpers
+# =========================================================
+
+async def get_ticket_config(guild_id):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        SELECT *
+        FROM ticket_config
+        WHERE guild_id=$1
+        """,
+        guild_id
+    )
+
+    return dict(row) if row else None
+
+
+async def create_ticket_config(guild_id):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        INSERT INTO ticket_config(guild_id)
+        VALUES($1)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET updated_at=NOW()
+        RETURNING *
+        """,
+        guild_id
+    )
+
+    return dict(row)
+
+
+async def update_ticket_config(
+    guild_id,
+    **settings
+):
+
+    if not _pool or not settings:
+        return None
+
+    allowed = {
+        "enabled",
+        "category_id",
+        "log_channel_id",
+        "transcript_channel_id",
+        "support_role_ids",
+        "admin_role_ids",
+        "max_open_tickets",
+        "user_can_close",
+        "user_can_reopen",
+        "auto_close_minutes",
+        "auto_delete_minutes",
+        "channel_name_format",
+        "close_message",
+        "welcome_message"
+    }
+
+    settings = {
+        key: value
+        for key, value in settings.items()
+        if key in allowed
+    }
+
+    if not settings:
+        return None
+
+    columns = []
+    values = []
+
+    for key, value in settings.items():
+
+        if key in {
+            "support_role_ids",
+            "admin_role_ids"
+        }:
+            value = json.dumps(value)
+
+        columns.append(
+            f"{key}=${len(values) + 2}"
+        )
+
+        values.append(value)
+
+    query = f"""
+        INSERT INTO ticket_config(guild_id)
+        VALUES($1)
+        ON CONFLICT(guild_id)
+        DO UPDATE SET
+            {", ".join(columns)},
+            updated_at=NOW()
+        RETURNING *
+    """
+
+    row = await _pool.fetchrow(
+        query,
+        guild_id,
+        *values
+    )
+
+    return dict(row)
+
+
+# =========================================================
+# 🔢 Ticket Number Generator
+# =========================================================
+
+async def next_ticket_number(guild_id):
+
+    if not _pool:
+        return 1
+
+    async with _pool.acquire() as conn:
+
+        async with conn.transaction():
+
+            number = await conn.fetchval(
+                """
+                INSERT INTO ticket_counters(
+                    guild_id,
+                    last_number
+                )
+                VALUES($1, 1)
+
+                ON CONFLICT(guild_id)
+                DO UPDATE SET
+                    last_number =
+                        ticket_counters.last_number + 1
+
+                RETURNING last_number
+                """,
+                guild_id
+            )
+
+            return int(number)
+
+
+# =========================================================
+# 📝 Ticket Template Helpers
+# =========================================================
+
+async def create_ticket_template(
+    guild_id,
+    name,
+    description="No description provided.",
+    emoji="🎫",
+    category_id=None,
+    support_role_ids=None,
+    channel_name_format="ticket-{number}",
+    max_open_tickets=1,
+    welcome_message=None,
+    questions=None
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        INSERT INTO ticket_templates(
+            guild_id,
+            name,
+            description,
+            emoji,
+            category_id,
+            support_role_ids,
+            channel_name_format,
+            max_open_tickets,
+            welcome_message,
+            questions
+        )
+        VALUES(
+            $1,$2,$3,$4,$5,$6::jsonb,
+            $7,$8,$9,$10::jsonb
+        )
+        RETURNING *
+        """,
+        guild_id,
+        name,
+        description,
+        emoji,
+        category_id,
+        json.dumps(support_role_ids or []),
+        channel_name_format,
+        max_open_tickets,
+        welcome_message
+        or "👋 Hello {user}! Support will be with you shortly.",
+        json.dumps(questions or [])
+    )
+
+    return dict(row)
+
+
+async def get_ticket_templates(guild_id):
+
+    if not _pool:
+        return []
+
+    rows = await _pool.fetch(
+        """
+        SELECT *
+        FROM ticket_templates
+        WHERE guild_id=$1
+        ORDER BY id ASC
+        """,
+        guild_id
+    )
+
+    return [dict(row) for row in rows]
+
+
+async def get_ticket_template(
+    guild_id,
+    template_id
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        SELECT *
+        FROM ticket_templates
+        WHERE guild_id=$1
+        AND id=$2
+        """,
+        guild_id,
+        template_id
+    )
+
+    return dict(row) if row else None
+
+
+async def delete_ticket_template(
+    guild_id,
+    template_id
+):
+
+    if not _pool:
+        return False
+
+    result = await _pool.execute(
+        """
+        DELETE FROM ticket_templates
+        WHERE guild_id=$1
+        AND id=$2
+        """,
+        guild_id,
+        template_id
+    )
+
+    return result.endswith("1")
+
+
+# =========================================================
+# 🧩 Ticket Panel Helpers
+# =========================================================
+
+async def create_ticket_panel(
+    guild_id,
+    channel_id=None,
+    message_id=None,
+    title="🎫 Contact Support",
+    description="Select a ticket type below to open a ticket.",
+    color=5793266,
+    thumbnail_url=None,
+    image_url=None,
+    footer_text="✈️ Air Commander",
+    template_ids=None,
+    panel_type="buttons"
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        INSERT INTO ticket_panels(
+            guild_id,
+            channel_id,
+            message_id,
+            title,
+            description,
+            color,
+            thumbnail_url,
+            image_url,
+            footer_text,
+            template_ids,
+            panel_type
+        )
+        VALUES(
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11
+        )
+        RETURNING *
+        """,
+        guild_id,
+        channel_id,
+        message_id,
+        title,
+        description,
+        color,
+        thumbnail_url,
+        image_url,
+        footer_text,
+        json.dumps(template_ids or []),
+        panel_type
+    )
+
+    return dict(row)
+
+
+async def get_ticket_panels(guild_id):
+
+    if not _pool:
+        return []
+
+    rows = await _pool.fetch(
+        """
+        SELECT *
+        FROM ticket_panels
+        WHERE guild_id=$1
+        ORDER BY id ASC
+        """,
+        guild_id
+    )
+
+    return [dict(row) for row in rows]
+
+
+async def get_ticket_panel(
+    guild_id,
+    panel_id
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        SELECT *
+        FROM ticket_panels
+        WHERE guild_id=$1
+        AND id=$2
+        """,
+        guild_id,
+        panel_id
+    )
+
+    return dict(row) if row else None
+
+
+async def delete_ticket_panel(
+    guild_id,
+    panel_id
+):
+
+    if not _pool:
+        return False
+
+    result = await _pool.execute(
+        """
+        DELETE FROM ticket_panels
+        WHERE guild_id=$1
+        AND id=$2
+        """,
+        guild_id,
+        panel_id
+    )
+
+    return result.endswith("1")
+
+
+# =========================================================
+# 🎟️ Active Ticket Helpers
+# =========================================================
+
+async def create_ticket(
+    guild_id,
+    channel_id,
+    user_id,
+    ticket_number,
+    template_id=None
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        INSERT INTO tickets(
+            guild_id,
+            channel_id,
+            user_id,
+            template_id,
+            ticket_number,
+            status
+        )
+        VALUES($1,$2,$3,$4,$5,'open')
+        RETURNING *
+        """,
+        guild_id,
+        channel_id,
+        user_id,
+        template_id,
+        ticket_number
+    )
+
+    return dict(row)
+
+
+async def get_ticket_by_channel(
+    guild_id,
+    channel_id
+):
+
+    if not _pool:
+        return None
+
+    row = await _pool.fetchrow(
+        """
+        SELECT *
+        FROM tickets
+        WHERE guild_id=$1
+        AND channel_id=$2
+        AND status='open'
+        LIMIT 1
+        """,
+        guild_id,
+        channel_id
+    )
+
+    return dict(row) if row else None
+
+
+async def get_user_open_tickets(
+    guild_id,
+    user_id
+):
+
+    if not _pool:
+        return []
+
+    rows = await _pool.fetch(
+        """
+        SELECT *
+        FROM tickets
+        WHERE guild_id=$1
+        AND user_id=$2
+        AND status='open'
+        ORDER BY created_at DESC
+        """,
+        guild_id,
+        user_id
+    )
+
+    return [dict(row) for row in rows]
+
+
+async def close_ticket(
+    guild_id,
+    channel_id,
+    closed_by
+):
+
+    if not _pool:
+        return False
+
+    result = await _pool.execute(
+        """
+        UPDATE tickets
+        SET
+            status='closed',
+            closed_at=NOW(),
+            closed_by=$3
+        WHERE guild_id=$1
+        AND channel_id=$2
+        AND status='open'
+        """,
+        guild_id,
+        channel_id,
+        closed_by
+    )
+
+    return result.endswith("1")
+
+
+async def reopen_ticket(
+    guild_id,
+    channel_id
+):
+
+    if not _pool:
+        return False
+
+    result = await _pool.execute(
+        """
+        UPDATE tickets
+        SET
+            status='open',
+            closed_at=NULL,
+            closed_by=NULL
+        WHERE guild_id=$1
+        AND channel_id=$2
+        AND status='closed'
+        """,
+        guild_id,
+        channel_id
+    )
+
+    return result.endswith("1")
+
+
+async def claim_ticket(
+    guild_id,
+    channel_id,
+    staff_id
+):
+
+    if not _pool:
+        return False
+
+    result = await _pool.execute(
+        """
+        UPDATE tickets
+        SET claimed_by=$3
+        WHERE guild_id=$1
+        AND channel_id=$2
+        AND status='open'
+        """,
+        guild_id,
+        channel_id,
+        staff_id
+    )
+
+    return result.endswith("1")
+
+
+# =========================================================
+# 📋 Ticket Event Logger
+# =========================================================
+
+async def log_ticket_event(
+    guild_id,
+    ticket_id,
+    event_type,
+    actor_id=None,
+    details=None
+):
+
+    if not _pool:
+        return
+
+    await _pool.execute(
+        """
+        INSERT INTO ticket_events(
+            guild_id,
+            ticket_id,
+            event_type,
+            actor_id,
+            details
+        )
+        VALUES(
+            $1,$2,$3,$4,$5::jsonb
+        )
+        """,
+        guild_id,
+        ticket_id,
+        event_type,
+        actor_id,
+        json.dumps(details or {})
+    )
+
+# =========================================================
+# 🎫 TICKET ADMIN CONFIG PANEL
+# =========================================================
+
+def ticket_admin_check(member):
+    return (
+        member.guild_permissions.administrator
+        or member.guild_permissions.manage_guild
+    )
+
+
+async def get_or_create_ticket_config(guild_id):
+    config = await db.get_ticket_config(guild_id)
+
+    if not config:
+        config = await db.create_ticket_config(guild_id)
+
+    return config
+
+
+def ticket_config_embed(config):
+    enabled = config.get("enabled", True)
+    category_id = config.get("category_id")
+    max_open = config.get("max_open_tickets", 1)
+    naming = config.get("ticket_naming", "ticket-{number}")
+    support_roles = config.get("support_role_ids", [])
+    admin_roles = config.get("admin_role_ids", [])
+    log_channel = config.get("log_channel_id")
+    transcript_channel = config.get("transcript_channel_id")
+
+    embed = discord.Embed(
+        title="🎫 AIR COMMANDER — TICKET CONFIG",
+        description=(
+            "Configure your complete ticket system from this panel.\n\n"
+            "Use the buttons below to edit each section."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.add_field(
+        name="⚙️ General",
+        value=(
+            f"**Status:** {'🟢 Enabled' if enabled else '🔴 Disabled'}\n"
+            f"**Max Open:** `{max_open}`\n"
+            f"**Naming:** `{naming}`\n"
+            f"**Category:** `{category_id or 'Not Set'}`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="👥 Support Team",
+        value=(
+            f"**Support Roles:** `{len(support_roles)}`\n"
+            f"**Admin Roles:** `{len(admin_roles)}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="📄 Logs",
+        value=(
+            f"**Log Channel:** `{log_channel or 'Not Set'}`\n"
+            f"**Transcript:** `{transcript_channel or 'Not Set'}`"
+        ),
+        inline=True
+    )
+
+    embed.set_footer(
+        text="Air Commander • Ticket Management"
+    )
+
+    return embed
+
+
+class TicketGeneralModal(discord.ui.Modal, title="⚙️ General Ticket Settings"):
+
+    category_id = discord.ui.TextInput(
+        label="Ticket Category ID",
+        placeholder="Example: 123456789012345678",
+        required=False,
+        max_length=30
+    )
+
+    max_open = discord.ui.TextInput(
+        label="Maximum Open Tickets",
+        placeholder="Example: 1",
+        required=True,
+        max_length=3
+    )
+
+    naming = discord.ui.TextInput(
+        label="Ticket Channel Naming",
+        placeholder="ticket-{number}",
+        required=True,
+        max_length=50
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        try:
+            max_open = int(self.max_open.value)
+
+            if max_open < 1 or max_open > 100:
+                raise ValueError
+
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Maximum open tickets must be a number between `1` and `100`.",
+                ephemeral=True
+            )
+
+        category_id = self.category_id.value.strip()
+
+        if category_id:
+            try:
+                category_id = int(category_id)
+            except ValueError:
+                return await interaction.response.send_message(
+                    "❌ Category ID must contain only numbers.",
+                    ephemeral=True
+                )
+        else:
+            category_id = None
+
+        await db.update_ticket_config(
+            interaction.guild.id,
+            category_id=category_id,
+            max_open_tickets=max_open,
+            ticket_naming=self.naming.value.strip()
+        )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView()
+        )
+
+
+class TicketSupportModal(discord.ui.Modal, title="👥 Support Team Settings"):
+
+    support_roles = discord.ui.TextInput(
+        label="Support Role IDs",
+        placeholder="123456789, 987654321",
+        required=False,
+        max_length=1000
+    )
+
+    admin_roles = discord.ui.TextInput(
+        label="Ticket Admin Role IDs",
+        placeholder="123456789, 987654321",
+        required=False,
+        max_length=1000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        def parse_ids(value):
+            result = []
+
+            for item in value.replace(" ", "").split(","):
+                if not item:
+                    continue
+
+                try:
+                    result.append(int(item))
+                except ValueError:
+                    raise ValueError
+
+            return result
+
+        try:
+            support_roles = parse_ids(self.support_roles.value)
+            admin_roles = parse_ids(self.admin_roles.value)
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Role IDs must be valid Discord IDs separated by commas.",
+                ephemeral=True
+            )
+
+        await db.update_ticket_config(
+            interaction.guild.id,
+            support_role_ids=support_roles,
+            admin_role_ids=admin_roles
+        )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView()
+        )
+
+
+class TicketLogsModal(discord.ui.Modal, title="📄 Ticket Logs Settings"):
+
+    log_channel = discord.ui.TextInput(
+        label="Log Channel ID",
+        placeholder="123456789012345678",
+        required=False,
+        max_length=30
+    )
+
+    transcript_channel = discord.ui.TextInput(
+        label="Transcript Channel ID",
+        placeholder="123456789012345678",
+        required=False,
+        max_length=30
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        def parse_channel(value):
+            value = value.strip()
+
+            if not value:
+                return None
+
+            try:
+                return int(value)
+            except ValueError:
+                return "invalid"
+
+        log_channel = parse_channel(self.log_channel.value)
+        transcript_channel = parse_channel(
+            self.transcript_channel.value
+        )
+
+        if log_channel == "invalid" or transcript_channel == "invalid":
+            return await interaction.response.send_message(
+                "❌ Channel IDs must contain only numbers.",
+                ephemeral=True
+            )
+
+        await db.update_ticket_config(
+            interaction.guild.id,
+            log_channel_id=log_channel,
+            transcript_channel_id=transcript_channel
+        )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView()
+        )
+
+
+class TicketConfigView(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    # =========================================================
+    # ⚙️ GENERAL
+    # =========================================================
+
+    @discord.ui.button(
+        label="General",
+        emoji="⚙️",
+        style=discord.ButtonStyle.primary,
+        row=0
+    )
+    async def general(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission to use this.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketGeneralModal()
+        )
+
+    # =========================================================
+    # 👥 SUPPORT
+    # =========================================================
+
+    @discord.ui.button(
+        label="Support",
+        emoji="👥",
+        style=discord.ButtonStyle.primary,
+        row=0
+    )
+    async def support(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission to use this.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketSupportModal()
+        )
+# =========================================================
+# 📝 TEMPLATES
+# =========================================================
+
+@discord.ui.button(
+    label="Templates",
+    emoji="📝",
+    style=discord.ButtonStyle.secondary,
+    row=1
+)
+async def templates(
+    self,
+    interaction: discord.Interaction,
+    button: discord.ui.Button
+):
+
+    if not ticket_admin_check(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need **Manage Server** permission.",
+            ephemeral=True
+        )
+
+    templates = await db.get_ticket_templates(
+        interaction.guild.id
+    )
+
+    await interaction.response.edit_message(
+        embed=ticket_template_embed(
+            interaction.guild,
+            templates
+        ),
+        view=TicketTemplateView()
+                                 )
+    
+
+# =========================================================
+# 🧩 PANELS
+# =========================================================
+
+@discord.ui.button(
+    label="Panels",
+    emoji="🧩",
+    style=discord.ButtonStyle.secondary,
+    row=1
+)
+async def panels(
+    self,
+    interaction: discord.Interaction,
+    button: discord.ui.Button
+):
+
+    if not ticket_admin_check(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need **Manage Server** permission.",
+            ephemeral=True
+        )
+
+    panels = await db.get_ticket_panels(
+        interaction.guild.id
+    )
+
+    await interaction.response.edit_message(
+        embed=ticket_panels_embed(panels),
+        view=TicketPanelManagerView()
+    )
+
+    
+    # =========================================================
+    # 📄 LOGS
+    # =========================================================
+
+    @discord.ui.button(
+        label="Logs",
+        emoji="📄",
+        style=discord.ButtonStyle.secondary,
+        row=2
+    )
+    async def logs(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission to use this.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketLogsModal()
+        )
+
+    # =========================================================
+    # 🔄 ENABLE / DISABLE
+    # =========================================================
+
+    @discord.ui.button(
+        label="Enable / Disable",
+        emoji="🔄",
+        style=discord.ButtonStyle.success,
+        row=2
+    )
+    async def toggle(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission to use this.",
+                ephemeral=True
+            )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        current = config.get("enabled", True)
+
+        await db.update_ticket_config(
+            interaction.guild.id,
+            enabled=not current
+        )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView()
+        )
+
+    # =========================================================
+    # 🔒 CLOSE PANEL
+    # =========================================================
+
+    @discord.ui.button(
+        label="Close",
+        emoji="🔒",
+        style=discord.ButtonStyle.danger,
+        row=3
+    )
+    async def close_panel(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.edit_message(
+            content="🎫 Ticket configuration panel closed.",
+            embed=None,
+            view=None
+        )
+
+
+# =========================================================
+# /ticket
+# =========================================================
+
+@bot.tree.command(
+    name="ticket",
+    description="Open the Air Commander ticket management system"
+)
+@app_commands.describe(
+    action="Choose a ticket management action"
+)
+@app_commands.choices(
+    action=[
+        app_commands.Choice(
+            name="Config Panel",
+            value="config"
+        ),
+        app_commands.Choice(
+            name="Setup",
+            value="setup"
+        )
+    ]
+)
+async def ticket_command(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str]
+):
+
+    if not interaction.guild:
+        return await interaction.response.send_message(
+            "❌ This command can only be used inside a server.",
+            ephemeral=True
+        )
+
+    if not ticket_admin_check(interaction.user):
+        return await interaction.response.send_message(
+            "❌ You need **Manage Server** permission.",
+            ephemeral=True
+        )
+
+    if action.value == "config":
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.send_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView(),
+            ephemeral=True
+        )
+
+    elif action.value == "setup":
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.send_message(
+            embed=ticket_config_embed(config),
+            view=TicketConfigView(),
+            ephemeral=True
+        )
+
+
+# =========================================================
+# ,ticket config
+# =========================================================
+
+@bot.group(
+    name="ticket",
+    invoke_without_command=True
+)
+async def prefix_ticket(ctx):
+
+    if not ctx.guild:
+        return
+
+    if not ticket_admin_check(ctx.author):
+        return await ctx.send(
+            "❌ You need **Manage Server** permission."
+        )
+
+    config = await get_or_create_ticket_config(
+        ctx.guild.id
+    )
+
+    await ctx.send(
+        embed=ticket_config_embed(config),
+        view=TicketConfigView()
+    )
+
+
+# =========================================================
+# ,ticket config
+# =========================================================
+
+@prefix_ticket.command(
+    name="config"
+)
+async def prefix_ticket_config(ctx):
+
+    if not ticket_admin_check(ctx.author):
+        return await ctx.send(
+            "❌ You need **Manage Server** permission."
+        )
+
+    config = await get_or_create_ticket_config(
+        ctx.guild.id
+    )
+
+    await ctx.send(
+        embed=ticket_config_embed(config),
+        view=TicketConfigView()
+    )
+# =========================================================
+# 📝 TICKET TEMPLATE MANAGER
+# =========================================================
+
+
+def ticket_template_embed(guild, templates):
+    embed = discord.Embed(
+        title="📝 AIR COMMANDER — TICKET TEMPLATES",
+        description=(
+            "Create and manage reusable ticket templates.\n\n"
+            "Templates can later be attached to ticket panels."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    if not templates:
+        embed.add_field(
+            name="📭 No Templates",
+            value=(
+                "No ticket templates have been created yet.\n\n"
+                "Click **Create Template** to make your first one."
+            ),
+            inline=False
+        )
+    else:
+        for template in templates[:20]:
+            template_id = template.get("id")
+            name = template.get("name", "Unnamed")
+            description = template.get(
+                "description",
+                "No description"
+            )
+            category_id = template.get("category_id")
+            support_roles = template.get(
+                "support_role_ids",
+                []
+            )
+
+            embed.add_field(
+                name=f"🎫 {name}",
+                value=(
+                    f"**ID:** `{template_id}`\n"
+                    f"**Description:** {description[:150]}\n"
+                    f"**Category:** `{category_id or 'Default'}`\n"
+                    f"**Support Roles:** `{len(support_roles)}`"
+                ),
+                inline=False
+            )
+
+    embed.set_footer(
+        text="Air Commander • Ticket Templates"
+    )
+
+    return embed
+
+
+class TicketTemplateCreateModal(
+    discord.ui.Modal,
+    title="📝 Create Ticket Template"
+):
+
+    name = discord.ui.TextInput(
+        label="Template Name",
+        placeholder="Example: Support",
+        required=True,
+        max_length=50
+    )
+
+    description = discord.ui.TextInput(
+        label="Template Description",
+        placeholder="General support ticket",
+        required=True,
+        max_length=200
+    )
+
+    category_id = discord.ui.TextInput(
+        label="Category ID",
+        placeholder="Leave empty to use General Ticket Category",
+        required=False,
+        max_length=30
+    )
+
+    support_roles = discord.ui.TextInput(
+        label="Support Role IDs",
+        placeholder="123456789, 987654321",
+        required=False,
+        max_length=1000
+    )
+
+    welcome_message = discord.ui.TextInput(
+        label="Ticket Welcome Message",
+        placeholder="Thanks for contacting support!",
+        required=False,
+        style=discord.TextStyle.paragraph,
+        max_length=1000
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        # ---------------------------------------------------------
+        # Validate category
+        # ---------------------------------------------------------
+
+        category_id = self.category_id.value.strip()
+
+        if category_id:
+
+            try:
+                category_id = int(category_id)
+            except ValueError:
+
+                return await interaction.response.send_message(
+                    "❌ Category ID must contain only numbers.",
+                    ephemeral=True
+                )
+
+        else:
+            category_id = None
+
+        # ---------------------------------------------------------
+        # Parse support roles
+        # ---------------------------------------------------------
+
+        support_roles = []
+
+        raw_roles = (
+            self.support_roles.value
+            .replace(" ", "")
+            .strip()
+        )
+
+        if raw_roles:
+
+            for role_id in raw_roles.split(","):
+
+                if not role_id:
+                    continue
+
+                try:
+                    support_roles.append(
+                        int(role_id)
+                    )
+                except ValueError:
+
+                    return await interaction.response.send_message(
+                        "❌ Support role IDs must be valid Discord IDs.",
+                        ephemeral=True
+                    )
+
+        # ---------------------------------------------------------
+        # Create template
+        # ---------------------------------------------------------
+
+        try:
+
+            await db.create_ticket_template(
+                interaction.guild.id,
+                self.name.value.strip(),
+                self.description.value.strip(),
+                category_id=category_id,
+                support_role_ids=support_roles,
+                welcome_message=self.welcome_message.value.strip()
+                or "Thanks for contacting support!"
+            )
+
+        except Exception as e:
+
+            print(
+                f"❌ Ticket template creation error: {e}"
+            )
+
+            return await interaction.response.send_message(
+                "❌ Failed to create the ticket template.",
+                ephemeral=True
+            )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_template_embed(
+                interaction.guild,
+                templates
+            ),
+            view=TicketTemplateView()
+        )
+
+
+class TicketTemplateDeleteSelect(
+    discord.ui.Select
+):
+
+    def __init__(self, templates):
+
+        options = []
+
+        for template in templates[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=template.get(
+                        "name",
+                        "Unnamed"
+                    )[:100],
+                    description=(
+                        template.get(
+                            "description",
+                            "Ticket template"
+                        )[:100]
+                    ),
+                    value=str(
+                        template.get("id")
+                    ),
+                    emoji="🎫"
+                )
+            )
+
+        super().__init__(
+            placeholder="🗑️ Select a template to delete...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        template_id = int(
+            self.values[0]
+        )
+
+        template = await db.get_ticket_template(
+            interaction.guild.id,
+            template_id
+        )
+
+        if not template:
+
+            return await interaction.response.send_message(
+                "❌ Template not found.",
+                ephemeral=True
+            )
+
+        await db.delete_ticket_template(
+            interaction.guild.id,
+            template_id
+        )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_template_embed(
+                interaction.guild,
+                templates
+            ),
+            view=TicketTemplateView()
+        )
+
+
+class TicketTemplateDeleteView(
+    discord.ui.View
+):
+
+    def __init__(self, templates):
+
+        super().__init__(timeout=120)
+
+        self.add_item(
+            TicketTemplateDeleteSelect(
+                templates
+            )
+        )
+
+        back_button = discord.ui.Button(
+            label="Back",
+            emoji="↩️",
+            style=discord.ButtonStyle.secondary
+        )
+
+        async def back_callback(
+            interaction: discord.Interaction
+        ):
+
+            if not ticket_admin_check(
+                interaction.user
+            ):
+                return await interaction.response.send_message(
+                    "❌ You need **Manage Server** permission.",
+                    ephemeral=True
+                )
+
+            templates = await db.get_ticket_templates(
+                interaction.guild.id
+            )
+
+            await interaction.response.edit_message(
+                embed=ticket_template_embed(
+                    interaction.guild,
+                    templates
+                ),
+                view=TicketTemplateView()
+            )
+
+        back_button.callback = back_callback
+
+        self.add_item(back_button)
+
+
+class TicketTemplateView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(timeout=300)
+
+    # =========================================================
+    # ➕ CREATE TEMPLATE
+    # =========================================================
+
+    @discord.ui.button(
+        label="Create Template",
+        emoji="➕",
+        style=discord.ButtonStyle.success,
+        row=0
+    )
+    async def create_template(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketTemplateCreateModal()
+        )
+
+    # =========================================================
+    # 🗑️ DELETE TEMPLATE
+    # =========================================================
+
+    @discord.ui.button(
+        label="Delete Template",
+        emoji="🗑️",
+        style=discord.ButtonStyle.danger,
+        row=0
+    )
+    async def delete_template(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        if not templates:
+
+            return await interaction.response.send_message(
+                "📭 There are no ticket templates to delete.",
+                ephemeral=True
+            )
+
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="🗑️ DELETE TICKET TEMPLATE",
+                description=(
+                    "Select the template you want to delete.\n\n"
+                    "⚠️ Deleting a template does not delete "
+                    "existing tickets."
+                ),
+                color=discord.Color.red()
+            ),
+            view=TicketTemplateDeleteView(
+                templates
+            )
+        )
+
+    # =========================================================
+    # 🔄 REFRESH
+    # =========================================================
+
+    @discord.ui.button(
+        label="Refresh",
+        emoji="🔄",
+        style=discord.ButtonStyle.secondary,
+        row=1
+    )
+    async def refresh(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_template_embed(
+                interaction.guild,
+                templates
+            ),
+            view=TicketTemplateView()
+        )
+
+    # =========================================================
+    # ↩️ BACK
+    # =========================================================
+
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.primary,
+        row=1
+    )
+    async def back(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(
+                config
+            ),
+            view=TicketConfigView()
+        )
+
+
+# =========================================================
+# 🔗 CONNECT TEMPLATES BUTTON TO TEMPLATE MANAGER
+# =========================================================
+
+# IMPORTANT:
+# Replace the existing "templates" button method inside
+# TicketConfigView with this version.
+
+async def open_ticket_templates(
+    interaction: discord.Interaction
+):
+
+    if not ticket_admin_check(
+        interaction.user
+    ):
+        return await interaction.response.send_message(
+            "❌ You need **Manage Server** permission.",
+            ephemeral=True
+        )
+
+    templates = await db.get_ticket_templates(
+        interaction.guild.id
+    )
+
+    await interaction.response.edit_message(
+        embed=ticket_template_embed(
+            interaction.guild,
+            templates
+        ),
+        view=TicketTemplateView()
+    )
+
+
+
+# =========================================================
+# 🧩 TICKET PANEL BUILDER
+# =========================================================
+
+
+def ticket_panel_embed(panel, templates):
+    name = panel.get("name", "Unnamed Panel")
+    description = panel.get(
+        "description",
+        "Create a ticket by selecting an option below."
+    )
+
+    template_ids = panel.get(
+        "template_ids",
+        []
+    )
+
+    embed = discord.Embed(
+        title=f"🧩 {name}",
+        description=description,
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    if template_ids:
+        template_lines = []
+
+        for template in templates:
+
+            if template.get("id") in template_ids:
+                template_lines.append(
+                    f"🎫 **{template.get('name', 'Unnamed')}**"
+                )
+
+        if template_lines:
+            embed.add_field(
+                name="🎫 Available Tickets",
+                value="\n".join(template_lines),
+                inline=False
+            )
+
+    else:
+        embed.add_field(
+            name="📭 No Templates",
+            value="No ticket templates have been attached yet.",
+            inline=False
+        )
+
+    embed.set_footer(
+        text="Air Commander • Ticket Support"
+    )
+
+    return embed
+
+
+class TicketPanelCreateModal(
+    discord.ui.Modal,
+    title="🧩 Create Ticket Panel"
+):
+
+    name = discord.ui.TextInput(
+        label="Panel Name",
+        placeholder="Example: Support Center",
+        required=True,
+        max_length=80
+    )
+
+    description = discord.ui.TextInput(
+        label="Panel Description",
+        placeholder="Choose the type of ticket you need.",
+        required=True,
+        style=discord.TextStyle.paragraph,
+        max_length=1000
+    )
+
+    channel_id = discord.ui.TextInput(
+        label="Send Panel To Channel ID",
+        placeholder="123456789012345678",
+        required=False,
+        max_length=30
+    )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        channel_id = self.channel_id.value.strip()
+
+        if channel_id:
+
+            try:
+                channel_id = int(channel_id)
+
+            except ValueError:
+
+                return await interaction.response.send_message(
+                    "❌ Channel ID must contain only numbers.",
+                    ephemeral=True
+                )
+
+        else:
+            channel_id = None
+
+        try:
+
+            await db.create_ticket_panel(
+                interaction.guild.id,
+                self.name.value.strip(),
+                self.description.value.strip(),
+                channel_id=channel_id,
+                template_ids=[]
+            )
+
+        except Exception as e:
+
+            print(
+                f"❌ Ticket panel creation error: {e}"
+            )
+
+            return await interaction.response.send_message(
+                "❌ Failed to create ticket panel.",
+                ephemeral=True
+            )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_panels_embed(
+                panels
+            ),
+            view=TicketPanelManagerView()
+        )
+
+
+def ticket_panels_embed(panels):
+
+    embed = discord.Embed(
+        title="🧩 AIR COMMANDER — TICKET PANELS",
+        description=(
+            "Create and manage ticket panels.\n\n"
+            "Panels can contain multiple reusable ticket templates."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    if not panels:
+
+        embed.add_field(
+            name="📭 No Panels",
+            value=(
+                "No ticket panels have been created yet.\n\n"
+                "Click **Create Panel** to create one."
+            ),
+            inline=False
+        )
+
+    else:
+
+        for panel in panels[:20]:
+
+            panel_id = panel.get("id")
+            name = panel.get(
+                "name",
+                "Unnamed Panel"
+            )
+
+            description = panel.get(
+                "description",
+                "No description"
+            )
+
+            channel_id = panel.get(
+                "channel_id"
+            )
+
+            template_ids = panel.get(
+                "template_ids",
+                []
+            )
+
+            embed.add_field(
+                name=f"🧩 {name}",
+                value=(
+                    f"**ID:** `{panel_id}`\n"
+                    f"**Description:** {description[:150]}\n"
+                    f"**Channel:** `{channel_id or 'Not Set'}`\n"
+                    f"**Templates:** `{len(template_ids)}`"
+                ),
+                inline=False
+            )
+
+    embed.set_footer(
+        text="Air Commander • Ticket Panel Manager"
+    )
+
+    return embed
+
+
+# =========================================================
+# 🎫 TEMPLATE SELECT FOR PANEL
+# =========================================================
+
+class TicketPanelTemplateSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        panel_id,
+        templates
+    ):
+
+        self.panel_id = panel_id
+
+        options = []
+
+        for template in templates[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=template.get(
+                        "name",
+                        "Unnamed"
+                    )[:100],
+                    description=template.get(
+                        "description",
+                        "Ticket template"
+                    )[:100],
+                    value=str(
+                        template.get("id")
+                    ),
+                    emoji="🎫"
+                )
+            )
+
+        super().__init__(
+            placeholder="🎫 Select templates for this panel...",
+            min_values=1,
+            max_values=min(
+                len(options),
+                25
+            ),
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        template_ids = [
+            int(value)
+            for value in self.values
+        ]
+
+        try:
+
+            await db.update_ticket_panel(
+                interaction.guild.id,
+                self.panel_id,
+                template_ids=template_ids
+            )
+
+        except Exception as e:
+
+            print(
+                f"❌ Panel template update error: {e}"
+            )
+
+            return await interaction.response.send_message(
+                "❌ Failed to attach templates.",
+                ephemeral=True
+            )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_panels_embed(
+                panels
+            ),
+            view=TicketPanelManagerView()
+        )
+
+
+# =========================================================
+# 🧩 PANEL TEMPLATE VIEW
+# =========================================================
+
+class TicketPanelTemplateView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        panel_id,
+        templates
+    ):
+
+        super().__init__(
+            timeout=180
+        )
+
+        self.panel_id = panel_id
+
+        if templates:
+
+            self.add_item(
+                TicketPanelTemplateSelect(
+                    panel_id,
+                    templates
+                )
+            )
+
+        back_button = discord.ui.Button(
+            label="Back",
+            emoji="↩️",
+            style=discord.ButtonStyle.secondary
+        )
+
+        async def back_callback(
+            interaction: discord.Interaction
+        ):
+
+            if not ticket_admin_check(
+                interaction.user
+            ):
+                return await interaction.response.send_message(
+                    "❌ You need **Manage Server** permission.",
+                    ephemeral=True
+                )
+
+            panels = await db.get_ticket_panels(
+                interaction.guild.id
+            )
+
+            await interaction.response.edit_message(
+                embed=ticket_panels_embed(
+                    panels
+                ),
+                view=TicketPanelManagerView()
+            )
+
+        back_button.callback = back_callback
+
+        self.add_item(
+            back_button
+        )
+
+
+# =========================================================
+# 🗑️ PANEL DELETE SELECT
+# =========================================================
+
+class TicketPanelDeleteSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        panels
+    ):
+
+        options = []
+
+        for panel in panels[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=panel.get(
+                        "name",
+                        "Unnamed Panel"
+                    )[:100],
+                    description=(
+                        panel.get(
+                            "description",
+                            "Ticket panel"
+                        )[:100]
+                    ),
+                    value=str(
+                        panel.get("id")
+                    ),
+                    emoji="🧩"
+                )
+            )
+
+        super().__init__(
+            placeholder="🗑️ Select a panel to delete...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panel_id = int(
+            self.values[0]
+        )
+
+        panel = await db.get_ticket_panel(
+            interaction.guild.id,
+            panel_id
+        )
+
+        if not panel:
+
+            return await interaction.response.send_message(
+                "❌ Panel not found.",
+                ephemeral=True
+            )
+
+        await db.delete_ticket_panel(
+            interaction.guild.id,
+            panel_id
+        )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_panels_embed(
+                panels
+            ),
+            view=TicketPanelManagerView()
+        )
+
+
+# =========================================================
+# 🧩 PANEL MANAGER VIEW
+# =========================================================
+
+class TicketPanelManagerView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=300
+        )
+
+    # =========================================================
+    # ➕ CREATE PANEL
+    # =========================================================
+
+    @discord.ui.button(
+        label="Create Panel",
+        emoji="➕",
+        style=discord.ButtonStyle.success,
+        row=0
+    )
+    async def create_panel(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketPanelCreateModal()
+        )
+
+    # =========================================================
+    # 🎫 ADD TEMPLATES
+    # =========================================================
+
+    @discord.ui.button(
+        label="Add Templates",
+        emoji="🎫",
+        style=discord.ButtonStyle.primary,
+        row=0
+    )
+    async def add_templates(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        if not panels:
+
+            return await interaction.response.send_message(
+                "📭 Create a panel first.",
+                ephemeral=True
+            )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        if not templates:
+
+            return await interaction.response.send_message(
+                "📭 Create at least one ticket template first.",
+                ephemeral=True
+            )
+
+        options = []
+
+        for panel in panels[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=panel.get(
+                        "name",
+                        "Unnamed Panel"
+                    )[:100],
+                    description="Choose this panel",
+                    value=str(
+                        panel.get("id")
+                    ),
+                    emoji="🧩"
+                )
+            )
+
+        select = discord.ui.Select(
+            placeholder="🧩 Select a panel...",
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+
+        async def select_callback(
+            select_interaction
+        ):
+
+            panel_id = int(
+                select.values[0]
+            )
+
+            await select_interaction.response.edit_message(
+                embed=discord.Embed(
+                    title="🎫 ADD TEMPLATES TO PANEL",
+                    description=(
+                        "Select the ticket templates you "
+                        "want to attach to this panel."
+                    ),
+                    color=discord.Color.blurple()
+                ),
+                view=TicketPanelTemplateView(
+                    panel_id,
+                    templates
+                )
+            )
+
+        select.callback = select_callback
+
+        view = discord.ui.View(
+            timeout=180
+        )
+
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            "🧩 Select the panel you want to edit:",
+            view=view,
+            ephemeral=True
+        )
+
+    # =========================================================
+    # 🗑️ DELETE PANEL
+    # =========================================================
+
+    @discord.ui.button(
+        label="Delete Panel",
+        emoji="🗑️",
+        style=discord.ButtonStyle.danger,
+        row=1
+    )
+    async def delete_panel(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        if not panels:
+
+            return await interaction.response.send_message(
+                "📭 There are no panels to delete.",
+                ephemeral=True
+            )
+
+        view = discord.ui.View(
+            timeout=120
+        )
+
+        view.add_item(
+            TicketPanelDeleteSelect(
+                panels
+            )
+        )
+
+        await interaction.response.send_message(
+            "🗑️ Select the panel you want to delete:",
+            view=view,
+            ephemeral=True
+        )
+
+    # =========================================================
+    # 🔄 REFRESH
+    # =========================================================
+
+    @discord.ui.button(
+        label="Refresh",
+        emoji="🔄",
+        style=discord.ButtonStyle.secondary,
+        row=1
+    )
+    async def refresh(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_panels_embed(
+                panels
+            ),
+            view=TicketPanelManagerView()
+        )
+
+    # =========================================================
+    # ↩️ BACK
+    # =========================================================
+
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.primary,
+        row=2
+    )
+    async def back(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_config_embed(
+                config
+            ),
+            view=TicketConfigView()
+        )
+
+
+# =========================================================
+# 🔗 CONNECT PANELS BUTTON
+# =========================================================
+
+# Replace the existing "panels" method inside
+# TicketConfigView with this version.
+
+
+@discord.ui.button(
+    label="Panels",
+    emoji="🧩",
+    style=discord.ButtonStyle.secondary,
+    row=1
+)
+async def ticket_panels_button(
+    self,
+    interaction: discord.Interaction,
+    button: discord.ui.Button
+):
+
+    if not ticket_admin_check(
+        interaction.user
+    ):
+        return await interaction.response.send_message(
+            "❌ You need **Manage Server** permission.",
+            ephemeral=True
+        )
+
+    panels = await db.get_ticket_panels(
+        interaction.guild.id
+    )
+
+    await interaction.response.edit_message(
+        embed=ticket_panels_embed(
+            panels
+        ),
+        view=TicketPanelManagerView()
+            )
+
+# =========================================================
+# 🎫 ACTUAL TICKET CREATION SYSTEM
+# =========================================================
+
+
+def get_ticket_category(guild, category_id):
+    if not category_id:
+        return None
+
+    return guild.get_channel(int(category_id))
+
+
+def get_ticket_support_roles(guild, role_ids):
+    roles = []
+
+    for role_id in role_ids or []:
+        role = guild.get_role(int(role_id))
+
+        if role:
+            roles.append(role)
+
+    return roles
+
+
+async def create_ticket_channel(
+    interaction,
+    template
+):
+
+    guild = interaction.guild
+    user = interaction.user
+
+    # =========================================================
+    # ⚙️ LOAD CONFIG
+    # =========================================================
+
+    config = await get_or_create_ticket_config(
+        guild.id
+    )
+
+    if not config.get("enabled", True):
+        return None, "❌ The ticket system is currently disabled."
+
+    # =========================================================
+    # 🔢 CHECK OPEN TICKET LIMIT
+    # =========================================================
+
+    open_tickets = await db.get_user_open_tickets(
+        guild.id,
+        user.id
+    )
+
+    max_open = config.get(
+        "max_open_tickets",
+        1
+    )
+
+    if len(open_tickets) >= max_open:
+
+        return (
+            None,
+            f"❌ You already have `{len(open_tickets)}` "
+            f"open ticket(s). Maximum allowed: `{max_open}`."
+        )
+
+    # =========================================================
+    # 🎫 TEMPLATE DATA
+    # =========================================================
+
+    template_id = template.get("id")
+
+    template_name = template.get(
+        "name",
+        "Support"
+    )
+
+    category_id = template.get(
+        "category_id"
+    ) or config.get(
+        "category_id"
+    )
+
+    support_role_ids = template.get(
+        "support_role_ids",
+        []
+    )
+
+    if not support_role_ids:
+
+        support_role_ids = config.get(
+            "support_role_ids",
+            []
+        )
+
+    # =========================================================
+    # 🔢 TICKET NUMBER
+    # =========================================================
+
+    ticket_number = await db.next_ticket_number(
+        guild.id
+    )
+
+    naming = config.get(
+        "ticket_naming",
+        "ticket-{number}"
+    )
+
+    channel_name = naming.replace(
+        "{number}",
+        str(ticket_number)
+    )
+
+    channel_name = channel_name.replace(
+        "{user}",
+        user.name.lower()
+    )
+
+    # Discord channel name limit
+    channel_name = channel_name[:100]
+
+    # =========================================================
+    # 📁 CATEGORY
+    # =========================================================
+
+    category = get_ticket_category(
+        guild,
+        category_id
+    )
+
+    # =========================================================
+    # 🔐 PERMISSIONS
+    # =========================================================
+
+    overwrites = {
+
+        guild.default_role: discord.PermissionOverwrite(
+            view_channel=False
+        ),
+
+        user: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True
+        ),
+
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            manage_channels=True,
+            manage_messages=True
+        )
+    }
+
+    # =========================================================
+    # 👥 SUPPORT ROLE PERMISSIONS
+    # =========================================================
+
+    support_roles = get_ticket_support_roles(
+        guild,
+        support_role_ids
+    )
+
+    for role in support_roles:
+
+        overwrites[role] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True
+        )
+
+    # =========================================================
+    # 🎫 CREATE CHANNEL
+    # =========================================================
+
+    try:
+
+        channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites=overwrites,
+            reason=(
+                f"Ticket created by {user} "
+                f"using template {template_name}"
+            )
+        )
+
+    except discord.Forbidden:
+
+        return (
+            None,
+            "❌ I don't have permission to create ticket channels."
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ Ticket channel creation error: {e}"
+        )
+
+        return (
+            None,
+            "❌ Failed to create the ticket channel."
+        )
+
+    # =========================================================
+    # 💾 SAVE TICKET
+    # =========================================================
+
+    try:
+
+        ticket = await db.create_ticket(
+            guild.id,
+            channel.id,
+            user.id,
+            template_id,
+            ticket_number
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ Ticket database error: {e}"
+        )
+
+        try:
+            await channel.delete(
+                reason="Ticket database creation failed"
+            )
+        except Exception:
+            pass
+
+        return (
+            None,
+            "❌ Failed to save the ticket in the database."
+        )
+
+    # =========================================================
+    # 📨 WELCOME EMBED
+    # =========================================================
+
+    welcome_message = template.get(
+        "welcome_message",
+        "Thanks for contacting support!"
+    )
+
+    embed = discord.Embed(
+        title=f"🎫 {template_name}",
+        description=(
+            f"{welcome_message}\n\n"
+            f"👤 **Opened by:** {user.mention}\n"
+            f"🔢 **Ticket:** `#{ticket_number}`\n\n"
+            "A member of the support team will assist you shortly."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+
+    embed.set_footer(
+        text="Air Commander • Ticket System"
+    )
+
+    # =========================================================
+    # 🔘 TICKET CONTROL VIEW
+    # =========================================================
+
+    await channel.send(
+        content=(
+            " ".join(
+                role.mention
+                for role in support_roles
+            ) if support_roles else None
+        ),
+        embed=embed,
+        view=TicketControlView()
+    )
+
+    # =========================================================
+    # 📝 LOG EVENT
+    # =========================================================
+
+    try:
+
+        await db.log_ticket_event(
+            guild.id,
+            channel.id,
+            user.id,
+            "created",
+            f"Ticket #{ticket_number} created"
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Ticket event log error: {e}"
+        )
+
+    return channel, None
+
+
+# =========================================================
+# 🎫 TEMPLATE SELECT MENU
+# =========================================================
+
+
+class TicketTemplateCreateSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        templates
+    ):
+
+        options = []
+
+        for template in templates[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=template.get(
+                        "name",
+                        "Support"
+                    )[:100],
+                    description=template.get(
+                        "description",
+                        "Create a ticket"
+                    )[:100],
+                    value=str(
+                        template.get("id")
+                    ),
+                    emoji="🎫"
+                )
+            )
+
+        super().__init__(
+            placeholder="🎫 Choose a ticket type...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        template_id = int(
+            self.values[0]
+        )
+
+        template = await db.get_ticket_template(
+            interaction.guild.id,
+            template_id
+        )
+
+        if not template:
+
+            return await interaction.response.send_message(
+                "❌ This ticket template no longer exists.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        channel, error = await create_ticket_channel(
+            interaction,
+            template
+        )
+
+        if error:
+
+            return await interaction.followup.send(
+                error,
+                ephemeral=True
+            )
+
+        await interaction.followup.send(
+            f"✅ Your ticket has been created: {channel.mention}",
+            ephemeral=True
+        )
+
+
+# =========================================================
+# 🎫 PUBLIC TICKET PANEL VIEW
+# =========================================================
+
+
+class PublicTicketPanelView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        templates
+    ):
+
+        super().__init__(
+            timeout=None
+        )
+
+        if templates:
+
+            self.add_item(
+                TicketTemplateCreateSelect(
+                    templates
+                )
+            )
+
+
+# =========================================================
+# 🔘 TICKET CONTROL VIEW
+# =========================================================
+
+
+class TicketControlView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=None
+        )
+
+    # =========================================================
+    # 🔒 CLOSE
+    # =========================================================
+
+    @discord.ui.button(
+        label="Close",
+        emoji="🔒",
+        style=discord.ButtonStyle.danger,
+        custom_id="aircommander_ticket_close"
+    )
+    async def close_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        ticket = await db.get_ticket_by_channel(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        if not ticket:
+
+            return await interaction.response.send_message(
+                "❌ This channel is not a registered ticket.",
+                ephemeral=True
+            )
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        support_roles = get_ticket_support_roles(
+            interaction.guild,
+            config.get(
+                "support_role_ids",
+                []
+            )
+        )
+
+        is_support = (
+            interaction.user.guild_permissions.manage_guild
+            or interaction.user.guild_permissions.administrator
+            or any(
+                role in interaction.user.roles
+                for role in support_roles
+            )
+        )
+
+        if interaction.user.id != ticket.get(
+            "user_id"
+        ) and not is_support:
+
+            return await interaction.response.send_message(
+                "❌ You don't have permission to close this ticket.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer()
+
+        await db.close_ticket(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        await db.log_ticket_event(
+            interaction.guild.id,
+            interaction.channel.id,
+            interaction.user.id,
+            "closed",
+            "Ticket closed"
+        )
+
+        embed = discord.Embed(
+            title="🔒 Ticket Closed",
+            description=(
+                f"This ticket was closed by "
+                f"{interaction.user.mention}.\n\n"
+                "Use **Reopen** if you want to reopen it."
+            ),
+            color=discord.Color.red(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        await interaction.followup.send(
+            embed=embed,
+            view=TicketClosedView()
+        )
+
+        # Remove normal user access after closing
+        try:
+
+            ticket_owner = interaction.guild.get_member(
+                ticket.get("user_id")
+            )
+
+            if ticket_owner:
+
+                await interaction.channel.set_permissions(
+                    ticket_owner,
+                    view_channel=False,
+                    send_messages=False
+                )
+
+        except Exception as e:
+
+            print(
+                f"⚠️ Ticket permission update error: {e}"
+            )
+
+    # =========================================================
+    # 👤 CLAIM
+    # =========================================================
+
+    @discord.ui.button(
+        label="Claim",
+        emoji="🙋",
+        style=discord.ButtonStyle.primary,
+        custom_id="aircommander_ticket_claim"
+    )
+    async def claim_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        support_roles = get_ticket_support_roles(
+            interaction.guild,
+            config.get(
+                "support_role_ids",
+                []
+            )
+        )
+
+        is_support = (
+            interaction.user.guild_permissions.manage_guild
+            or interaction.user.guild_permissions.administrator
+            or any(
+                role in interaction.user.roles
+                for role in support_roles
+            )
+        )
+
+        if not is_support:
+
+            return await interaction.response.send_message(
+                "❌ Only the support team can claim tickets.",
+                ephemeral=True
+            )
+
+        ticket = await db.get_ticket_by_channel(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        if not ticket:
+
+            return await interaction.response.send_message(
+                "❌ Ticket record not found.",
+                ephemeral=True
+            )
+
+        await db.claim_ticket(
+            interaction.guild.id,
+            interaction.channel.id,
+            interaction.user.id
+        )
+
+        await db.log_ticket_event(
+            interaction.guild.id,
+            interaction.channel.id,
+            interaction.user.id,
+            "claimed",
+            f"Ticket claimed by {interaction.user}"
+        )
+
+        await interaction.response.send_message(
+            f"🙋 **Ticket claimed by {interaction.user.mention}.**"
+        )
+
+
+# =========================================================
+# 🔓 CLOSED TICKET VIEW
+# =========================================================
+
+
+class TicketClosedView(
+    discord.ui.View
+):
+
+    def __init__(self):
+
+        super().__init__(
+            timeout=None
+        )
+
+    # =========================================================
+    # 🔓 REOPEN
+    # =========================================================
+
+    @discord.ui.button(
+        label="Reopen",
+        emoji="🔓",
+        style=discord.ButtonStyle.success,
+        custom_id="aircommander_ticket_reopen"
+    )
+    async def reopen_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        support_roles = get_ticket_support_roles(
+            interaction.guild,
+            config.get(
+                "support_role_ids",
+                []
+            )
+        )
+
+        is_support = (
+            interaction.user.guild_permissions.manage_guild
+            or interaction.user.guild_permissions.administrator
+            or any(
+                role in interaction.user.roles
+                for role in support_roles
+            )
+        )
+
+        if not is_support:
+
+            return await interaction.response.send_message(
+                "❌ Only the support team can reopen this ticket.",
+                ephemeral=True
+            )
+
+        ticket = await db.get_ticket_by_channel(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        if not ticket:
+
+            return await interaction.response.send_message(
+                "❌ Ticket record not found.",
+                ephemeral=True
+            )
+
+        await db.reopen_ticket(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        ticket_owner = interaction.guild.get_member(
+            ticket.get("user_id")
+        )
+
+        if ticket_owner:
+
+            await interaction.channel.set_permissions(
+                ticket_owner,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True
+            )
+
+        await db.log_ticket_event(
+            interaction.guild.id,
+            interaction.channel.id,
+            interaction.user.id,
+            "reopened",
+            "Ticket reopened"
+        )
+
+        await interaction.response.send_message(
+            f"🔓 Ticket reopened by {interaction.user.mention}."
+        )
+
+    # =========================================================
+    # 🗑️ DELETE
+    # =========================================================
+
+    @discord.ui.button(
+        label="Delete",
+        emoji="🗑️",
+        style=discord.ButtonStyle.danger,
+        custom_id="aircommander_ticket_delete"
+    )
+    async def delete_ticket(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not (
+            interaction.user.guild_permissions.manage_guild
+            or interaction.user.guild_permissions.administrator
+        ):
+
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        ticket = await db.get_ticket_by_channel(
+            interaction.guild.id,
+            interaction.channel.id
+        )
+
+        if not ticket:
+
+            return await interaction.response.send_message(
+                "❌ Ticket record not found.",
+                ephemeral=True
+            )
+
+        await db.log_ticket_event(
+            interaction.guild.id,
+            interaction.channel.id,
+            interaction.user.id,
+            "deleted",
+            "Ticket channel deleted"
+        )
+
+        await interaction.response.send_message(
+            "🗑️ Deleting this ticket channel..."
+        )
+
+        await interaction.channel.delete(
+            reason=(
+                f"Ticket deleted by "
+                f"{interaction.user}"
+            )
+        )
+        
 # =========================================================
 # BOT STARTUP
 # =========================================================
