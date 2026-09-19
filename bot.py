@@ -70,6 +70,914 @@ bot._air_start_time = start_time
 games.setup(bot)
 basic_commands.setup(bot)
 
+# =========================================================
+# PREFIX COMMANDS — MISSING COMMANDS
+# Prefix: ,
+# =========================================================
+
+from datetime import datetime, timezone
+
+
+def prefix_embed(title, description="", color=discord.Color.blurple()):
+    return discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+
+# =========================================================
+# ,about
+# =========================================================
+
+@bot.command(name="about")
+async def prefix_about(ctx):
+
+    e = prefix_embed(
+        "✈️ About Air Commander",
+        "Advanced Discord security, moderation and utility system."
+    )
+
+    e.add_field(
+        name="🤖 Bot",
+        value="Air Commander",
+        inline=True
+    )
+
+    e.add_field(
+        name="⚡ Prefix",
+        value="`,`",
+        inline=True
+    )
+
+    e.add_field(
+        name="🌐 Servers",
+        value=str(len(bot.guilds)),
+        inline=True
+    )
+
+    e.add_field(
+        name="👥 Users",
+        value=str(len(bot.users)),
+        inline=True
+    )
+
+    e.set_thumbnail(url=bot.user.display_avatar.url)
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,serverinfo
+# =========================================================
+
+@bot.command(name="serverinfo")
+async def prefix_serverinfo(ctx):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    guild = ctx.guild
+
+    e = prefix_embed(
+        f"🏰 {guild.name}",
+        "Complete information about this server."
+    )
+
+    e.add_field(
+        name="👑 Owner",
+        value=f"<@{guild.owner_id}>" if guild.owner_id else "Unknown",
+        inline=True
+    )
+
+    e.add_field(
+        name="👥 Members",
+        value=str(guild.member_count),
+        inline=True
+    )
+
+    e.add_field(
+        name="💬 Channels",
+        value=str(len(guild.channels)),
+        inline=True
+    )
+
+    e.add_field(
+        name="🎭 Roles",
+        value=str(len(guild.roles)),
+        inline=True
+    )
+
+    e.add_field(
+        name="😀 Emojis",
+        value=str(len(guild.emojis)),
+        inline=True
+    )
+
+    e.add_field(
+        name="🆔 Server ID",
+        value=str(guild.id),
+        inline=True
+    )
+
+    e.add_field(
+        name="📅 Created",
+        value=discord.utils.format_dt(guild.created_at, "F"),
+        inline=False
+    )
+
+    if guild.icon:
+        e.set_thumbnail(url=guild.icon.url)
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,userinfo
+# =========================================================
+
+@bot.command(name="userinfo")
+async def prefix_userinfo(
+    ctx,
+    member: discord.Member = None
+):
+
+    member = member or ctx.author
+
+    e = prefix_embed(
+        f"👤 User Information",
+        f"Information about {member.mention}"
+    )
+
+    e.add_field(
+        name="🏷️ Username",
+        value=str(member),
+        inline=True
+    )
+
+    e.add_field(
+        name="🆔 User ID",
+        value=str(member.id),
+        inline=True
+    )
+
+    e.add_field(
+        name="🤖 Bot",
+        value="Yes" if member.bot else "No",
+        inline=True
+    )
+
+    e.add_field(
+        name="🎭 Highest Role",
+        value=member.top_role.mention,
+        inline=True
+    )
+
+    e.add_field(
+        name="📅 Account Created",
+        value=discord.utils.format_dt(
+            member.created_at,
+            "F"
+        ),
+        inline=False
+    )
+
+    if member.joined_at:
+        e.add_field(
+            name="📥 Joined Server",
+            value=discord.utils.format_dt(
+                member.joined_at,
+                "F"
+            ),
+            inline=False
+        )
+
+    e.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,avatar
+# =========================================================
+
+@bot.command(name="avatar")
+async def prefix_avatar(
+    ctx,
+    member: discord.Member = None
+):
+
+    member = member or ctx.author
+
+    e = prefix_embed(
+        f"🖼️ {member.display_name}'s Avatar",
+        f"[🔗 Open Full Resolution]({member.display_avatar.url})"
+    )
+
+    e.set_image(
+        url=member.display_avatar.url
+    )
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,uptime
+# =========================================================
+
+@bot.command(name="uptime")
+async def prefix_uptime(ctx):
+
+    if not hasattr(bot, "start_time"):
+        return await ctx.send(
+            embed=prefix_embed(
+                "⏱️ Uptime",
+                "Bot start time is not available.",
+                discord.Color.orange()
+            )
+        )
+
+    delta = datetime.now(
+        timezone.utc
+    ) - bot.start_time
+
+    days = delta.days
+
+    hours, remainder = divmod(
+        delta.seconds,
+        3600
+    )
+
+    minutes, seconds = divmod(
+        remainder,
+        60
+    )
+
+    e = prefix_embed(
+        "⏱️ Air Commander Uptime",
+        f"🟢 **{days}d {hours}h {minutes}m {seconds}s**"
+    )
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,ghostscan
+# =========================================================
+
+@bot.command(name="ghostscan")
+async def prefix_ghostscan(
+    ctx,
+    days: int = 30
+):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    if days < 1 or days > 365:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Invalid Days",
+                "Days must be between **1 and 365**.",
+                discord.Color.red()
+            )
+        )
+
+    cutoff = (
+        datetime.now(timezone.utc).timestamp()
+        - (days * 86400)
+    )
+
+    inactive = []
+
+    for member in ctx.guild.members:
+
+        if member.bot:
+            continue
+
+        if (
+            member.joined_at
+            and member.joined_at.timestamp() < cutoff
+        ):
+            inactive.append(member)
+
+    e = prefix_embed(
+        "👻 Ghost Scan",
+        f"Members checked against **{days} days** inactivity."
+    )
+
+    e.add_field(
+        name="👻 Possible Ghost Members",
+        value=str(len(inactive)),
+        inline=True
+    )
+
+    e.add_field(
+        name="👥 Total Members",
+        value=str(ctx.guild.member_count),
+        inline=True
+    )
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,activitymap
+# =========================================================
+
+@bot.command(name="activitymap")
+async def prefix_activitymap(ctx):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    try:
+
+        counts = await db.activity_counts(
+            ctx.guild.id
+        )
+
+        if not counts:
+
+            description = (
+                "📭 No activity data is available yet."
+            )
+
+        else:
+
+            lines = []
+
+            for name, count in counts[:10]:
+
+                lines.append(
+                    f"👤 **{name}** — `{count}` activities"
+                )
+
+            description = "\n".join(lines)
+
+        e = prefix_embed(
+            "📊 Activity Map",
+            description
+        )
+
+        e.set_footer(
+            text=f"Requested by {ctx.author}"
+        )
+
+        await ctx.send(embed=e)
+
+    except Exception as ex:
+
+        await ctx.send(
+            embed=prefix_embed(
+                "❌ Activity Map Error",
+                f"Could not load activity data.\n```{ex}```",
+                discord.Color.red()
+            )
+        )
+
+
+# =========================================================
+# ,membercard
+# =========================================================
+
+@bot.command(name="membercard")
+async def prefix_membercard(
+    ctx,
+    member: discord.Member = None
+):
+
+    member = member or ctx.author
+
+    e = prefix_embed(
+        f"🪪 Member Card",
+        f"### {member.mention}"
+    )
+
+    e.add_field(
+        name="🏷️ Username",
+        value=str(member),
+        inline=True
+    )
+
+    e.add_field(
+        name="🆔 ID",
+        value=str(member.id),
+        inline=True
+    )
+
+    e.add_field(
+        name="🤖 Bot",
+        value="Yes" if member.bot else "No",
+        inline=True
+    )
+
+    e.add_field(
+        name="🎭 Highest Role",
+        value=member.top_role.mention,
+        inline=True
+    )
+
+    e.add_field(
+        name="📅 Account",
+        value=discord.utils.format_dt(
+            member.created_at,
+            "R"
+        ),
+        inline=True
+    )
+
+    e.add_field(
+        name="📥 Joined",
+        value=(
+            discord.utils.format_dt(
+                member.joined_at,
+                "R"
+            )
+            if member.joined_at
+            else "Unknown"
+        ),
+        inline=True
+    )
+
+    e.set_thumbnail(
+        url=member.display_avatar.url
+    )
+
+    e.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
+
+# =========================================================
+# ,modcase
+# =========================================================
+
+@bot.command(name="modcase")
+async def prefix_modcase(
+    ctx,
+    action: str,
+    target: discord.Member,
+    *,
+    details: str = None
+):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    if not (
+        ctx.author.guild_permissions.moderate_members
+        or ctx.author.guild_permissions.manage_guild
+    ):
+        return await ctx.send(
+            embed=prefix_embed(
+                "🚫 Permission Denied",
+                "You need **Moderate Members** or **Manage Server**.",
+                discord.Color.red()
+            )
+        )
+
+    allowed = {
+        "warn",
+        "timeout",
+        "kick",
+        "ban",
+        "note"
+    }
+
+    action = action.lower()
+
+    if action not in allowed:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Invalid Action",
+                "`warn` • `timeout` • `kick` • `ban` • `note`",
+                discord.Color.red()
+            )
+        )
+
+    if not details:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Reason Required",
+                "Example:\n"
+                "`,modcase warn @User Spamming | evidence`",
+                discord.Color.red()
+            )
+        )
+
+    parts = details.split("|", 1)
+
+    reason = parts[0].strip()
+
+    evidence = (
+        parts[1].strip()
+        if len(parts) > 1
+        else "Not provided"
+    )
+
+    try:
+
+        case_id = await db.create_mod_case(
+            ctx.guild.id,
+            target.id,
+            ctx.author.id,
+            action,
+            reason,
+            evidence
+        )
+
+        e = prefix_embed(
+            "🛡️ Moderation Case Created",
+            f"Case **#{case_id}** created successfully.",
+            discord.Color.green()
+        )
+
+        e.add_field(
+            name="🎯 Target",
+            value=target.mention,
+            inline=True
+        )
+
+        e.add_field(
+            name="⚔️ Action",
+            value=action.title(),
+            inline=True
+        )
+
+        e.add_field(
+            name="📝 Reason",
+            value=reason,
+            inline=False
+        )
+
+        e.add_field(
+            name="🔎 Evidence",
+            value=evidence,
+            inline=False
+        )
+
+        await ctx.send(embed=e)
+
+    except Exception as ex:
+
+        await ctx.send(
+            embed=prefix_embed(
+                "❌ Modcase Error",
+                f"```{ex}```",
+                discord.Color.red()
+            )
+        )
+
+
+# =========================================================
+# ,suggestionlab
+# =========================================================
+
+@bot.command(name="suggestionlab")
+async def prefix_suggestionlab(
+    ctx,
+    action: str,
+    *,
+    text: str = None
+):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    action = action.lower()
+
+    # =====================================================
+    # CREATE
+    # =====================================================
+
+    if action == "create":
+
+        if not text:
+            return await ctx.send(
+                embed=prefix_embed(
+                    "❌ Missing Suggestion",
+                    "Example:\n"
+                    "`,suggestionlab create Add a music system`",
+                    discord.Color.red()
+                )
+            )
+
+        suggestion_id = await db.create_suggestion(
+            ctx.guild.id,
+            ctx.author.id,
+            text
+        )
+
+        e = prefix_embed(
+            "💡 Suggestion Created",
+            f"Suggestion **#{suggestion_id}** submitted successfully.",
+            discord.Color.green()
+        )
+
+        e.add_field(
+            name="💭 Suggestion",
+            value=text,
+            inline=False
+        )
+
+        await ctx.send(embed=e)
+
+        return
+
+    # =====================================================
+    # STAFF CHECK
+    # =====================================================
+
+    if not ctx.author.guild_permissions.manage_guild:
+
+        return await ctx.send(
+            embed=prefix_embed(
+                "🚫 Permission Denied",
+                "You need **Manage Server** permission.",
+                discord.Color.red()
+            )
+        )
+
+    if not text:
+
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Missing Arguments",
+                "Use:\n"
+                "`,suggestionlab status <id> <status>`\n"
+                "`,suggestionlab response <id> <response>`",
+                discord.Color.red()
+            )
+        )
+
+    parts = text.split(maxsplit=1)
+
+    try:
+
+        suggestion_id = int(parts[0])
+
+    except ValueError:
+
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Invalid ID",
+                "Suggestion ID must be a number.",
+                discord.Color.red()
+            )
+        )
+
+    # =====================================================
+    # STATUS
+    # =====================================================
+
+    if action == "status":
+
+        if len(parts) < 2:
+
+            return await ctx.send(
+                embed=prefix_embed(
+                    "❌ Missing Status",
+                    "Example:\n"
+                    "`,suggestionlab status 12 Approved`",
+                    discord.Color.red()
+                )
+            )
+
+        raw_status = parts[1].strip().lower()
+
+        statuses = {
+            "pending": "Pending",
+            "under review": "Under Review",
+            "approved": "Approved",
+            "rejected": "Rejected",
+            "implemented": "Implemented"
+        }
+
+        status = statuses.get(raw_status)
+
+        if not status:
+
+            return await ctx.send(
+                embed=prefix_embed(
+                    "❌ Invalid Status",
+                    "Available:\n"
+                    "`Pending` • `Under Review` • "
+                    "`Approved` • `Rejected` • `Implemented`",
+                    discord.Color.red()
+                )
+            )
+
+        await db.update_suggestion(
+            ctx.guild.id,
+            suggestion_id,
+            status=status
+        )
+
+        await ctx.send(
+            embed=prefix_embed(
+                "📌 Suggestion Updated",
+                f"Suggestion **#{suggestion_id}** → **{status}**",
+                discord.Color.green()
+            )
+        )
+
+        return
+
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
+    if action == "response":
+
+        if len(parts) < 2:
+
+            return await ctx.send(
+                embed=prefix_embed(
+                    "❌ Missing Response",
+                    "Example:\n"
+                    "`,suggestionlab response 12 Thanks for the idea!`",
+                    discord.Color.red()
+                )
+            )
+
+        response = parts[1].strip()
+
+        await db.update_suggestion(
+            ctx.guild.id,
+            suggestion_id,
+            staff_response=response
+        )
+
+        await ctx.send(
+            embed=prefix_embed(
+                "💬 Staff Response Added",
+                f"Response added to suggestion **#{suggestion_id}**.",
+                discord.Color.green()
+            )
+        )
+
+        return
+
+    await ctx.send(
+        embed=prefix_embed(
+            "❌ Unknown Action",
+            "Available: `create` • `status` • `response`",
+            discord.Color.red()
+        )
+    )
+
+
+# =========================================================
+# ,airscan
+# =========================================================
+
+@bot.command(name="airscan")
+async def prefix_airscan(ctx):
+
+    if ctx.guild is None:
+        return await ctx.send(
+            embed=prefix_embed(
+                "❌ Server Only",
+                "This command can only be used inside a server.",
+                discord.Color.red()
+            )
+        )
+
+    if not ctx.author.guild_permissions.manage_guild:
+
+        return await ctx.send(
+            embed=prefix_embed(
+                "🚫 Permission Denied",
+                "You need **Manage Server** permission.",
+                discord.Color.red()
+            )
+        )
+
+    guild = ctx.guild
+
+    bots = sum(
+        1
+        for member in guild.members
+        if member.bot
+    )
+
+    humans = sum(
+        1
+        for member in guild.members
+        if not member.bot
+    )
+
+    e = prefix_embed(
+        "🛰️ Air Scan",
+        f"Security overview for **{guild.name}**."
+    )
+
+    e.add_field(
+        name="👥 Humans",
+        value=str(humans),
+        inline=True
+    )
+
+    e.add_field(
+        name="🤖 Bots",
+        value=str(bots),
+        inline=True
+    )
+
+    e.add_field(
+        name="💬 Channels",
+        value=str(len(guild.channels)),
+        inline=True
+    )
+
+    e.add_field(
+        name="🎭 Roles",
+        value=str(len(guild.roles)),
+        inline=True
+    )
+
+    e.add_field(
+        name="😀 Emojis",
+        value=str(len(guild.emojis)),
+        inline=True
+    )
+
+    e.add_field(
+        name="🚀 Boost Level",
+        value=str(guild.premium_tier),
+        inline=True
+    )
+
+    e.set_thumbnail(
+        url=guild.icon.url
+    ) if guild.icon else None
+
+    e.set_footer(
+        text=f"Air Commander • Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=e)
+
 
 # =========================================================
 # BOT READY
