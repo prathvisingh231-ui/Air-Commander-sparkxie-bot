@@ -1086,34 +1086,3 @@ async def log_ticket_event(
         event,
         json.dumps(data or {})
     )
-
-
-# =========================================================
-# BOT HOOK
-# =========================================================
-
-try:
-    from discord.ext import commands as _commands
-
-    _original_bot_init = _commands.Bot.__init__
-
-    def _air_bot_init(self, *args, **kwargs):
-        _original_bot_init(self, *args, **kwargs)
-
-        try:
-            import moderation_extra
-            moderation_extra.setup(self)
-
-        except Exception as exc:
-            print(
-                f"Moderation module setup error: "
-                f"{type(exc).__name__}: {exc}"
-            )
-
-    _commands.Bot.__init__ = _air_bot_init
-
-except Exception as exc:
-    print(
-        f"Bot hook setup error: "
-        f"{type(exc).__name__}: {exc}"
-    )
