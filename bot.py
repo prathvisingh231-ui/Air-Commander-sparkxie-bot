@@ -5605,7 +5605,643 @@ class TicketClosedView(
                 f"{interaction.user}"
             )
         )
-        
+
+# =========================================================
+# 📤 SEND TICKET PANEL
+# =========================================================
+
+
+async def send_ticket_panel(
+    guild,
+    panel
+):
+
+    panel_id = panel.get("id")
+
+    template_ids = panel.get(
+        "template_ids",
+        []
+    )
+
+    if not template_ids:
+        return None, "❌ This panel has no ticket templates attached."
+
+    channel_id = panel.get(
+        "channel_id"
+    )
+
+    if not channel_id:
+        return None, "❌ No channel has been configured for this panel."
+
+    channel = guild.get_channel(
+        int(channel_id)
+    )
+
+    if not channel:
+        return None, "❌ The configured panel channel was not found."
+
+    templates = []
+
+    for template_id in template_ids:
+
+        template = await db.get_ticket_template(
+            guild.id,
+            int(template_id)
+        )
+
+        if template:
+            templates.append(template)
+
+    if not templates:
+        return None, "❌ None of the attached templates exist."
+
+    embed = ticket_panel_embed(
+        panel,
+        templates
+    )
+
+    view = PublicTicketPanelView(
+        templates
+    )
+
+    try:
+
+        message = await channel.send(
+            embed=embed,
+            view=view
+        )
+
+    except discord.Forbidden:
+
+        return (
+            None,
+            "❌ I don't have permission to send messages in that channel."
+        )
+
+    except Exception as e:
+
+        print(
+            f"❌ Ticket panel send error: {e}"
+        )
+
+        return (
+            None,
+            "❌ Failed to send the ticket panel."
+        )
+
+    return message, None
+
+
+# =========================================================
+# 📤 SEND PANEL SELECT
+# =========================================================
+
+
+class TicketPanelSendSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        panels
+    ):
+
+        options = []
+
+        for panel in panels[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=panel.get(
+                        "name",
+                        "Unnamed Panel"
+                    )[:100],
+                    description=(
+                        panel.get(
+                            "description",
+                            "Ticket panel"
+                        )[:100]
+                    ),
+                    value=str(
+                        panel.get("id")
+                    ),
+                    emoji="🧩"
+                )
+            )
+
+        super().__init__(
+            placeholder="📤 Select a panel to send...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panel_id = int(
+            self.values[0]
+        )
+
+        panel = await db.get_ticket_panel(
+            interaction.guild.id,
+            panel_id
+        )
+
+        if not panel:
+
+            return await interaction.response.send_message(
+                "❌ Panel not found.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        message, error = await send_ticket_panel(
+            interaction.guild,
+            panel
+        )
+
+        if error:
+
+            return await interaction.followup.send(
+                error,
+                ephemeral=True
+            )
+
+        await interaction.followup.send(
+            (
+                f"✅ **{panel.get('name', 'Ticket Panel')}** "
+                f"has been sent successfully.\n"
+                f"📨 Message ID: `{message.id}`"
+            ),
+            ephemeral=True
+        )
+
+
+# =========================================================
+# 📤 PANEL SEND VIEW
+# =========================================================
+
+
+class TicketPanelSendView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        panels
+    ):
+
+        super().__init__(
+            timeout=120
+        )
+
+        self.add_item(
+            TicketPanelSendSelect(
+                panels
+            )
+        )
+
+
+# =========================================================
+# 📤 SEND PANEL BUTTON
+# =========================================================
+
+# =========================================================
+# 🎨 ADVANCED TICKET PANEL EDITOR
+# =========================================================
+
+
+def hex_to_color(value):
+    value = value.strip().replace("#", "")
+
+    if not value:
+        return discord.Color.blurple()
+
+    try:
+        return discord.Color(int(value, 16))
+    except ValueError:
+        return None
+
+
+class TicketPanelEditModal(
+    discord.ui.Modal,
+    title="🎨 Edit Ticket Panel"
+):
+
+    panel_name = discord.ui.TextInput(
+        label="Panel Name",
+        placeholder="Support Center",
+        required=True,
+        max_length=80
+    )
+
+    panel_description = discord.ui.TextInput(
+        label="Panel Description",
+        placeholder="Choose a ticket type below.",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=2000
+    )
+
+    footer = discord.ui.TextInput(
+        label="Footer Text",
+        placeholder="Air Commander • Support",
+        required=False,
+        max_length=200
+    )
+
+    color = discord.ui.TextInput(
+        label="Embed Color",
+        placeholder="#5865F2",
+        required=False,
+        max_length=7
+    )
+
+    image_url = discord.ui.TextInput(
+        label="Image URL",
+        placeholder="https://example.com/image.png",
+        required=False,
+        max_length=500
+    )
+
+    async def on_submit(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        panel_id = self.panel_id
+
+        embed_color = hex_to_color(
+            self.color.value
+        )
+
+        if embed_color is None:
+
+            return await interaction.response.send_message(
+                "❌ Invalid hex color. Example: `#5865F2`",
+                ephemeral=True
+            )
+
+        updates = {
+            "name": self.panel_name.value.strip(),
+            "description": self.panel_description.value.strip()
+        }
+
+        # -----------------------------------------------------
+        # Save extra visual settings
+        # -----------------------------------------------------
+
+        await db.update_ticket_panel(
+            interaction.guild.id,
+            panel_id,
+            **updates
+        )
+
+        panel = await db.get_ticket_panel(
+            interaction.guild.id,
+            panel_id
+        )
+
+        if not panel:
+
+            return await interaction.response.send_message(
+                "❌ Panel no longer exists.",
+                ephemeral=True
+            )
+
+        # -----------------------------------------------------
+        # Temporary visual preview
+        # -----------------------------------------------------
+
+        embed = discord.Embed(
+            title=panel.get(
+                "name",
+                "Ticket Panel"
+            ),
+            description=panel.get(
+                "description",
+                ""
+            ),
+            color=embed_color
+        )
+
+        if self.footer.value.strip():
+
+            embed.set_footer(
+                text=self.footer.value.strip()
+            )
+
+        if self.image_url.value.strip():
+
+            embed.set_image(
+                url=self.image_url.value.strip()
+            )
+
+        await interaction.response.edit_message(
+            embed=embed,
+            view=TicketPanelEditView(
+                panel_id
+            )
+        )
+
+    @classmethod
+    def for_panel(
+        cls,
+        panel
+    ):
+
+        modal = cls()
+
+        modal.panel_id = panel.get(
+            "id"
+        )
+
+        modal.panel_name.default = panel.get(
+            "name",
+            ""
+        )
+
+        modal.panel_description.default = panel.get(
+            "description",
+            ""
+        )
+
+        return modal
+
+
+# =========================================================
+# 🧩 PANEL SELECT FOR EDITING
+# =========================================================
+
+
+class TicketPanelEditSelect(
+    discord.ui.Select
+):
+
+    def __init__(
+        self,
+        panels
+    ):
+
+        self.panels = panels
+
+        options = []
+
+        for panel in panels[:25]:
+
+            options.append(
+                discord.SelectOption(
+                    label=panel.get(
+                        "name",
+                        "Unnamed Panel"
+                    )[:100],
+                    description=panel.get(
+                        "description",
+                        "Ticket panel"
+                    )[:100],
+                    value=str(
+                        panel.get("id")
+                    ),
+                    emoji="🎨"
+                )
+            )
+
+        super().__init__(
+            placeholder="🎨 Select a panel to edit...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panel_id = int(
+            self.values[0]
+        )
+
+        panel = await db.get_ticket_panel(
+            interaction.guild.id,
+            panel_id
+        )
+
+        if not panel:
+
+            return await interaction.response.send_message(
+                "❌ Panel not found.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            TicketPanelEditModal.for_panel(
+                panel
+            )
+        )
+
+
+# =========================================================
+# 🎨 PANEL EDIT VIEW
+# =========================================================
+
+
+class TicketPanelEditView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        panel_id
+    ):
+
+        super().__init__(
+            timeout=300
+        )
+
+        self.panel_id = panel_id
+
+    # =========================================================
+    # 🎫 MANAGE TEMPLATES
+    # =========================================================
+
+    @discord.ui.button(
+        label="Templates",
+        emoji="🎫",
+        style=discord.ButtonStyle.primary,
+        row=0
+    )
+    async def templates(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        templates = await db.get_ticket_templates(
+            interaction.guild.id
+        )
+
+        if not templates:
+
+            return await interaction.response.send_message(
+                "📭 No ticket templates exist.",
+                ephemeral=True
+            )
+
+        await interaction.response.edit_message(
+            content="🎫 Select the templates for this panel:",
+            embed=None,
+            view=TicketPanelTemplateView(
+                self.panel_id,
+                templates
+            )
+        )
+
+    # =========================================================
+    # 📤 SEND PANEL
+    # =========================================================
+
+    @discord.ui.button(
+        label="Send",
+        emoji="📤",
+        style=discord.ButtonStyle.success,
+        row=0
+    )
+    async def send(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(
+            interaction.user
+        ):
+            return await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.",
+                ephemeral=True
+            )
+
+        panel = await db.get_ticket_panel(
+            interaction.guild.id,
+            self.panel_id
+        )
+
+        if not panel:
+
+            return await interaction.response.send_message(
+                "❌ Panel not found.",
+                ephemeral=True
+            )
+
+        await interaction.response.defer(
+            ephemeral=True
+        )
+
+        message, error = await send_ticket_panel(
+            interaction.guild,
+            panel
+        )
+
+        if error:
+
+            return await interaction.followup.send(
+                error,
+                ephemeral=True
+            )
+
+        await interaction.followup.send(
+            f"✅ Panel sent successfully: {message.jump_url}",
+            ephemeral=True
+        )
+
+    # =========================================================
+    # ↩️ BACK
+    # =========================================================
+
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary,
+        row=1
+    )
+    async def back(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        panels = await db.get_ticket_panels(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            content=None,
+            embed=ticket_panels_embed(
+                panels
+            ),
+            view=TicketPanelManagerView()
+        )
+
+
+# =========================================================
+# 🎨 EDIT PANEL SELECT VIEW
+# =========================================================
+
+
+class TicketPanelEditSelectView(
+    discord.ui.View
+):
+
+    def __init__(
+        self,
+        panels
+    ):
+
+        super().__init__(
+            timeout=180
+        )
+
+        self.add_item(
+            TicketPanelEditSelect(
+                panels
+            )
+        )
+
+
+# =========================================================
+# 🎨 ADD EDIT BUTTON TO PANEL MANAGER
+# =========================================================
+
 # =========================================================
 # BOT STARTUP
 # =========================================================
