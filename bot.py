@@ -6700,6 +6700,499 @@ async def send_ticket_transcript(
 
     return False
 
+    # =========================================================
+# PART 9 — ADVANCED TICKET SETTINGS
+# =========================================================
+
+import asyncio
+from datetime import datetime, timezone
+
+
+# =========================================================
+# /ticket advanced
+# =========================================================
+
+def ticket_advanced_embed(config):
+    embed = discord.Embed(
+        title="⚙️ Ticket Advanced Settings",
+        description=(
+            "Configure advanced behaviour of the Air Commander "
+            "ticket system from this panel."
+        ),
+        color=discord.Color.blurple(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    auto_close = config.get("auto_close_minutes", 0)
+    auto_delete = config.get("auto_delete_minutes", 0)
+    user_close = config.get("user_can_close", True)
+    max_open = config.get("max_open_tickets", 1)
+    naming = config.get("ticket_naming", "ticket-{number}-{user}")
+
+    embed.add_field(
+        name="⏱️ Auto Close",
+        value=(
+            f"`{auto_close} minutes`"
+            if auto_close else "`Disabled`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🗑️ Auto Delete",
+        value=(
+            f"`{auto_delete} minutes`"
+            if auto_delete else "`Disabled`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="👤 User Close",
+        value="`Enabled`" if user_close else "`Disabled`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🎫 Max Open Tickets",
+        value=f"`{max_open}`",
+        inline=True
+    )
+
+    embed.add_field(
+        name="🏷️ Naming Format",
+        value=f"`{naming}`",
+        inline=False
+    )
+
+    embed.set_footer(
+        text="Air Commander • Ticket Advanced Configuration"
+    )
+
+    return embed
+
+
+# =========================================================
+# ADVANCED SETTINGS MODAL
+# =========================================================
+
+class TicketAdvancedModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="⚙️ Advanced Ticket Settings")
+
+        self.auto_close = discord.ui.TextInput(
+            label="Auto Close Minutes",
+            placeholder="0 = Disabled",
+            required=False,
+            max_length=10
+        )
+
+        self.auto_delete = discord.ui.TextInput(
+            label="Auto Delete Minutes",
+            placeholder="0 = Disabled",
+            required=False,
+            max_length=10
+        )
+
+        self.max_open = discord.ui.TextInput(
+            label="Maximum Open Tickets",
+            placeholder="Example: 2",
+            required=True,
+            max_length=5
+        )
+
+        self.naming = discord.ui.TextInput(
+            label="Ticket Naming Format",
+            placeholder="ticket-{number}-{user}",
+            required=True,
+            max_length=100
+        )
+
+        self.user_close = discord.ui.TextInput(
+            label="Can User Close Ticket? (yes/no)",
+            placeholder="yes",
+            required=True,
+            max_length=5
+        )
+
+        self.add_item(self.auto_close)
+        self.add_item(self.auto_delete)
+        self.add_item(self.max_open)
+        self.add_item(self.naming)
+        self.add_item(self.user_close)
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        if not ticket_admin_check(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need **Administrator** or **Manage Server** permission.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            auto_close = int(
+                self.auto_close.value.strip()
+                or "0"
+            )
+
+            auto_delete = int(
+                self.auto_delete.value.strip()
+                or "0"
+            )
+
+            max_open = int(
+                self.max_open.value.strip()
+            )
+
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Minutes and maximum tickets must be valid numbers.",
+                ephemeral=True
+            )
+            return
+
+        if auto_close < 0 or auto_delete < 0:
+            await interaction.response.send_message(
+                "❌ Time values cannot be negative.",
+                ephemeral=True
+            )
+            return
+
+        if max_open < 1:
+            await interaction.response.send_message(
+                "❌ Maximum open tickets must be at least `1`.",
+                ephemeral=True
+            )
+            return
+
+        naming = self.naming.value.strip()
+
+        if not naming:
+            naming = "ticket-{number}-{user}"
+
+        user_close = (
+            self.user_close.value.strip().lower()
+            in ("yes", "y", "true", "on", "1")
+        )
+
+        try:
+            await db.update_ticket_config(
+                interaction.guild.id,
+                auto_close_minutes=auto_close,
+                auto_delete_minutes=auto_delete,
+                max_open_tickets=max_open,
+                ticket_naming=naming,
+                user_can_close=user_close
+            )
+
+        except Exception as e:
+            print(f"❌ Advanced ticket config error: {e}")
+
+            await interaction.response.send_message(
+                "❌ Failed to save advanced ticket settings.",
+                ephemeral=True
+            )
+            return
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.send_message(
+            embed=ticket_advanced_embed(config),
+            ephemeral=True
+        )
+
+
+# =========================================================
+# ADVANCED SETTINGS VIEW
+# =========================================================
+
+class TicketAdvancedView(discord.ui.View):
+
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    # =====================================================
+    # EDIT SETTINGS
+    # =====================================================
+
+    @discord.ui.button(
+        label="Edit Settings",
+        emoji="⚙️",
+        style=discord.ButtonStyle.primary,
+        custom_id="aircommander_ticket_advanced_edit"
+    )
+    async def edit_settings(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need **Administrator** or **Manage Server** permission.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            TicketAdvancedModal()
+        )
+
+    # =====================================================
+    # REFRESH
+    # =====================================================
+
+    @discord.ui.button(
+        label="Refresh",
+        emoji="🔄",
+        style=discord.ButtonStyle.secondary,
+        custom_id="aircommander_ticket_advanced_refresh"
+    )
+    async def refresh(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        if not ticket_admin_check(interaction.user):
+            await interaction.response.send_message(
+                "❌ You don't have permission to use this.",
+                ephemeral=True
+            )
+            return
+
+        config = await get_or_create_ticket_config(
+            interaction.guild.id
+        )
+
+        await interaction.response.edit_message(
+            embed=ticket_advanced_embed(config),
+            view=self
+        )
+
+    # =====================================================
+    # CLOSE
+    # =====================================================
+
+    @discord.ui.button(
+        label="Close",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="aircommander_ticket_advanced_close"
+    )
+    async def close(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.edit_message(
+            content="⚙️ Advanced ticket settings closed.",
+            embed=None,
+            view=None
+        )
+
+
+# =========================================================
+# OPEN ADVANCED SETTINGS
+# =========================================================
+
+async def open_ticket_advanced(
+    interaction: discord.Interaction
+):
+
+    if not ticket_admin_check(interaction.user):
+        await interaction.response.send_message(
+            "❌ You need **Administrator** or **Manage Server** permission.",
+            ephemeral=True
+        )
+        return
+
+    config = await get_or_create_ticket_config(
+        interaction.guild.id
+    )
+
+    await interaction.response.send_message(
+        embed=ticket_advanced_embed(config),
+        view=TicketAdvancedView(),
+        ephemeral=True
+    )
+
+
+# =========================================================
+# PREFIX — ,ticket advanced
+# =========================================================
+
+@bot.group(
+    name="ticket",
+    invoke_without_command=True
+)
+@commands.guild_only()
+async def ticket_prefix(ctx):
+    if not ctx.invoked_subcommand:
+        await ctx.send(
+            "🎫 Use `,ticket config`, `,ticket send` or "
+            "`,ticket advanced`."
+        )
+
+
+@ticket_prefix.command(
+    name="advanced"
+)
+@commands.guild_only()
+@commands.has_permissions(manage_guild=True)
+async def ticket_prefix_advanced(ctx):
+
+    config = await get_or_create_ticket_config(
+        ctx.guild.id
+    )
+
+    await ctx.send(
+        embed=ticket_advanced_embed(config),
+        view=TicketAdvancedView()
+    )
+
+
+# =========================================================
+# SLASH — /ticket-advanced
+# =========================================================
+
+@bot.tree.command(
+    name="ticket-advanced",
+    description="Open advanced ticket settings."
+)
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def ticket_advanced_command(
+    interaction: discord.Interaction
+):
+
+    await open_ticket_advanced(interaction)
+
+
+# =========================================================
+# AUTO CLOSE CHECKER
+# =========================================================
+
+async def ticket_auto_close_checker():
+
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+
+        try:
+
+            for guild in bot.guilds:
+
+                config = await get_or_create_ticket_config(
+                    guild.id
+                )
+
+                auto_close = config.get(
+                    "auto_close_minutes",
+                    0
+                )
+
+                if not auto_close:
+                    continue
+
+                # Existing open tickets
+                # This expects db.get_open_tickets(guild_id)
+                # to be available from the ticket DB section.
+
+                try:
+                    tickets = await db.get_open_tickets(
+                        guild.id
+                    )
+                except AttributeError:
+                    tickets = []
+
+                now = datetime.now(timezone.utc)
+
+                for ticket in tickets:
+
+                    created_at = ticket.get(
+                        "created_at"
+                    )
+
+                    if not created_at:
+                        continue
+
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(
+                            tzinfo=timezone.utc
+                        )
+
+                    age_minutes = (
+                        now - created_at
+                    ).total_seconds() / 60
+
+                    if age_minutes < auto_close:
+                        continue
+
+                    channel_id = ticket.get(
+                        "channel_id"
+                    )
+
+                    channel = guild.get_channel(
+                        channel_id
+                    )
+
+                    if not channel:
+                        continue
+
+                    try:
+
+                        await db.close_ticket(
+                            ticket["id"]
+                        )
+
+                        await channel.send(
+                            embed=discord.Embed(
+                                title="⏰ Ticket Auto-Closed",
+                                description=(
+                                    "This ticket was automatically "
+                                    "closed because it reached the "
+                                    "configured inactivity/time limit."
+                                ),
+                                color=discord.Color.orange(),
+                                timestamp=now
+                            )
+                        )
+
+                    except Exception as e:
+                        print(
+                            f"⚠️ Auto-close error: {e}"
+                        )
+
+        except Exception as e:
+            print(
+                f"⚠️ Ticket auto-close checker error: {e}"
+            )
+
+        await asyncio.sleep(60)
+
+
+# =========================================================
+# START AUTO CLOSE TASK
+# =========================================================
+
+_ticket_auto_close_task = None
+
+
+async def start_ticket_background_tasks():
+
+    global _ticket_auto_close_task
+
+    if _ticket_auto_close_task is None:
+
+        _ticket_auto_close_task = asyncio.create_task(
+            ticket_auto_close_checker()
+)
+
 
 # =========================================================
 # BOT STARTUP
