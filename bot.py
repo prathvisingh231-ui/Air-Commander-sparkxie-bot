@@ -71,6 +71,42 @@ bot._air_start_time = start_time
 games.setup(bot)
 basic_commands.setup(bot)
 
+
+# =========================================================
+# BOT READY
+# =========================================================
+
+@bot.event
+async def on_ready():
+    print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
+
+    await db.init_db()
+
+    try:
+        if GUILD_ID:
+            guild = discord.Object(id=int(GUILD_ID))
+
+            bot.tree.copy_global_to(guild=guild)
+
+            synced = await bot.tree.sync(guild=guild)
+
+            print(
+                f"✅ Synced {len(synced)} slash commands "
+                f"to guild {GUILD_ID}"
+            )
+
+        else:
+            synced = await bot.tree.sync()
+
+            print(
+                f"✅ Synced {len(synced)} global slash commands"
+            )
+
+    except Exception as e:
+        print(f"❌ Command sync failed: {e}")
+
+
+
 # =========================================================
 # PREFIX COMMANDS — MISSING COMMANDS
 # Prefix: ,
@@ -978,40 +1014,6 @@ async def prefix_airscan(ctx):
     )
 
     await ctx.send(embed=e)
-
-
-# =========================================================
-# BOT READY
-# =========================================================
-
-@bot.event
-async def on_ready():
-    print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
-
-    await db.init_db()
-
-    try:
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-
-            bot.tree.copy_global_to(guild=guild)
-
-            synced = await bot.tree.sync(guild=guild)
-
-            print(
-                f"✅ Synced {len(synced)} slash commands "
-                f"to guild {GUILD_ID}"
-            )
-
-        else:
-            synced = await bot.tree.sync()
-
-            print(
-                f"✅ Synced {len(synced)} global slash commands"
-            )
-
-    except Exception as e:
-        print(f"❌ Command sync failed: {e}")
 
 
 # =========================================================
