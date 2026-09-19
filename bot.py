@@ -7029,7 +7029,6 @@ async def open_ticket_advanced(
 # =========================================================
 # PREFIX — ,ticket advanced
 # =========================================================
-
 @ticket_prefix.command(
     name="advanced"
 )
