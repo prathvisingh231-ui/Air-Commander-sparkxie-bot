@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS market(guild_id BIGINT,item TEXT,price INT,stock INT 
 CREATE TABLE IF NOT EXISTS territories(guild_id BIGINT,territory TEXT,owner_team TEXT,level INT DEFAULT 1,resources INT DEFAULT 100,PRIMARY KEY(guild_id,territory));
 CREATE TABLE IF NOT EXISTS guild_settings(guild_id BIGINT PRIMARY KEY,prefix TEXT NOT NULL DEFAULT '!');
 CREATE TABLE IF NOT EXISTS warnings(id BIGSERIAL PRIMARY KEY,guild_id BIGINT NOT NULL,user_id BIGINT NOT NULL,moderator_id BIGINT NOT NULL,reason TEXT NOT NULL,evidence TEXT NOT NULL DEFAULT 'Not provided',created_at TIMESTAMPTZ DEFAULT NOW());""")
+         await init_ticket_db()
    print("✅ PostgreSQL connected and Air Commander tables are ready.")
    return
   except Exception as e:
