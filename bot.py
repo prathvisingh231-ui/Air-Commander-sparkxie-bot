@@ -2,7 +2,6 @@ import os
 import time
 import threading
 import asyncio
-from datetime import datetime, timezone
 
 from flask import Flask
 import discord
@@ -11,10 +10,10 @@ import games
 import basic_commands
 import autosetup
 import autorolesetup
+import security
 from discord.ext import commands
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = os.getenv("GUILD_ID")
 
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN environment variable is required")
@@ -45,31 +44,20 @@ games.setup(bot)
 basic_commands.setup(bot)
 autosetup.setup(bot)
 autorolesetup.setup(bot)
+security.setup(bot)
 
 @bot.event
 async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
     await db.init_db()
+    await security.init_security_db()
 
     try:
-        # Global commands can take a while to appear in Discord. During startup,
-        # also sync the complete command tree to every connected guild so newly
-        # added commands such as /autosetup and /autorolesetup appear immediately.
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(f"✅ Synced {len(synced)} slash commands to guild {GUILD_ID}")
-        else:
-            global_synced = await bot.tree.sync()
-            print(f"✅ Synced {len(global_synced)} global slash commands")
-            for guild in bot.guilds:
-                try:
-                    bot.tree.copy_global_to(guild=guild)
-                    guild_synced = await bot.tree.sync(guild=guild)
-                    print(f"✅ Synced {len(guild_synced)} slash commands to {guild.name} ({guild.id})")
-                except Exception as guild_error:
-                    print(f"⚠️ Guild slash sync failed for {guild.id}: {guild_error}")
+        # Keep one authoritative global registration path. Global slash commands
+        # are available in every server where the bot is installed and this avoids
+        # duplicate global + guild registrations.
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} global slash commands")
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
