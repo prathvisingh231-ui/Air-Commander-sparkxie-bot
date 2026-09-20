@@ -11,6 +11,7 @@ import basic_commands
 import autosetup
 import autorolesetup
 import security
+import antinuke_rollback
 from discord.ext import commands
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -58,10 +59,8 @@ async def on_ready():
         print(f"❌ Command sync failed: {e}")
 
 async def start_bot():
-    # discord.py add_cog is asynchronous. Load the security cog and its
-    # warning/automod/antinuke/antilink command groups before login so the
-    # gateway never starts with a partially registered security module.
     await bot.add_cog(security.Security(bot))
+    await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
     bot.tree.add_command(security.WarningGroup())
     bot.tree.add_command(security.AutoModGroup())
     bot.tree.add_command(security.AntiNukeGroup())
