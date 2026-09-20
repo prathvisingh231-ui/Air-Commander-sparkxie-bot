@@ -4,6 +4,7 @@ import threading
 import asyncio
 import inspect
 import shlex
+import logging
 
 from flask import Flask
 import discord
@@ -22,6 +23,12 @@ if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN environment variable is required")
 
 OWNER_ID = 1504354088538869892
+DEFAULT_PREFIX = ","
+
+# Make Discord connection failures visible in Render logs instead of leaving
+# the service looking healthy while the gateway is disconnected.
+discord.utils.setup_logging(level=logging.INFO, root=True)
+
 app = Flask(__name__)
 
 @app.get("/")
@@ -40,9 +47,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = commands.Bot(command_prefix=DEFAULT_PREFIX, intents=intents, help_command=None)
 bot._air_owner_id = OWNER_ID
 bot._air_start_time = time.time()
+bot._air_prefixes = {}
 bot.is_air_owner = lambda user: bool(user and getattr(user, "id", None) == OWNER_ID)
 
 games.setup(bot)
@@ -256,31 +264,61 @@ async def dispatch_prefix_tree(ctx, text):
     return await _invoke_tree_command(ctx, current, tokens[index:])
 
 
+async def _get_message_prefix(message):
+    """Return the persisted guild prefix, even if on_ready has not populated the cache."""
+    if not message.guild:
+        return DEFAULT_PREFIX
+
+    guild_id = message.guild.id
+    prefix = bot._air_prefixes.get(guild_id)
+    if prefix:
+        return prefix
+
+    try:
+        prefix = await db.get_prefix(guild_id)
+    except Exception as exc:
+        print(f"[Prefix] database lookup failed for guild {guild_id}: {type(exc).__name__}: {exc}")
+        prefix = DEFAULT_PREFIX
+
+    prefix = prefix or DEFAULT_PREFIX
+    bot._air_prefixes[guild_id] = prefix
+    return prefix
+
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
+
     content = message.content.strip()
     if not content:
         return
 
+    # Do not call get_context until after our own routing. This avoids making
+    # the prefix bridge depend on the command parser's cached prefix.
     ctx = await bot.get_context(message)
 
     # Owner 1504354088538869892 can run every registered command without a prefix.
+    # Only intercept an actual registered command name, so normal conversation is
+    # never swallowed by the owner bypass.
     if message.author.id == OWNER_ID:
-        if await dispatch_prefix_tree(ctx, content):
-            return
-
-    # Use the actual persisted prefix cache rather than relying on discord.py's
-    # command parser. This makes custom prefixes work reliably after restart.
-    prefix = bot._air_prefixes.get(message.guild.id, "!") if message.guild else "!"
-    if prefix and content.startswith(prefix):
-        remainder = content[len(prefix):].strip()
-        if remainder:
-            if await dispatch_prefix_tree(ctx, remainder):
+        try:
+            first = shlex.split(content)[0]
+        except (ValueError, IndexError):
+            first = ""
+        if first and _find_command(ctx, first):
+            if await dispatch_prefix_tree(ctx, content):
                 return
 
-    # Native discord.py commands (including ping) remain supported.
+    # Use the saved per-server prefix. The DB is consulted on first use so a
+    # restart cannot temporarily break prefix commands before on_ready finishes.
+    prefix = await _get_message_prefix(message)
+    if prefix and content.startswith(prefix):
+        remainder = content[len(prefix):].strip()
+        if remainder and await dispatch_prefix_tree(ctx, remainder):
+            return
+
+    # Keep native discord.py commands working as a final fallback.
     await bot.process_commands(message)
 
 
@@ -292,6 +330,7 @@ async def on_ready():
     await security.init_security_db()
     if hasattr(bot, "_air_load_prefixes"):
         await bot._air_load_prefixes()
+    print(f"✅ Loaded {len(bot._air_prefixes)} saved server prefix(es)")
 
     try:
         synced = await bot.tree.sync()
@@ -311,6 +350,7 @@ async def on_ready():
 
 
 async def start_bot():
+    print("🔧 Loading Discord cogs...")
     await bot.add_cog(security.Security(bot))
     await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
     await bot.add_cog(purge_steal.PurgeSteal(bot))
@@ -322,7 +362,12 @@ async def start_bot():
             bot.tree.add_command(group)
             existing.add(group.name)
 
-    await bot.start(TOKEN)
+    print("🚀 Starting Discord gateway...")
+    try:
+        await bot.start(TOKEN)
+    except Exception as exc:
+        print(f"❌ Discord gateway stopped: {type(exc).__name__}: {exc}")
+        raise
 
 
 if __name__ == "__main__":
