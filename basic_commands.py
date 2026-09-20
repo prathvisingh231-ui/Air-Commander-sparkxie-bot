@@ -339,29 +339,23 @@ def setup(bot: commands.Bot):
         uptime = int(time.time() - bot._air_start_time) if hasattr(bot, "_air_start_time") else 0
         total_members = sum(g.member_count or len(g.members) for g in bot.guilds)
         e = embed(
-            "Air Commander • System Status",
-            "Clean, fast and ready.",
+            "✈️ Air Commander • System Status",
+            "🟢 **Online & Operational** • Clean, fast and ready.",
             discord.Color.blurple()
         )
-        e.add_field(name="Servers", value=f"{len(bot.guilds):,}", inline=True)
+        e.add_field(name="🌐 Servers", value=f"**{len(bot.guilds):,}**", inline=True)
+        e.add_field(name="👥 Members", value=f"**{total_members:,}** ({format_count(total_members)})", inline=True)
+        e.add_field(name="📡 Latency", value=f"**{round(bot.latency * 1000)} ms**", inline=True)
+        e.add_field(name="⏱️ Uptime", value=f"**{uptime // 3600}h {(uptime % 3600) // 60}m**", inline=True)
+        e.add_field(name="🛠️ Framework", value="**discord.py**", inline=True)
+        e.add_field(name="🟢 Status", value="**Operational**", inline=True)
         e.add_field(
-            name="Members",
-            value=f"{total_members:,} ({format_count(total_members)})",
-            inline=True
-        )
-        e.add_field(name="Latency", value=f"{round(bot.latency * 1000)} ms", inline=True)
-        e.add_field(name="Uptime", value=f"{uptime // 3600}h {(uptime % 3600) // 60}m", inline=True)
-        e.add_field(
-            name="Who made it",
-            value="<@1504354088538869892>\n<@880350253239373855>",
-            inline=True
-        )
-        e.add_field(
-            name="Support Server",
-            value="[Join the Air Commander Support Server](https://discord.gg/hVpaK2gbhh)",
-            inline=True
+            name="💬 Support Server",
+            value="[🚀 Join Air Commander Support Server](https://discord.gg/hVpaK2gbhh)",
+            inline=False
         )
         e.set_thumbnail(url=bot.user.display_avatar.url)
+        e.set_footer(text="✈️ Air Commander • Systems Operational")
         await i.response.send_message(embed=e)
 
     # =========================================================
@@ -622,25 +616,23 @@ def setup(bot: commands.Bot):
         uptime = int(time.time() - bot._air_start_time) if hasattr(bot, "_air_start_time") else 0
         total_members = sum(g.member_count or len(g.members) for g in bot.guilds)
         e = embed(
-            "Air Commander • System Status",
-            "Clean, fast and ready.",
+            "✈️ Air Commander • System Status",
+            "🟢 **Online & Operational** • Clean, fast and ready.",
             discord.Color.blurple()
         )
-        e.add_field(name="Servers", value=f"{len(bot.guilds):,}", inline=True)
-        e.add_field(name="Members", value=f"{total_members:,} ({format_count(total_members)})", inline=True)
-        e.add_field(name="Latency", value=f"{round(bot.latency * 1000)} ms", inline=True)
-        e.add_field(name="Uptime", value=f"{uptime // 3600}h {(uptime % 3600) // 60}m", inline=True)
+        e.add_field(name="🌐 Servers", value=f"**{len(bot.guilds):,}**", inline=True)
+        e.add_field(name="👥 Members", value=f"**{total_members:,}** ({format_count(total_members)})", inline=True)
+        e.add_field(name="📡 Latency", value=f"**{round(bot.latency * 1000)} ms**", inline=True)
+        e.add_field(name="⏱️ Uptime", value=f"**{uptime // 3600}h {(uptime % 3600) // 60}m**", inline=True)
+        e.add_field(name="🛠️ Framework", value="**discord.py**", inline=True)
+        e.add_field(name="🟢 Status", value="**Operational**", inline=True)
         e.add_field(
-            name="Who made it",
-            value="<@1504354088538869892>\n<@880350253239373855>",
-            inline=True
-        )
-        e.add_field(
-            name="Support Server",
-            value="[Join the Air Commander Support Server](https://discord.gg/hVpaK2gbhh)",
-            inline=True
+            name="💬 Support Server",
+            value="[🚀 Join Air Commander Support Server](https://discord.gg/hVpaK2gbhh)",
+            inline=False
         )
         e.set_thumbnail(url=bot.user.display_avatar.url)
+        e.set_footer(text="✈️ Air Commander • Systems Operational")
         await ctx.send(embed=e)
 
     # =========================================================
