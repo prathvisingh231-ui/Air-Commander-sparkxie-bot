@@ -47,11 +47,11 @@ bot._air_owner_id = OWNER_ID
 bot._air_start_time = time.time()
 bot.is_air_owner = lambda user: bool(user and getattr(user, "id", None) == OWNER_ID)
 
-# Every synchronous command module is initialized exactly once.
-# moderation_extra also initializes CmdMaker and AutoRoleSetup.
+# Initialize each command module exactly once.  moderation_extra owns
+# CmdMaker + AutoRoleSetup + Autosetup registration, so do not call
+# autosetup.setup(bot) separately here.
 games.setup(bot)
 basic_commands.setup(bot)
-autosetup.setup(bot)
 moderation_extra.setup(bot)
 
 
@@ -305,16 +305,28 @@ async def on_ready():
     except Exception as exc:
         print(f"❌ Command sync failed: {type(exc).__name__}: {exc}")
 
+    # Old versions registered many commands as guild-scoped. Those stale
+    # registrations coexist with the global commands and appear as duplicates
+    # in Discord. Remove only the guild-scoped registrations, then restore the
+    # legitimate CmdMaker commands from the database.
+    for guild in bot.guilds:
+        try:
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+        except Exception as exc:
+            print(f"⚠️ Guild command cleanup failed for {guild.id}: {type(exc).__name__}: {exc}")
+
+    if hasattr(bot, "_air_load_custom_commands"):
+        await bot._air_load_custom_commands()
+
 
 async def start_bot():
-    # Add each cog exactly once. The previous startup path installed Security
-    # and AntiNuke twice, which caused duplicate command registrations.
+    # Add each cog exactly once.
     await bot.add_cog(security.Security(bot))
     await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
     await bot.add_cog(purge_steal.PurgeSteal(bot))
 
-    # Security groups are registered once here instead of once in setup() and
-    # again during startup.
+    # Security groups are registered once here.
     existing = {command.name for command in bot.tree.get_commands()}
     for group_cls in (security.WarningGroup, security.AutoModGroup, security.AntiNukeGroup, security.AntiLinkGroup):
         group = group_cls()
