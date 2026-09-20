@@ -636,6 +636,42 @@ def setup(bot: commands.Bot):
         await ctx.send(embed=e)
 
     # =========================================================
+    # CUSTOM PREFIX HELP
+    # =========================================================
+
+    @bot.command(name="help")
+    async def prefix_help(ctx, command_name: str | None = None):
+        prefix = ","
+        commands_list = [
+            ("🛡️ Moderation", ["clear", "kick", "ban", "unban", "timeout", "untimeout", "slowmode", "lock", "unlock", "nick", "role"]),
+            ("ℹ️ Information", ["about", "serverinfo", "userinfo", "avatar", "servericon", "banner", "membercount", "channelinfo", "roleinfo", "botinfo", "uptime", "ping"]),
+            ("📢 Community", ["say", "announce", "poll"]),
+            ("✈️ Air Commander", ["airscan", "ghostscan", "activitymap", "membercard", "modcase", "suggestionlab"]),
+        ]
+
+        if command_name:
+            cmd = bot.get_command(command_name.lower())
+            if not cmd:
+                return await ctx.send(f"❌ Command `{prefix}{command_name}` not found.")
+            e = embed(f"Help • {prefix}{cmd.name}", cmd.help or "No description available.", discord.Color.blurple())
+            e.add_field(name="Usage", value=f"`{prefix}{cmd.qualified_name} {cmd.signature}`".strip(), inline=False)
+            if cmd.aliases:
+                e.add_field(name="Aliases", value=", ".join(f"`{prefix}{a}`" for a in cmd.aliases), inline=False)
+            return await ctx.send(embed=e)
+
+        e = embed(
+            "Air Commander • Help Center",
+            f"Use `{prefix}help <command>` for detailed usage.\n\n**Prefix:** `{prefix}` • **Slash commands:** `/`",
+            discord.Color.blurple()
+        )
+        for category, names in commands_list:
+            available = [f"`{prefix}{name}`" for name in names if bot.get_command(name)]
+            if available:
+                e.add_field(name=category, value=" • ".join(available), inline=False)
+        e.set_footer(text="✈️ Air Commander • Help Center")
+        await ctx.send(embed=e)
+
+    # =========================================================
     # PREFIX COMMAND ERROR HANDLER
     # =========================================================
 
