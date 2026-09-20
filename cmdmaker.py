@@ -4,6 +4,7 @@ import asyncio
 import discord
 from discord import app_commands
 import db
+import autosetup
 
 
 MAX_PROMPT = 1800
@@ -145,8 +146,6 @@ def _remove_existing(bot, guild_id, name):
 
 
 async def load_custom_commands(bot):
-    # db.init_db() runs in bot.on_ready. Wait briefly for that pool when this
-    # listener fires alongside the main ready handler.
     for _ in range(60):
         if db._pool:
             break
@@ -243,5 +242,6 @@ def setup(bot):
         e = discord.Embed(title="🗑️ Custom Command Deleted", description=f"`/{name}` has been removed from this server.", color=discord.Color.red())
         await interaction.response.send_message(embed=e, ephemeral=True)
 
+    autosetup.setup(bot)
     bot._air_load_custom_commands = load_custom_commands
     bot.add_listener(lambda: load_custom_commands(bot), "on_ready")
