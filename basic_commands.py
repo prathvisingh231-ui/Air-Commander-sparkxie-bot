@@ -638,6 +638,8 @@ def setup(bot: commands.Bot):
     # =========================================================
     # CUSTOM PREFIX HELP
     # =========================================================
+   
+    bot.remove_command("help")
 
     @bot.command(name="help")
     async def prefix_help(ctx, command_name: str | None = None):
