@@ -10,7 +10,6 @@ import discord
 import db
 import games
 import basic_commands
-import autosetup
 import moderation_extra
 import security
 import antinuke_rollback
@@ -41,15 +40,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# moderation_extra installs the persistent per-guild prefix function.
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 bot._air_owner_id = OWNER_ID
 bot._air_start_time = time.time()
 bot.is_air_owner = lambda user: bool(user and getattr(user, "id", None) == OWNER_ID)
 
-# Initialize each command module exactly once.  moderation_extra owns
-# CmdMaker + AutoRoleSetup + Autosetup registration, so do not call
-# autosetup.setup(bot) separately here.
 games.setup(bot)
 basic_commands.setup(bot)
 moderation_extra.setup(bot)
@@ -86,7 +81,6 @@ class PrefixFollowup:
 
 
 class PrefixInteraction:
-    """Minimal Interaction-compatible adapter for slash callbacks invoked from text."""
     def __init__(self, ctx, command):
         self.client = ctx.bot
         self.user = ctx.author
@@ -139,7 +133,6 @@ async def _convert_prefix_argument(ctx, parameter, raw):
 
 
 async def _run_prefix_checks(command, interaction):
-    # Owner ID 1504354088538869892 has owner bypass for prefixless use.
     if interaction.user.id == OWNER_ID:
         return
     for check in getattr(command, "checks", []):
@@ -151,21 +144,34 @@ async def _run_prefix_checks(command, interaction):
 
 
 def _find_command(ctx, name):
-    # CmdMaker commands are guild scoped, so check guild scope first.
+    name = name.lower()
     if ctx.guild:
         command = bot.tree.get_command(name, guild=ctx.guild)
         if command:
             return command
-    return bot.tree.get_command(name)
+    command = bot.tree.get_command(name)
+    if command:
+        return command
+    return bot.get_command(name)
 
 
 def _find_child(group, name):
     return next((child for child in getattr(group, "commands", []) if child.name.lower() == name.lower()), None)
 
 
+async def _invoke_native_command(ctx, command, tokens):
+    try:
+        await ctx.invoke(command, *tokens)
+    except commands.CommandError as exc:
+        await ctx.send(f"❌ {exc}")
+    return True
+
+
 async def _invoke_tree_command(ctx, command, tokens):
     if command is None:
         return False
+    if isinstance(command, commands.Command):
+        return await _invoke_native_command(ctx, command, tokens)
 
     interaction = PrefixInteraction(ctx, command)
     if ctx.guild is None and getattr(command, "guild_only", False):
@@ -191,7 +197,6 @@ async def _invoke_tree_command(ctx, command, tokens):
             await ctx.send(f"❌ Missing required argument: `{parameter.display_name}`")
             return True
 
-        # Final string option consumes the remainder for natural prefix syntax.
         if parameter.type == app_commands.AppCommandOptionType.string and index == len(parameters) - 1:
             raw = " ".join(tokens[position:])
             position = len(tokens)
@@ -234,6 +239,9 @@ async def dispatch_prefix_tree(ctx, text):
     if current is None:
         return False
 
+    if isinstance(current, commands.Command):
+        return await _invoke_tree_command(ctx, current, tokens[1:])
+
     index = 1
     while isinstance(current, app_commands.Group):
         if index >= len(tokens):
@@ -258,35 +266,21 @@ async def on_message(message: discord.Message):
 
     ctx = await bot.get_context(message)
 
-    # Owner-only prefixless mode. The owner can run global and guild-scoped
-    # slash-backed commands without a prefix, including CmdMaker commands.
+    # Owner 1504354088538869892 can run every registered command without a prefix.
     if message.author.id == OWNER_ID:
-        try:
-            first = shlex.split(content)[0]
-        except (ValueError, IndexError):
-            first = ""
-        if first and _find_command(ctx, first):
-            if await dispatch_prefix_tree(ctx, content):
-                return
+        if await dispatch_prefix_tree(ctx, content):
+            return
 
-    # Normal users use the configured server prefix. Existing native prefix
-    # commands take priority; slash-only commands are bridged automatically.
-    prefix = await bot.get_prefix(message)
-    prefixes = prefix if isinstance(prefix, (list, tuple)) else [prefix]
-    matched = next((p for p in prefixes if p and content.startswith(p)), None)
-    if matched:
-        remainder = content[len(matched):].strip()
+    # Use the actual persisted prefix cache rather than relying on discord.py's
+    # command parser. This makes custom prefixes work reliably after restart.
+    prefix = bot._air_prefixes.get(message.guild.id, "!") if message.guild else "!"
+    if prefix and content.startswith(prefix):
+        remainder = content[len(prefix):].strip()
         if remainder:
-            try:
-                first = shlex.split(remainder)[0]
-            except (ValueError, IndexError):
-                first = ""
-            if first and bot.get_command(first):
-                await bot.process_commands(message)
-                return
             if await dispatch_prefix_tree(ctx, remainder):
                 return
 
+    # Native discord.py commands (including ping) remain supported.
     await bot.process_commands(message)
 
 
@@ -305,10 +299,6 @@ async def on_ready():
     except Exception as exc:
         print(f"❌ Command sync failed: {type(exc).__name__}: {exc}")
 
-    # Old versions registered many commands as guild-scoped. Those stale
-    # registrations coexist with the global commands and appear as duplicates
-    # in Discord. Remove only the guild-scoped registrations, then restore the
-    # legitimate CmdMaker commands from the database.
     for guild in bot.guilds:
         try:
             bot.tree.clear_commands(guild=guild)
@@ -321,12 +311,10 @@ async def on_ready():
 
 
 async def start_bot():
-    # Add each cog exactly once.
     await bot.add_cog(security.Security(bot))
     await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
     await bot.add_cog(purge_steal.PurgeSteal(bot))
 
-    # Security groups are registered once here.
     existing = {command.name for command in bot.tree.get_commands()}
     for group_cls in (security.WarningGroup, security.AutoModGroup, security.AntiNukeGroup, security.AntiLinkGroup):
         group = group_cls()
