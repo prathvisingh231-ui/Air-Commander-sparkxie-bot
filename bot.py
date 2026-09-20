@@ -12,7 +12,7 @@ import db
 import games
 import basic_commands
 import autosetup
-import autorolesetup
+import moderation_extra
 import security
 import antinuke_rollback
 import purge_steal
@@ -24,7 +24,6 @@ if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN environment variable is required")
 
 OWNER_ID = 1504354088538869892
-DEFAULT_PREFIX = ","
 app = Flask(__name__)
 
 @app.get("/")
@@ -43,164 +42,303 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-async def command_prefix(bot_instance, message):
-    return DEFAULT_PREFIX
-
-bot = commands.Bot(command_prefix=command_prefix, intents=intents, help_command=None)
+# moderation_extra installs the persistent per-guild prefix function.
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 bot._air_owner_id = OWNER_ID
+bot._air_start_time = time.time()
 
 def is_air_owner(user):
     return bool(user and getattr(user, "id", None) == OWNER_ID)
-bot.is_air_owner = is_air_owner
-start_time = time.time()
-bot._air_start_time = start_time
 
+bot.is_air_owner = is_air_owner
+
+# IMPORTANT: every module is initialized exactly once.  In particular,
+# security used to be initialized here and then initialized a second time in
+# start_bot(), which created duplicate application commands/listeners.
 games.setup(bot)
 basic_commands.setup(bot)
 autosetup.setup(bot)
-autorolesetup.setup(bot)
+moderation_extra.setup(bot)
 purge_steal.setup(bot)
 
-class _PrefixResponse:
-    def __init__(self, ctx):
-        self.ctx = ctx
-        self.is_done = lambda: False
-    async def send_message(self, content=None, *, embed=None, embeds=None, ephemeral=False, view=None, **kwargs):
-        return await self.ctx.send(content=content, embed=embed, embeds=embeds, view=view)
-    async def defer(self, *, ephemeral=False, thinking=False):
-        return None
-
-class _PrefixFollowup:
-    def __init__(self, ctx): self.ctx = ctx
-    async def send(self, content=None, *, embed=None, embeds=None, ephemeral=False, view=None, **kwargs):
-        return await self.ctx.send(content=content, embed=embed, embeds=embeds, view=view)
-
-class _PrefixInteraction:
-    def __init__(self, ctx, command):
-        self.user = ctx.author
-        self.guild = ctx.guild
-        self.channel = ctx.channel
-        self.client = ctx.bot
-        self.message = ctx.message
-        self.command = command
-        self.permissions = getattr(ctx.author, "guild_permissions", discord.Permissions.none())
-        self.response = _PrefixResponse(ctx)
-        self.followup = _PrefixFollowup(ctx)
-    def is_guild_integration(self): return self.guild is not None
 
 def _unwrap_annotation(annotation):
-    if annotation is inspect.Parameter.empty: return str
+    if annotation is inspect.Parameter.empty:
+        return str
     origin = get_origin(annotation)
     if origin is Union:
         options = [x for x in get_args(annotation) if x is not type(None)]
         return options[0] if options else str
     return annotation
 
-async def _prefix_convert(ctx, raw, annotation):
-    annotation = _unwrap_annotation(annotation)
-    if annotation is str: return raw
-    if annotation is int: return int(raw)
-    if annotation is float: return float(raw)
-    if annotation is bool:
+
+async def _convert_prefix_argument(ctx, parameter, raw):
+    option_type = getattr(parameter, "type", None)
+    if option_type in (app_commands.AppCommandOptionType.string, None):
+        return raw
+    if option_type == app_commands.AppCommandOptionType.integer:
+        return int(raw)
+    if option_type == app_commands.AppCommandOptionType.number:
+        return float(raw)
+    if option_type == app_commands.AppCommandOptionType.boolean:
         value = raw.lower()
-        if value in {"true", "yes", "on", "1"}: return True
-        if value in {"false", "no", "off", "0"}: return False
+        if value in {"true", "yes", "on", "1"}:
+            return True
+        if value in {"false", "no", "off", "0"}:
+            return False
         raise ValueError("use true/false")
-    converters = {discord.Member: commands.MemberConverter(), discord.User: commands.UserConverter(), discord.Role: commands.RoleConverter(), discord.TextChannel: commands.TextChannelConverter(), discord.VoiceChannel: commands.VoiceChannelConverter(), discord.CategoryChannel: commands.CategoryChannelConverter()}
-    converter = converters.get(annotation)
-    if converter: return await converter.convert(ctx, raw)
-    origin = getattr(annotation, "__origin__", None)
-    if origin in (int, float, str): return await _prefix_convert(ctx, raw, origin)
+    if option_type == app_commands.AppCommandOptionType.user:
+        return await commands.MemberConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.mentionable:
+        try:
+            return await commands.MemberConverter().convert(ctx, raw)
+        except commands.BadArgument:
+            return await commands.RoleConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.role:
+        return await commands.RoleConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.channel:
+        return await commands.GuildChannelConverter().convert(ctx, raw)
     return raw
 
-async def _invoke_prefix_app_command(ctx, command, args):
-    interaction = _PrefixInteraction(ctx, command)
-    for check in getattr(command, "checks", []):
-        result = check(interaction)
-        if inspect.isawaitable(result): result = await result
-        if not result: return await ctx.send("❌ You don't have permission to use this command.")
-    callback = command.callback
-    params = list(inspect.signature(callback).parameters.values())[1:]
-    values, kwargs, pos = list(args), {}, 0
-    for param in params:
-        if param.kind == inspect.Parameter.VAR_POSITIONAL:
-            kwargs[param.name] = " ".join(values[pos:]); pos = len(values); continue
-        if pos >= len(values):
-            if param.default is inspect.Parameter.empty: return await ctx.send(f"❌ Missing required argument: **{param.name}**")
-            continue
-        annotation = _unwrap_annotation(param.annotation)
-        if annotation is str and pos < len(values) - 1:
-            kwargs[param.name] = " ".join(values[pos:]); pos = len(values); continue
-        try: kwargs[param.name] = await _prefix_convert(ctx, values[pos], param.annotation)
-        except (ValueError, commands.BadArgument): return await ctx.send(f"❌ Invalid value for **{param.name}**.")
-        pos += 1
-    if pos < len(values): return await ctx.send("❌ Too many arguments. Check the command usage.")
-    try: return await callback(interaction, **kwargs)
-    except discord.Forbidden: return await ctx.send("❌ I don't have the Discord permissions needed for that command.")
-    except app_commands.AppCommandError: return await ctx.send("❌ You don't meet this command's requirements.")
 
-async def _prefix_dispatch(ctx):
-    tokens = list(getattr(ctx, "_air_prefix_tokens", []))
-    if not tokens: return
-    current = bot.tree.get_command(tokens[0])
-    if current is None: return
+class PrefixResponse:
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self._done = False
+
+    def is_done(self):
+        return self._done
+
+    async def send_message(self, content=None, *, embed=None, embeds=None, ephemeral=False, **kwargs):
+        self._done = True
+        kwargs.pop("ephemeral", None)
+        return await self.ctx.send(content=content, embed=embed, embeds=embeds, **kwargs)
+
+    async def defer(self, *, ephemeral=False, thinking=False):
+        self._done = True
+
+    async def edit_message(self, **kwargs):
+        self._done = True
+        return await self.ctx.message.edit(**kwargs) if self.ctx.message else None
+
+
+class PrefixFollowup:
+    def __init__(self, ctx):
+        self.ctx = ctx
+
+    async def send(self, content=None, *, embed=None, embeds=None, ephemeral=False, **kwargs):
+        kwargs.pop("ephemeral", None)
+        return await self.ctx.send(content=content, embed=embed, embeds=embeds, **kwargs)
+
+
+class PrefixInteraction:
+    def __init__(self, ctx, command):
+        self.client = ctx.bot
+        self.user = ctx.author
+        self.guild = ctx.guild
+        self.channel = ctx.channel
+        self.message = ctx.message
+        self.command = command
+        self.guild_id = ctx.guild.id if ctx.guild else None
+        self.channel_id = ctx.channel.id if ctx.channel else None
+        self.response = PrefixResponse(ctx)
+        self.followup = PrefixFollowup(ctx)
+        self.locale = discord.Locale.american_english
+        self.guild_locale = discord.Locale.american_english
+
+    @property
+    def permissions(self):
+        return self.user.guild_permissions if self.guild else discord.Permissions.none()
+
+    def is_guild_integration(self):
+        return self.guild is not None
+
+
+async def _run_prefix_checks(command, interaction):
+    # The configured Air Commander owner has global bot-owner access for
+    # prefixless use.  All other users still receive the command's normal
+    # app-command permission checks.
+    if interaction.user.id == OWNER_ID:
+        return
+    for check in command.checks:
+        result = check(interaction)
+        if inspect.isawaitable(result):
+            result = await result
+        if not result:
+            raise commands.CheckFailure("You do not have permission to use this command.")
+
+
+def _find_command(ctx, name):
+    # Prefer guild-scoped commands (CmdMaker) and then global commands.
+    command = bot.tree.get_command(name, guild=ctx.guild) if ctx.guild else None
+    return command or bot.tree.get_command(name)
+
+
+def _find_child(group, name):
+    for child in getattr(group, "commands", []):
+        if child.name.lower() == name.lower():
+            return child
+    return None
+
+
+async def _invoke_tree_command(ctx, command, tokens, owner_bypass=False):
+    if command is None:
+        return False
+
+    interaction = PrefixInteraction(ctx, command)
+    if ctx.guild is None and getattr(command, "guild_only", False):
+        await ctx.send("❌ This command can only be used in a server.")
+        return True
+
+    try:
+        await _run_prefix_checks(command, interaction)
+    except commands.CheckFailure as exc:
+        await ctx.send(f"❌ {exc}")
+        return True
+
+    parameters = list(getattr(command, "parameters", []))
+    position = 0
+    args = [interaction]
+
+    for index, parameter in enumerate(parameters):
+        if position >= len(tokens):
+            if not parameter.required:
+                default = parameter.default
+                args.append(None if default is app_commands.MISSING else default)
+                continue
+            await ctx.send(f"❌ Missing required argument: `{parameter.display_name}`")
+            return True
+
+        # Discord slash commands have no positional syntax. For prefix use,
+        # the final string option consumes the remainder so reasons/prompts/
+        # layouts do not need awkward quoting.
+        if parameter.type == app_commands.AppCommandOptionType.string and index == len(parameters) - 1:
+            raw = " ".join(tokens[position:])
+            position = len(tokens)
+        else:
+            raw = tokens[position]
+            position += 1
+
+        try:
+            args.append(await _convert_prefix_argument(ctx, parameter, raw))
+        except Exception as exc:
+            await ctx.send(f"❌ Invalid value for `{parameter.display_name}`: {exc}")
+            return True
+
+    if position < len(tokens):
+        await ctx.send("❌ Too many arguments. Check the command usage.")
+        return True
+
+    try:
+        await command.callback(*args)
+    except discord.Forbidden:
+        await ctx.send("❌ Discord denied that action. Check my permissions and role hierarchy.")
+    except app_commands.AppCommandError as exc:
+        await ctx.send(f"❌ {exc}")
+    except Exception as exc:
+        print(f"[PrefixBridge] {command.qualified_name}: {exc!r}")
+        await ctx.send("❌ The command failed while running. Check the bot logs for details.")
+    return True
+
+
+async def dispatch_prefix_tree(ctx, text):
+    try:
+        tokens = shlex.split(text) if text.strip() else []
+    except ValueError as exc:
+        await ctx.send(f"❌ Invalid arguments: {exc}")
+        return True
+    if not tokens:
+        return False
+
+    current = _find_command(ctx, tokens[0])
+    if current is None:
+        return False
+
     index = 1
     while isinstance(current, app_commands.Group):
-        if index >= len(tokens): return await ctx.send("❌ Please specify a subcommand.")
-        child = next((c for c in current.commands if c.name == tokens[index]), None)
-        if child is None: return await ctx.send("❌ Unknown subcommand. Check the command help.")
-        current, index = child, index + 1
-    if isinstance(current, app_commands.Command): await _invoke_prefix_app_command(ctx, current, tokens[index:])
+        if index >= len(tokens):
+            await ctx.send(f"❌ Please specify a subcommand for `{current.name}`.")
+            return True
+        current = _find_child(current, tokens[index])
+        if current is None:
+            await ctx.send("❌ Unknown subcommand. Check `/help` for the available commands.")
+            return True
+        index += 1
 
-def install_prefix_commands():
-    added = 0
-    for root in bot.tree.get_commands():
-        if not isinstance(root, (app_commands.Command, app_commands.Group)): continue
-        name = root.name
-        if bot.get_command(name) is not None: continue
-        async def prefix_entry(ctx, *, _name=name):
-            content = ctx.message.content.strip()
-            if content.startswith(DEFAULT_PREFIX): content = content[len(DEFAULT_PREFIX):].strip()
-            try: tokens = shlex.split(content)
-            except ValueError: return await ctx.send("❌ Invalid quotes in the command.")
-            if not tokens or tokens[0].lower() != _name.lower(): return
-            ctx._air_prefix_tokens = tokens
-            await _prefix_dispatch(ctx)
-        prefix_entry.__name__ = f"prefix_{name}"
-        bot.add_command(commands.Command(prefix_entry, name=name)); added += 1
-    print(f"⌨️ Prefix bridge: registered {added} commands")
+    return await _invoke_tree_command(ctx, current, tokens[index:])
+
 
 @bot.event
 async def on_message(message: discord.Message):
-    if message.author.bot: return
+    if message.author.bot:
+        return
     content = message.content.strip()
-    if not content: return
-    if message.author.id == OWNER_ID and not content.startswith(DEFAULT_PREFIX):
-        try: tokens = shlex.split(content)
-        except ValueError: return
-        if tokens and bot.tree.get_command(tokens[0].lower()) is not None:
-            ctx = await bot.get_context(message); ctx._air_prefix_tokens = tokens
-            await _prefix_dispatch(ctx); return
+    if not content:
+        return
+
+    # Owner-only prefixless mode. It is deliberately restricted to the one
+    # configured owner ID; normal users still need the server prefix.
+    if message.author.id == OWNER_ID:
+        try:
+            tokens = shlex.split(content)
+        except ValueError:
+            tokens = []
+        if tokens and _find_command(await bot.get_context(message), tokens[0]):
+            ctx = await bot.get_context(message)
+            handled = await dispatch_prefix_tree(ctx, content)
+            if handled:
+                return
+
+    # Keep ordinary discord.py prefix commands working exactly as before.
+    ctx = await bot.get_context(message)
+    prefix = await bot.get_prefix(message)
+    prefixes = prefix if isinstance(prefix, (list, tuple)) else [prefix]
+    matched = next((p for p in prefixes if content.startswith(p)), None)
+    if matched:
+        remainder = content[len(matched):].strip()
+        if remainder:
+            try:
+                first = shlex.split(remainder)[0]
+            except (ValueError, IndexError):
+                first = ""
+            # Existing native prefix commands get first priority.
+            if first and bot.get_command(first):
+                await bot.process_commands(message)
+                return
+            # Slash-only commands also work with the configured prefix.
+            if await dispatch_prefix_tree(ctx, remainder):
+                return
+
     await bot.process_commands(message)
+
 
 @bot.event
 async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"👑 Air Commander owner configured: {OWNER_ID}")
-    await db.init_db(); await security.init_security_db()
+    await db.init_db()
+    await security.init_security_db()
+
+    if hasattr(bot, "_air_load_prefixes"):
+        await bot._air_load_prefixes()
+
     try:
-        synced = await bot.tree.sync(); print(f"✅ Synced {len(synced)} global slash commands")
-    except Exception as e: print(f"❌ Command sync failed: {e}")
+        # One authoritative global sync. Because the local tree is built once,
+        # this also removes stale global commands that are no longer registered.
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} global slash commands")
+    except Exception as exc:
+        print(f"❌ Command sync failed: {type(exc).__name__}: {exc}")
+
 
 async def start_bot():
-    await bot.add_cog(security.Security(bot))
-    await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
-    bot.tree.add_command(security.WarningGroup())
-    bot.tree.add_command(security.AutoModGroup())
-    bot.tree.add_command(security.AntiNukeGroup())
-    bot.tree.add_command(security.AntiLinkGroup())
-    install_prefix_commands()
+    # Cogs are installed exactly once. setup() methods below are intentionally
+    # not called again here.
+    await security.setup(bot)
+    await antinuke_rollback.setup(bot)
+    await purge_steal.setup(bot)
     await bot.start(TOKEN)
+
 
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
