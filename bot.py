@@ -44,7 +44,6 @@ games.setup(bot)
 basic_commands.setup(bot)
 autosetup.setup(bot)
 autorolesetup.setup(bot)
-security.setup(bot)
 
 @bot.event
 async def on_ready():
@@ -53,15 +52,20 @@ async def on_ready():
     await security.init_security_db()
 
     try:
-        # Keep one authoritative global registration path. Global slash commands
-        # are available in every server where the bot is installed and this avoids
-        # duplicate global + guild registrations.
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} global slash commands")
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
 
 async def start_bot():
+    # discord.py add_cog is asynchronous. Load the security cog and its
+    # warning/automod/antinuke/antilink command groups before login so the
+    # gateway never starts with a partially registered security module.
+    await bot.add_cog(security.Security(bot))
+    bot.tree.add_command(security.WarningGroup())
+    bot.tree.add_command(security.AutoModGroup())
+    bot.tree.add_command(security.AntiNukeGroup())
+    bot.tree.add_command(security.AntiLinkGroup())
     await bot.start(TOKEN)
 
 if __name__ == "__main__":
