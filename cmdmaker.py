@@ -244,4 +244,3 @@ def setup(bot):
 
     autosetup.setup(bot)
     bot._air_load_custom_commands = load_custom_commands
-    bot.add_listener(lambda: load_custom_commands(bot), "on_ready")
