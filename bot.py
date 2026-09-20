@@ -4,7 +4,6 @@ import threading
 import asyncio
 import inspect
 import shlex
-from typing import get_args, get_origin, Union
 
 from flask import Flask
 import discord
@@ -46,59 +45,14 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 bot._air_owner_id = OWNER_ID
 bot._air_start_time = time.time()
+bot.is_air_owner = lambda user: bool(user and getattr(user, "id", None) == OWNER_ID)
 
-def is_air_owner(user):
-    return bool(user and getattr(user, "id", None) == OWNER_ID)
-
-bot.is_air_owner = is_air_owner
-
-# IMPORTANT: every module is initialized exactly once.  In particular,
-# security used to be initialized here and then initialized a second time in
-# start_bot(), which created duplicate application commands/listeners.
+# Every synchronous command module is initialized exactly once.
+# moderation_extra also initializes CmdMaker and AutoRoleSetup.
 games.setup(bot)
 basic_commands.setup(bot)
 autosetup.setup(bot)
 moderation_extra.setup(bot)
-purge_steal.setup(bot)
-
-
-def _unwrap_annotation(annotation):
-    if annotation is inspect.Parameter.empty:
-        return str
-    origin = get_origin(annotation)
-    if origin is Union:
-        options = [x for x in get_args(annotation) if x is not type(None)]
-        return options[0] if options else str
-    return annotation
-
-
-async def _convert_prefix_argument(ctx, parameter, raw):
-    option_type = getattr(parameter, "type", None)
-    if option_type in (app_commands.AppCommandOptionType.string, None):
-        return raw
-    if option_type == app_commands.AppCommandOptionType.integer:
-        return int(raw)
-    if option_type == app_commands.AppCommandOptionType.number:
-        return float(raw)
-    if option_type == app_commands.AppCommandOptionType.boolean:
-        value = raw.lower()
-        if value in {"true", "yes", "on", "1"}:
-            return True
-        if value in {"false", "no", "off", "0"}:
-            return False
-        raise ValueError("use true/false")
-    if option_type == app_commands.AppCommandOptionType.user:
-        return await commands.MemberConverter().convert(ctx, raw)
-    if option_type == app_commands.AppCommandOptionType.mentionable:
-        try:
-            return await commands.MemberConverter().convert(ctx, raw)
-        except commands.BadArgument:
-            return await commands.RoleConverter().convert(ctx, raw)
-    if option_type == app_commands.AppCommandOptionType.role:
-        return await commands.RoleConverter().convert(ctx, raw)
-    if option_type == app_commands.AppCommandOptionType.channel:
-        return await commands.GuildChannelConverter().convert(ctx, raw)
-    return raw
 
 
 class PrefixResponse:
@@ -132,6 +86,7 @@ class PrefixFollowup:
 
 
 class PrefixInteraction:
+    """Minimal Interaction-compatible adapter for slash callbacks invoked from text."""
     def __init__(self, ctx, command):
         self.client = ctx.bot
         self.user = ctx.author
@@ -154,13 +109,40 @@ class PrefixInteraction:
         return self.guild is not None
 
 
+async def _convert_prefix_argument(ctx, parameter, raw):
+    option_type = getattr(parameter, "type", None)
+    if option_type in (app_commands.AppCommandOptionType.string, None):
+        return raw
+    if option_type == app_commands.AppCommandOptionType.integer:
+        return int(raw)
+    if option_type == app_commands.AppCommandOptionType.number:
+        return float(raw)
+    if option_type == app_commands.AppCommandOptionType.boolean:
+        value = raw.lower()
+        if value in {"true", "yes", "on", "1"}:
+            return True
+        if value in {"false", "no", "off", "0"}:
+            return False
+        raise ValueError("use true/false")
+    if option_type == app_commands.AppCommandOptionType.user:
+        return await commands.MemberConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.mentionable:
+        try:
+            return await commands.MemberConverter().convert(ctx, raw)
+        except commands.BadArgument:
+            return await commands.RoleConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.role:
+        return await commands.RoleConverter().convert(ctx, raw)
+    if option_type == app_commands.AppCommandOptionType.channel:
+        return await commands.GuildChannelConverter().convert(ctx, raw)
+    return raw
+
+
 async def _run_prefix_checks(command, interaction):
-    # The configured Air Commander owner has global bot-owner access for
-    # prefixless use.  All other users still receive the command's normal
-    # app-command permission checks.
+    # Owner ID 1504354088538869892 has owner bypass for prefixless use.
     if interaction.user.id == OWNER_ID:
         return
-    for check in command.checks:
+    for check in getattr(command, "checks", []):
         result = check(interaction)
         if inspect.isawaitable(result):
             result = await result
@@ -169,19 +151,19 @@ async def _run_prefix_checks(command, interaction):
 
 
 def _find_command(ctx, name):
-    # Prefer guild-scoped commands (CmdMaker) and then global commands.
-    command = bot.tree.get_command(name, guild=ctx.guild) if ctx.guild else None
-    return command or bot.tree.get_command(name)
+    # CmdMaker commands are guild scoped, so check guild scope first.
+    if ctx.guild:
+        command = bot.tree.get_command(name, guild=ctx.guild)
+        if command:
+            return command
+    return bot.tree.get_command(name)
 
 
 def _find_child(group, name):
-    for child in getattr(group, "commands", []):
-        if child.name.lower() == name.lower():
-            return child
-    return None
+    return next((child for child in getattr(group, "commands", []) if child.name.lower() == name.lower()), None)
 
 
-async def _invoke_tree_command(ctx, command, tokens, owner_bypass=False):
+async def _invoke_tree_command(ctx, command, tokens):
     if command is None:
         return False
 
@@ -209,9 +191,7 @@ async def _invoke_tree_command(ctx, command, tokens, owner_bypass=False):
             await ctx.send(f"❌ Missing required argument: `{parameter.display_name}`")
             return True
 
-        # Discord slash commands have no positional syntax. For prefix use,
-        # the final string option consumes the remainder so reasons/prompts/
-        # layouts do not need awkward quoting.
+        # Final string option consumes the remainder for natural prefix syntax.
         if parameter.type == app_commands.AppCommandOptionType.string and index == len(parameters) - 1:
             raw = " ".join(tokens[position:])
             position = len(tokens)
@@ -276,24 +256,24 @@ async def on_message(message: discord.Message):
     if not content:
         return
 
-    # Owner-only prefixless mode. It is deliberately restricted to the one
-    # configured owner ID; normal users still need the server prefix.
+    ctx = await bot.get_context(message)
+
+    # Owner-only prefixless mode. The owner can run global and guild-scoped
+    # slash-backed commands without a prefix, including CmdMaker commands.
     if message.author.id == OWNER_ID:
         try:
-            tokens = shlex.split(content)
-        except ValueError:
-            tokens = []
-        if tokens and _find_command(await bot.get_context(message), tokens[0]):
-            ctx = await bot.get_context(message)
-            handled = await dispatch_prefix_tree(ctx, content)
-            if handled:
+            first = shlex.split(content)[0]
+        except (ValueError, IndexError):
+            first = ""
+        if first and _find_command(ctx, first):
+            if await dispatch_prefix_tree(ctx, content):
                 return
 
-    # Keep ordinary discord.py prefix commands working exactly as before.
-    ctx = await bot.get_context(message)
+    # Normal users use the configured server prefix. Existing native prefix
+    # commands take priority; slash-only commands are bridged automatically.
     prefix = await bot.get_prefix(message)
     prefixes = prefix if isinstance(prefix, (list, tuple)) else [prefix]
-    matched = next((p for p in prefixes if content.startswith(p)), None)
+    matched = next((p for p in prefixes if p and content.startswith(p)), None)
     if matched:
         remainder = content[len(matched):].strip()
         if remainder:
@@ -301,11 +281,9 @@ async def on_message(message: discord.Message):
                 first = shlex.split(remainder)[0]
             except (ValueError, IndexError):
                 first = ""
-            # Existing native prefix commands get first priority.
             if first and bot.get_command(first):
                 await bot.process_commands(message)
                 return
-            # Slash-only commands also work with the configured prefix.
             if await dispatch_prefix_tree(ctx, remainder):
                 return
 
@@ -318,13 +296,10 @@ async def on_ready():
     print(f"👑 Air Commander owner configured: {OWNER_ID}")
     await db.init_db()
     await security.init_security_db()
-
     if hasattr(bot, "_air_load_prefixes"):
         await bot._air_load_prefixes()
 
     try:
-        # One authoritative global sync. Because the local tree is built once,
-        # this also removes stale global commands that are no longer registered.
         synced = await bot.tree.sync()
         print(f"✅ Synced {len(synced)} global slash commands")
     except Exception as exc:
@@ -332,11 +307,21 @@ async def on_ready():
 
 
 async def start_bot():
-    # Cogs are installed exactly once. setup() methods below are intentionally
-    # not called again here.
-    await security.setup(bot)
-    await antinuke_rollback.setup(bot)
-    await purge_steal.setup(bot)
+    # Add each cog exactly once. The previous startup path installed Security
+    # and AntiNuke twice, which caused duplicate command registrations.
+    await bot.add_cog(security.Security(bot))
+    await bot.add_cog(antinuke_rollback.AntiNukeRollback(bot))
+    await bot.add_cog(purge_steal.PurgeSteal(bot))
+
+    # Security groups are registered once here instead of once in setup() and
+    # again during startup.
+    existing = {command.name for command in bot.tree.get_commands()}
+    for group_cls in (security.WarningGroup, security.AutoModGroup, security.AntiNukeGroup, security.AntiLinkGroup):
+        group = group_cls()
+        if group.name not in existing:
+            bot.tree.add_command(group)
+            existing.add(group.name)
+
     await bot.start(TOKEN)
 
 
