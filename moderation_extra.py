@@ -17,11 +17,13 @@ def setup(bot: commands.Bot):
         bot._air_prefixes = {}
 
     async def load_prefixes():
-        try: bot._air_prefixes.update(await db.all_prefixes())
-        except Exception as exc: print(f"Prefix load error: {exc}")
+        try:
+            bot._air_prefixes.update(await db.all_prefixes())
+        except Exception as exc:
+            print(f"Prefix load error: {exc}")
 
     async def dynamic_prefix(_bot, message):
-        return bot._air_prefixes.get(message.guild.id, "!") if message.guild else "!"
+        return bot._air_prefixes.get(message.guild.id, ",") if message.guild else ","
 
     bot.command_prefix = dynamic_prefix
     bot._air_load_prefixes = load_prefixes
@@ -65,7 +67,7 @@ def setup(bot: commands.Bot):
     @prefix_group.command(name="view", description="Show the current server prefix")
     async def prefix_view(i: discord.Interaction):
         if not i.guild: return await i.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
-        prefix = bot._air_prefixes.get(i.guild.id, "!"); e = clean_embed("Server Prefix", f"The current text command prefix is **`{prefix}`**."); e.add_field(name="Example", value=f"`{prefix}help`", inline=False); await i.response.send_message(embed=e)
+        prefix = bot._air_prefixes.get(i.guild.id, ","); e = clean_embed("Server Prefix", f"The current text command prefix is **`{prefix}`**."); e.add_field(name="Example", value=f"`{prefix}help`", inline=False); await i.response.send_message(embed=e)
 
     bot.tree.add_command(prefix_group)
     cmdmaker.setup(bot)
