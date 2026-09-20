@@ -3,6 +3,7 @@ import time
 import threading
 import asyncio
 import io
+import re
 from datetime import datetime, timezone
 
 from flask import Flask
@@ -74,6 +75,392 @@ bot._air_start_time = start_time
 
 games.setup(bot)
 basic_commands.setup(bot)
+
+
+# =========================================================
+# PURGE / AFK / STEAL
+# =========================================================
+
+# AFK is kept in memory so no database changes are required.
+# Global AFK applies across every server the bot is in.
+# Guild AFK applies only to the current server.
+global_afk = {}
+guild_afk = {}
+
+
+# ---------------------------------------------------------
+# PURGE
+# ---------------------------------------------------------
+
+@bot.tree.command(name="purge", description="Delete messages from the current channel.")
+@app_commands.describe(amount="Number of messages to delete (1-100)")
+@app_commands.checks.has_permissions(manage_messages=True)
+@app_commands.checks.bot_has_permissions(manage_messages=True)
+async def slash_purge(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]):
+    if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message(
+            "❌ This command can only be used in a text channel.", ephemeral=True
+        )
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        deleted = await interaction.channel.purge(limit=amount)
+        await interaction.followup.send(
+            f"🧹 Deleted **{len(deleted)}** message(s).", ephemeral=True
+        )
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "❌ I need **Manage Messages** permission in this channel.", ephemeral=True
+        )
+    except discord.HTTPException as e:
+        await interaction.followup.send(
+            f"❌ Discord rejected the purge: `{e}`", ephemeral=True
+        )
+
+
+@bot.command(name="purge")
+@commands.has_permissions(manage_messages=True)
+@commands.bot_has_permissions(manage_messages=True)
+async def prefix_purge(ctx, amount: int):
+    """Delete 1-100 messages from the current channel."""
+    if not isinstance(ctx.channel, discord.TextChannel):
+        return await ctx.send("❌ This command can only be used in a text channel.")
+
+    if amount < 1 or amount > 100:
+        return await ctx.send("❌ Amount must be between **1 and 100**.")
+
+    try:
+        deleted = await ctx.channel.purge(limit=amount + 1)
+        msg = await ctx.send(f"🧹 Deleted **{max(len(deleted) - 1, 0)}** message(s).")
+        await asyncio.sleep(3)
+        try:
+            await msg.delete()
+        except discord.HTTPException:
+            pass
+    except discord.Forbidden:
+        await ctx.send("❌ I need **Manage Messages** permission in this channel.")
+    except discord.HTTPException as e:
+        await ctx.send(f"❌ Discord rejected the purge: `{e}`")
+
+
+# ---------------------------------------------------------
+# AFK HELPERS
+# ---------------------------------------------------------
+
+def _afk_reason(value):
+    value = (value or "").strip()
+    return value[:250] if value else "AFK"
+
+
+def _set_guild_afk(guild_id, user_id, reason):
+    guild_afk[(guild_id, user_id)] = {
+        "reason": _afk_reason(reason),
+        "since": discord.utils.utcnow(),
+    }
+
+
+def _set_global_afk(user_id, reason):
+    global_afk[user_id] = {
+        "reason": _afk_reason(reason),
+        "since": discord.utils.utcnow(),
+    }
+
+
+def _remove_afk(guild_id, user_id):
+    removed_guild = guild_afk.pop((guild_id, user_id), None)
+    removed_global = global_afk.pop(user_id, None)
+    return removed_guild, removed_global
+
+
+def _afk_text(data):
+    if not data:
+        return "AFK"
+    return data.get("reason", "AFK")
+
+
+# ---------------------------------------------------------
+# /afk
+# ---------------------------------------------------------
+
+@bot.tree.command(name="afk", description="Set a guild or global AFK status.")
+@app_commands.describe(
+    scope="Choose whether your AFK is guild-only or global",
+    reason="Optional AFK reason"
+)
+@app_commands.choices(scope=[
+    app_commands.Choice(name="Guild", value="guild"),
+    app_commands.Choice(name="Global", value="global"),
+])
+async def slash_afk(interaction: discord.Interaction, scope: app_commands.Choice[str], reason: str | None = None):
+    if not interaction.guild:
+        return await interaction.response.send_message(
+            "❌ This command can only be used inside a server.", ephemeral=True
+        )
+
+    reason = _afk_reason(reason)
+
+    if scope.value == "global":
+        _set_global_afk(interaction.user.id, reason)
+        text = "🌐 **Global AFK enabled.** Your AFK will be shown across servers."
+    else:
+        _set_guild_afk(interaction.guild.id, interaction.user.id, reason)
+        text = f"🏠 **Guild AFK enabled** in **{interaction.guild.name}**."
+
+    e = discord.Embed(
+        title="💤 AFK Status",
+        description=f"{text}\n\n📝 **Reason:** {reason}",
+        color=discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+    e.set_footer(text="✈️ Air Commander • AFK System")
+    await interaction.response.send_message(embed=e)
+
+
+@bot.command(name="afk")
+async def prefix_afk(ctx, scope: str = "guild", *, reason: str = "AFK"):
+    """Set guild or global AFK. Usage: ,afk guild reason / ,afk global reason"""
+    if not ctx.guild:
+        return await ctx.send("❌ This command can only be used inside a server.")
+
+    scope = scope.lower().strip()
+    if scope not in {"guild", "global"}:
+        reason = f"{scope} {reason}".strip()
+        scope = "guild"
+
+    reason = _afk_reason(reason)
+
+    if scope == "global":
+        _set_global_afk(ctx.author.id, reason)
+        text = "🌐 **Global AFK enabled.** Your AFK will be shown across servers."
+    else:
+        _set_guild_afk(ctx.guild.id, ctx.author.id, reason)
+        text = f"🏠 **Guild AFK enabled** in **{ctx.guild.name}**."
+
+    e = discord.Embed(
+        title="💤 AFK Status",
+        description=f"{text}\n\n📝 **Reason:** {reason}",
+        color=discord.Color.orange(),
+        timestamp=discord.utils.utcnow(),
+    )
+    e.set_footer(text="✈️ Air Commander • AFK System")
+    await ctx.send(embed=e)
+
+
+# ---------------------------------------------------------
+# STEAL HELPERS
+# ---------------------------------------------------------
+
+EMOJI_RE = re.compile(r"<(?P<animated>a?):(?P<name>[A-Za-z0-9_]{1,32}):(?P<id>\d+)>")
+
+
+def _extract_emoji_tokens(text: str):
+    found = []
+    seen = set()
+    for match in EMOJI_RE.finditer(text or ""):
+        emoji_id = int(match.group("id"))
+        if emoji_id in seen:
+            continue
+        seen.add(emoji_id)
+        found.append({
+            "name": match.group("name"),
+            "id": emoji_id,
+            "animated": bool(match.group("animated")),
+            "url": f"https://cdn.discordapp.com/emojis/{emoji_id}.{'gif' if match.group('animated') else 'png'}?size=160&quality=lossless",
+        })
+    return found
+
+
+async def _read_url(url: str):
+    try:
+        async with bot.http._HTTPClient__session.get(url) as response:
+            if response.status != 200:
+                return None
+            return await response.read()
+    except Exception:
+        # Fallback through discord.py's asset reader where available.
+        return None
+
+
+async def _fetch_bytes(url: str):
+    # discord.py exposes its aiohttp session internally. Using it avoids
+    # adding another dependency to requirements.txt.
+    data = await _read_url(url)
+    if data:
+        return data
+    return None
+
+
+async def _create_stolen_emoji(guild: discord.Guild, item):
+    data = await _fetch_bytes(item["url"])
+    if not data:
+        return False, "download failed"
+
+    try:
+        await guild.create_custom_emoji(
+            name=item["name"][:32],
+            image=data,
+            reason="Air Commander steal command",
+        )
+        return True, "ok"
+    except discord.HTTPException as e:
+        return False, str(e)
+
+
+async def _steal_from_message(guild: discord.Guild, message: discord.Message):
+    emoji_items = _extract_emoji_tokens(message.content)
+    emoji_items = emoji_items[:50]
+
+    emoji_ok = 0
+    emoji_failed = 0
+
+    for item in emoji_items:
+        ok, _ = await _create_stolen_emoji(guild, item)
+        if ok:
+            emoji_ok += 1
+        else:
+            emoji_failed += 1
+
+    # Discord message stickers are represented by StickerItem objects.
+    # We process at most 5, as requested. Sticker creation can fail when
+    # the source sticker type/file is not supported by Discord's API.
+    sticker_ok = 0
+    sticker_failed = 0
+    sticker_items = list(message.stickers)[:5]
+
+    for sticker_item in sticker_items:
+        try:
+            sticker = await sticker_item.fetch()
+            if not sticker.url:
+                sticker_failed += 1
+                continue
+
+            data = await _fetch_bytes(str(sticker.url))
+            if not data:
+                sticker_failed += 1
+                continue
+
+            # Discord custom stickers require a supported image file.
+            file = discord.File(io.BytesIO(data), filename="sticker.png")
+            await guild.create_sticker(
+                name=re.sub(r"[^a-zA-Z0-9_-]", "-", sticker.name)[:30] or "stolen-sticker",
+                description=(sticker.description or "Stolen by Air Commander")[:100],
+                emoji=sticker.emoji or "🙂",
+                file=file,
+                reason="Air Commander steal command",
+            )
+            sticker_ok += 1
+        except Exception:
+            sticker_failed += 1
+
+    return emoji_ok, emoji_failed, sticker_ok, sticker_failed
+
+
+async def _resolve_steal_message(ctx, message_id: str | None):
+    if message_id:
+        try:
+            return await ctx.channel.fetch_message(int(message_id))
+        except (ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+
+    reference = ctx.message.reference
+    if reference and reference.message_id:
+        try:
+            return await ctx.channel.fetch_message(reference.message_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return None
+
+    return ctx.message
+
+
+# ---------------------------------------------------------
+# ,steal
+# ---------------------------------------------------------
+
+@bot.command(name="steal")
+@commands.has_permissions(manage_emojis_and_stickers=True)
+@commands.bot_has_permissions(manage_emojis_and_stickers=True)
+async def prefix_steal(ctx, message_id: str | None = None):
+    """Steal up to 50 emojis and 5 stickers from a message."""
+    if not ctx.guild:
+        return await ctx.send("❌ This command can only be used inside a server.")
+
+    message = await _resolve_steal_message(ctx, message_id)
+    if not message:
+        return await ctx.send("❌ Message not found.")
+
+    # For best results, reply to the message containing the emojis/stickers:
+    # ,steal  (while replying), or use ,steal MESSAGE_ID.
+    if not message.content and not message.stickers:
+        return await ctx.send("❌ No custom emojis or stickers found in that message.")
+
+    e = discord.Embed(
+        title="📥 Stealing Expressions...",
+        description="Please wait while I import the selected emojis/stickers.",
+        color=discord.Color.blurple(),
+    )
+    status = await ctx.send(embed=e)
+
+    emoji_ok, emoji_failed, sticker_ok, sticker_failed = await _steal_from_message(ctx.guild, message)
+
+    e = discord.Embed(
+        title="📥 Steal Complete",
+        description="Expression import finished.",
+        color=discord.Color.green() if (emoji_ok or sticker_ok) else discord.Color.red(),
+        timestamp=discord.utils.utcnow(),
+    )
+    e.add_field(name="😀 Emojis", value=f"✅ {emoji_ok} added\n❌ {emoji_failed} failed", inline=True)
+    e.add_field(name="🏷️ Stickers", value=f"✅ {sticker_ok} added\n❌ {sticker_failed} failed", inline=True)
+    e.set_footer(text="✈️ Air Commander • Limits: 50 emojis / 5 stickers")
+    await status.edit(embed=e)
+
+
+# ---------------------------------------------------------
+# /steal
+# ---------------------------------------------------------
+
+@bot.tree.command(name="steal", description="Steal up to 50 emojis and 5 stickers from a message.")
+@app_commands.describe(message_id="Optional message ID containing the emojis/stickers")
+@app_commands.checks.has_permissions(manage_emojis_and_stickers=True)
+@app_commands.checks.bot_has_permissions(manage_emojis_and_stickers=True)
+async def slash_steal(interaction: discord.Interaction, message_id: str | None = None):
+    if not interaction.guild or not isinstance(interaction.channel, discord.TextChannel):
+        return await interaction.response.send_message(
+            "❌ This command can only be used in a server text channel.", ephemeral=True
+        )
+
+    message = None
+    if message_id:
+        try:
+            message = await interaction.channel.fetch_message(int(message_id))
+        except (ValueError, discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return await interaction.response.send_message("❌ Message not found.", ephemeral=True)
+
+    if not message:
+        return await interaction.response.send_message(
+            "ℹ️ Give me a **message ID** containing the emojis/stickers.\n"
+            "Example: `/steal message_id:123456789012345678`",
+            ephemeral=True,
+        )
+
+    if not message.content and not message.stickers:
+        return await interaction.response.send_message(
+            "❌ No custom emojis or stickers found in that message.", ephemeral=True
+        )
+
+    await interaction.response.defer()
+    emoji_ok, emoji_failed, sticker_ok, sticker_failed = await _steal_from_message(interaction.guild, message)
+
+    e = discord.Embed(
+        title="📥 Steal Complete",
+        description="Expression import finished.",
+        color=discord.Color.green() if (emoji_ok or sticker_ok) else discord.Color.red(),
+        timestamp=discord.utils.utcnow(),
+    )
+    e.add_field(name="😀 Emojis", value=f"✅ {emoji_ok} added\n❌ {emoji_failed} failed", inline=True)
+    e.add_field(name="🏷️ Stickers", value=f"✅ {sticker_ok} added\n❌ {sticker_failed} failed", inline=True)
+    e.set_footer(text="✈️ Air Commander • Limits: 50 emojis / 5 stickers")
+    await interaction.followup.send(embed=e)
 
 
 # =========================================================
@@ -1450,6 +1837,51 @@ async def on_message(message):
 
     if message.author.bot or not message.guild:
         return
+
+    # -----------------------------------------------------
+    # AFK: remove the sender's own AFK when they speak.
+    # -----------------------------------------------------
+    removed_guild, removed_global = _remove_afk(
+        message.guild.id,
+        message.author.id
+    )
+
+    if removed_guild or removed_global:
+        try:
+            await message.channel.send(
+                f"👋 Welcome back {message.author.mention}! Your AFK has been removed.",
+                delete_after=5
+            )
+        except discord.HTTPException:
+            pass
+
+    # -----------------------------------------------------
+    # AFK: notify when someone mentions an AFK user.
+    # -----------------------------------------------------
+    mentioned = set(message.mentions)
+    notices = []
+
+    for member in mentioned:
+        guild_data = guild_afk.get((message.guild.id, member.id))
+        global_data = global_afk.get(member.id)
+
+        if guild_data:
+            notices.append(
+                f"💤 {member.mention} is **AFK**: {_afk_text(guild_data)}"
+            )
+        elif global_data:
+            notices.append(
+                f"🌐 {member.mention} is **globally AFK**: {_afk_text(global_data)}"
+            )
+
+    if notices:
+        try:
+            await message.channel.send(
+                "\n".join(notices[:10]),
+                delete_after=8
+            )
+        except discord.HTTPException:
+            pass
 
     try:
         await db.log_activity(
