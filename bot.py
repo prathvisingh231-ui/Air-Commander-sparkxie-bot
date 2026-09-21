@@ -2156,7 +2156,6 @@ async def _air_special_activity_listener(message):
     except Exception:
         pass
 
-
 # =========================================================
 # BOT READY
 # =========================================================
@@ -2166,60 +2165,120 @@ async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
 
     await db.init_db()
+
+    # =====================================================
+    # 🎫 TICKET SYSTEM
+    # =====================================================
+
     if not getattr(bot, "_air_ticket_initialized", False):
-    try:
-        ticket_cog = await ticket.setup(bot)
-        bot._air_ticket_cog = ticket_cog
-        await ticket.restore_panels(bot, ticket_cog)
-        bot._air_ticket_initialized = True
-        print("🎫 Advanced ticket system initialized.")
-    except Exception as exc:
-        print(f"⚠️ Ticket system initialization error: {type(exc).__name__}: {exc}")
+        try:
+            ticket_cog = await ticket.setup(bot)
+            bot._air_ticket_cog = ticket_cog
+
+            await ticket.restore_panels(bot, ticket_cog)
+
+            bot._air_ticket_initialized = True
+            print("🎫 Advanced ticket system initialized.")
+
+        except Exception as exc:
+            print(
+                f"⚠️ Ticket system initialization error: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    # =====================================================
+    # PREFIX SETTINGS
+    # =====================================================
 
     if not getattr(bot, "_air_prefixes_loaded_once", False):
         try:
             if hasattr(bot, "_air_load_prefixes"):
                 await bot._air_load_prefixes()
+
         except Exception as exc:
-            print(f"⚠️ Prefix settings load error: {type(exc).__name__}: {exc}")
+            print(
+                f"⚠️ Prefix settings load error: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
         bot._air_prefixes_loaded_once = True
+
+    # =====================================================
+    # SECURITY SYSTEMS
+    # =====================================================
 
     if not getattr(bot, "_air_security_initialized", False):
         try:
             await init_security_db()
             await setup_security(bot)
             await setup_antinuke_rollback(bot)
+
             bot._air_security_initialized = True
             print("🛡️ Embedded security systems initialized.")
+
         except Exception as exc:
-            print(f"⚠️ Security initialization error: {type(exc).__name__}: {exc}")
+            print(
+                f"⚠️ Security initialization error: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    # =====================================================
+    # CUSTOM COMMANDS
+    # =====================================================
 
     if not getattr(bot, "_air_custom_commands_loaded_once", False):
         try:
             if hasattr(bot, "_air_load_custom_commands"):
                 await bot._air_load_custom_commands(bot)
+
         except Exception as exc:
-            print(f"⚠️ Custom command loader error: {type(exc).__name__}: {exc}")
+            print(
+                f"⚠️ Custom command loader error: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
         bot._air_custom_commands_loaded_once = True
+
+    # =====================================================
+    # SPECIAL INTELLIGENCE DATABASE
+    # =====================================================
 
     try:
         await _special_db_init()
+
     except Exception as exc:
-        print(f"⚠️ Special intelligence DB error: {type(exc).__name__}: {exc}")
+        print(
+            f"⚠️ Special intelligence DB error: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    # =====================================================
+    # SLASH COMMAND SYNC
+    # =====================================================
 
     try:
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
+
             bot.tree.copy_global_to(guild=guild)
+
             synced = await bot.tree.sync(guild=guild)
-            print(f"✅ Synced {len(synced)} slash commands to guild {GUILD_ID}")
+
+            print(
+                f"✅ Synced {len(synced)} slash commands "
+                f"to guild {GUILD_ID}"
+            )
+
         else:
             synced = await bot.tree.sync()
-            print(f"✅ Synced {len(synced)} global slash commands")
+
+            print(
+                f"✅ Synced {len(synced)} global slash commands"
+            )
+
     except Exception as e:
         print(f"❌ Command sync failed: {e}")
-
-
+        
 # =========================================================
 # PREFIX COMMANDS — MISSING COMMANDS
 # Prefix: ,
