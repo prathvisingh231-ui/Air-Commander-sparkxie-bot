@@ -4335,6 +4335,584 @@ async def airscan(i):
     )
 
 # =========================================================
+# DATA STORAGE
+# =========================================================
+
+DATA_DIR = Path("data")
+RECOVERY_FILE = DATA_DIR / "recovery.json"
+
+MAX_BACKUPS = 20
+
+
+def ensure_data_dir():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_json(file):
+    ensure_data_dir()
+
+    if not file.exists():
+        return {}
+
+    try:
+        return json.loads(
+            file.read_text(encoding="utf-8")
+        )
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_json(file, data):
+    ensure_data_dir()
+
+    temp = file.with_suffix(".tmp")
+
+    temp.write_text(
+        json.dumps(
+            data,
+            indent=2,
+            ensure_ascii=False
+        ),
+        encoding="utf-8"
+    )
+
+    temp.replace(file)
+
+
+# =========================================================
+# RECOVERY STORAGE
+# =========================================================
+
+def load_recovery():
+    return load_json(RECOVERY_FILE)
+
+
+def save_recovery(data):
+    save_json(RECOVERY_FILE, data)
+
+
+def create_recovery_id():
+    now = discord.utils.utcnow()
+
+    return (
+        "R-"
+        + now.strftime("%Y%m%d-%H%M%S")
+        + "-"
+        + secrets.token_hex(3).upper()
+    )
+
+
+# =========================================================
+# CREATE SNAPSHOT
+# =========================================================
+
+async def create_snapshot(guild):
+
+    await guild.fetch_roles()
+    await guild.fetch_channels()
+
+    roles = []
+
+    for role in sorted(
+        guild.roles,
+        key=lambda r: r.position
+    ):
+
+        if role.is_default() or role.managed:
+            continue
+
+        roles.append({
+            "id": role.id,
+            "name": role.name,
+            "color": role.color.value,
+            "hoist": role.hoist,
+            "mentionable": role.mentionable,
+            "permissions": role.permissions.value,
+            "position": role.position
+        })
+
+    channels = []
+
+    for channel in sorted(
+        guild.channels,
+        key=lambda c: c.position
+    ):
+
+        overwrites = []
+
+        for target, overwrite in channel.overwrites.items():
+
+            allow, deny = overwrite.pair()
+
+            overwrites.append({
+                "id": target.id,
+                "type": (
+                    "role"
+                    if isinstance(target, discord.Role)
+                    else "member"
+                ),
+                "allow": allow.value,
+                "deny": deny.value
+            })
+
+        data = {
+            "id": channel.id,
+            "name": channel.name,
+            "type": channel.type.value,
+            "position": channel.position,
+            "category_id": channel.category_id,
+            "category_name": (
+                channel.category.name
+                if channel.category
+                else None
+            ),
+            "overwrites": overwrites
+        }
+
+        if isinstance(channel, discord.TextChannel):
+
+            data.update({
+                "topic": channel.topic,
+                "nsfw": channel.nsfw,
+                "slowmode": channel.slowmode_delay
+            })
+
+        elif isinstance(channel, discord.VoiceChannel):
+
+            data.update({
+                "bitrate": channel.bitrate,
+                "user_limit": channel.user_limit
+            })
+
+        elif isinstance(channel, discord.CategoryChannel):
+
+            data["category"] = True
+
+        channels.append(data)
+
+    return {
+        "guild_id": guild.id,
+        "guild_name": guild.name,
+        "created_at": discord.utils.utcnow().isoformat(),
+        "roles": roles,
+        "channels": channels
+    }
+
+
+# =========================================================
+# RESTORE SNAPSHOT
+# =========================================================
+
+async def restore_snapshot(guild, snapshot):
+
+    await guild.fetch_roles()
+    await guild.fetch_channels()
+
+    role_map = {}
+
+    created_roles = 0
+    updated_roles = 0
+
+    existing_roles = {
+        role.id: role
+        for role in guild.roles
+    }
+
+    # -----------------------------------------------------
+    # ROLES
+    # -----------------------------------------------------
+
+    for role_data in sorted(
+        snapshot.get("roles", []),
+        key=lambda x: x.get("position", 0)
+    ):
+
+        old_id = role_data["id"]
+
+        role = existing_roles.get(old_id)
+
+        if role is None:
+
+            role = discord.utils.find(
+                lambda r:
+                r.name == role_data["name"]
+                and not r.managed,
+                guild.roles
+            )
+
+        try:
+
+            kwargs = {
+                "name": role_data["name"],
+                "color": discord.Color(
+                    role_data.get("color", 0)
+                ),
+                "hoist": role_data.get("hoist", False),
+                "mentionable": role_data.get(
+                    "mentionable",
+                    False
+                ),
+                "permissions": discord.Permissions(
+                    role_data.get("permissions", 0)
+                ),
+                "reason": "AirMarshal Recovery"
+            }
+
+            if role and not role.managed:
+
+                await role.edit(**kwargs)
+                updated_roles += 1
+
+            else:
+
+                role = await guild.create_role(**kwargs)
+                created_roles += 1
+
+            role_map[old_id] = role
+
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+    await guild.fetch_channels()
+
+    channel_map = {}
+
+    created_channels = 0
+    updated_channels = 0
+
+    channel_data_list = snapshot.get("channels", [])
+
+    # Categories first
+    ordered = sorted(
+        channel_data_list,
+        key=lambda x: (
+            0
+            if x.get("type") ==
+            discord.ChannelType.category.value
+            else 1,
+            x.get("position", 0)
+        )
+    )
+
+    existing_channels = {
+        channel.id: channel
+        for channel in guild.channels
+    }
+
+    # -----------------------------------------------------
+    # CHANNELS
+    # -----------------------------------------------------
+
+    for data in ordered:
+
+        old_id = data["id"]
+        channel_type = data["type"]
+
+        channel = existing_channels.get(old_id)
+
+        try:
+
+            # =============================================
+            # CATEGORY
+            # =============================================
+
+            if channel_type == discord.ChannelType.category.value:
+
+                if not isinstance(
+                    channel,
+                    discord.CategoryChannel
+                ):
+
+                    channel = discord.utils.find(
+                        lambda c:
+                        isinstance(
+                            c,
+                            discord.CategoryChannel
+                        )
+                        and c.name == data["name"],
+                        guild.channels
+                    )
+
+                if channel is None:
+
+                    channel = await guild.create_category(
+                        data["name"],
+                        reason="AirMarshal Recovery"
+                    )
+
+                    created_channels += 1
+
+                else:
+
+                    await channel.edit(
+                        name=data["name"],
+                        reason="AirMarshal Recovery"
+                    )
+
+                    updated_channels += 1
+
+            # =============================================
+            # TEXT
+            # =============================================
+
+            elif channel_type == discord.ChannelType.text.value:
+
+                category = None
+
+                category_id = data.get("category_id")
+
+                if category_id:
+                    category = channel_map.get(category_id)
+
+                if category is None:
+
+                    category = discord.utils.find(
+                        lambda c:
+                        isinstance(
+                            c,
+                            discord.CategoryChannel
+                        )
+                        and c.name ==
+                        data.get("category_name"),
+                        guild.categories
+                    )
+
+                if not isinstance(
+                    channel,
+                    discord.TextChannel
+                ):
+
+                    channel = discord.utils.find(
+                        lambda c:
+                        isinstance(
+                            c,
+                            discord.TextChannel
+                        )
+                        and c.name == data["name"],
+                        guild.text_channels
+                    )
+
+                kwargs = {
+                    "category": category,
+                    "topic": data.get("topic"),
+                    "nsfw": data.get("nsfw", False),
+                    "slowmode_delay": data.get(
+                        "slowmode",
+                        0
+                    )
+                }
+
+                if channel is None:
+
+                    channel = await guild.create_text_channel(
+                        data["name"],
+                        **kwargs,
+                        reason="AirMarshal Recovery"
+                    )
+
+                    created_channels += 1
+
+                else:
+
+                    await channel.edit(
+                        name=data["name"],
+                        **kwargs,
+                        reason="AirMarshal Recovery"
+                    )
+
+                    updated_channels += 1
+
+            # =============================================
+            # VOICE
+            # =============================================
+
+            elif channel_type == discord.ChannelType.voice.value:
+
+                category = None
+
+                category_id = data.get("category_id")
+
+                if category_id:
+                    category = channel_map.get(category_id)
+
+                if category is None:
+
+                    category = discord.utils.find(
+                        lambda c:
+                        isinstance(
+                            c,
+                            discord.CategoryChannel
+                        )
+                        and c.name ==
+                        data.get("category_name"),
+                        guild.categories
+                    )
+
+                if not isinstance(
+                    channel,
+                    discord.VoiceChannel
+                ):
+
+                    channel = discord.utils.find(
+                        lambda c:
+                        isinstance(
+                            c,
+                            discord.VoiceChannel
+                        )
+                        and c.name == data["name"],
+                        guild.voice_channels
+                    )
+
+                kwargs = {
+                    "category": category,
+                    "bitrate": data.get(
+                        "bitrate",
+                        64000
+                    ),
+                    "user_limit": data.get(
+                        "user_limit",
+                        0
+                    )
+                }
+
+                if channel is None:
+
+                    channel = await guild.create_voice_channel(
+                        data["name"],
+                        **kwargs,
+                        reason="AirMarshal Recovery"
+                    )
+
+                    created_channels += 1
+
+                else:
+
+                    await channel.edit(
+                        name=data["name"],
+                        **kwargs,
+                        reason="AirMarshal Recovery"
+                    )
+
+                    updated_channels += 1
+
+            else:
+                continue
+
+            channel_map[old_id] = channel
+
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+    # -----------------------------------------------------
+    # PERMISSIONS
+    # -----------------------------------------------------
+
+    for data in channel_data_list:
+
+        channel = channel_map.get(data["id"])
+
+        if channel is None:
+            continue
+
+        overwrites = {}
+
+        for ow in data.get("overwrites", []):
+
+            target_id = ow["id"]
+
+            if target_id == guild.id:
+
+                target = guild.default_role
+
+            else:
+
+                target = (
+                    role_map.get(target_id)
+                    or guild.get_role(target_id)
+                    or guild.get_member(target_id)
+                )
+
+            if target is None:
+                continue
+
+            allow = discord.Permissions(
+                ow.get("allow", 0)
+            )
+
+            deny = discord.Permissions(
+                ow.get("deny", 0)
+            )
+
+            overwrites[target] = (
+                discord.PermissionOverwrite.from_pair(
+                    allow,
+                    deny
+                )
+            )
+
+        try:
+
+            await channel.edit(
+                overwrites=overwrites,
+                reason="AirMarshal Recovery"
+            )
+
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+    # -----------------------------------------------------
+    # CHANNEL POSITIONS
+    # -----------------------------------------------------
+
+    for data in channel_data_list:
+
+        channel = channel_map.get(data["id"])
+
+        if channel is None:
+            continue
+
+        try:
+
+            await channel.edit(
+                position=data.get("position", 0),
+                reason="AirMarshal Recovery"
+            )
+
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+    # -----------------------------------------------------
+    # ROLE POSITIONS
+    # -----------------------------------------------------
+
+    for data in snapshot.get("roles", []):
+
+        role = role_map.get(data["id"])
+
+        if role is None or role.managed:
+            continue
+
+        try:
+
+            await guild.edit_role_positions(
+                positions={
+                    role: data.get("position", 1)
+                },
+                reason="AirMarshal Recovery"
+            )
+
+        except (discord.Forbidden, discord.HTTPException):
+            continue
+
+    return (
+        created_roles,
+        updated_roles,
+        created_channels,
+        updated_channels
+    )
+
+
+# =========================================================
 # BOT STARTUP
 # =========================================================
 
