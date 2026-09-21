@@ -1,7 +1,8 @@
-"""Air Commander startup compatibility hook.
+"""Air Commander startup compatibility hooks.
 
 Provides prefixless text-command parsing for the two configured bot owners
-without changing the existing command implementations or slash commands.
+and loads the isolated Anti-Nuke enable animation without changing command
+implementations or slash-command registration.
 """
 
 from discord.ext import commands
@@ -25,11 +26,15 @@ def _owner_aware_prefix(bot, message):
 
 
 def _patched_bot_init(self, *args, **kwargs):
-    # Preserve the bot's existing constructor configuration, while replacing
-    # only the prefix resolver. All command decorators and permission checks
-    # remain untouched.
     kwargs["command_prefix"] = _owner_aware_prefix
     _original_bot_init(self, *args, **kwargs)
 
 
 commands.Bot.__init__ = _patched_bot_init
+
+# Isolated visual enhancement for the existing /antinuke enable response.
+# Importing this module installs the narrow InteractionResponse wrapper.
+try:
+    import antinuke_animation  # noqa: F401
+except Exception as exc:
+    print(f"⚠️ Anti-Nuke animation unavailable: {type(exc).__name__}: {exc}")
