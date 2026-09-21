@@ -6,6 +6,7 @@ import io
 import re
 from datetime import datetime, timezone
 
+from pathlib import Path
 from flask import Flask
 import discord
 import db
