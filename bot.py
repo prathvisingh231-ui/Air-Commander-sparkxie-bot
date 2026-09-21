@@ -2166,6 +2166,15 @@ async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
 
     await db.init_db()
+    if not getattr(bot, "_air_ticket_initialized", False):
+    try:
+        ticket_cog = await ticket.setup(bot)
+        bot._air_ticket_cog = ticket_cog
+        await ticket.restore_panels(bot, ticket_cog)
+        bot._air_ticket_initialized = True
+        print("🎫 Advanced ticket system initialized.")
+    except Exception as exc:
+        print(f"⚠️ Ticket system initialization error: {type(exc).__name__}: {exc}")
 
     if not getattr(bot, "_air_prefixes_loaded_once", False):
         try:
