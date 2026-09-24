@@ -1,40 +1,148 @@
-"""Air Commander startup compatibility hooks.
+"""
+Air Commander - Owner Prefixless Command Compatibility
 
-Provides prefixless text-command parsing for the two configured bot owners
-and loads the isolated Anti-Nuke enable animation without changing command
-implementations or slash-command registration.
+Owners can use prefixless text commands.
+Normal users must use the configured prefix.
+
+Owner IDs:
+- 1504354088538869892
+- 880350253239373855
+
+Examples:
+Owner:
+    ping
+    purge 10
+    kick @user
+
+Normal users:
+    ,ping
+    ,purge 10
+    ,kick @user
+
+Slash commands are unaffected.
 """
 
+import discord
 from discord.ext import commands
 
+
+# ============================================================
+# CONFIG
+# ============================================================
+
+PREFIX = ","
 
 OWNER_IDS = frozenset({
     1504354088538869892,
     880350253239373855,
 })
 
-_original_bot_init = commands.Bot.__init__
+
+# ============================================================
+# COMMAND PREFIX
+# ============================================================
+
+def get_command_prefix(
+    bot: commands.Bot,
+    message: discord.Message
+):
+    """
+    Return the prefix based on the message author.
+
+    Owners:
+        No prefix required.
+
+    Everyone else:
+        Normal configured prefix is required.
+    """
+
+    # Ignore messages without an author
+    if message.author is None:
+        return PREFIX
+
+    # Owner can use commands without prefix
+    if message.author.id in OWNER_IDS:
+        return ""
+
+    # Everyone else uses normal prefix
+    return PREFIX
 
 
-def _owner_aware_prefix(bot, message):
-    """Return an empty prefix for the owners, otherwise the bot's normal prefix."""
-    if getattr(message, "guild", None) is not None:
-        author = getattr(message, "author", None)
-        if author is not None and getattr(author, "id", None) in OWNER_IDS:
-            return ""
-    return ","
+# ============================================================
+# INTENTS
+# ============================================================
+
+intents = discord.Intents.default()
+
+intents.message_content = True
+intents.members = True
 
 
-def _patched_bot_init(self, *args, **kwargs):
-    kwargs["command_prefix"] = _owner_aware_prefix
-    _original_bot_init(self, *args, **kwargs)
+# ============================================================
+# BOT
+# ============================================================
+
+bot = commands.Bot(
+    command_prefix=get_command_prefix,
+    intents=intents,
+)
 
 
-commands.Bot.__init__ = _patched_bot_init
+# ============================================================
+# READY
+# ============================================================
 
-# Isolated visual enhancement for the existing /antinuke enable response.
-# Importing this module installs the narrow InteractionResponse wrapper.
-try:
-    import antinuke_animation  # noqa: F401
-except Exception as exc:
-    print(f"⚠️ Anti-Nuke animation unavailable: {type(exc).__name__}: {exc}")
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user} ({bot.user.id})")
+    print(f"✅ Normal prefix: {PREFIX}")
+    print("✅ Owner prefixless commands: ENABLED")
+
+
+# ============================================================
+# TEST COMMAND
+# ============================================================
+
+@bot.command(name="ping")
+async def ping(ctx: commands.Context):
+    latency = round(bot.latency * 1000)
+
+    await ctx.send(
+        f"🏓 Pong! `{latency}ms`"
+    )
+
+
+# ============================================================
+# OPTIONAL ERROR HANDLER
+# ============================================================
+
+@bot.event
+async def on_command_error(
+    ctx: commands.Context,
+    error: commands.CommandError
+):
+    # Ignore unknown commands.
+    # This prevents unnecessary error messages.
+    if isinstance(error, commands.CommandNotFound):
+        return
+
+    # Ignore missing permissions if you already handle
+    # permissions inside individual commands.
+    if isinstance(error, commands.CheckFailure):
+        return
+
+    print(
+        f"⚠️ Command error in "
+        f"{getattr(ctx.command, 'name', 'unknown')}: "
+        f"{type(error).__name__}: {error}"
+    )
+
+
+# ============================================================
+# START BOT
+# ============================================================
+
+# Put your existing token here / load it from environment.
+#
+# TOKEN = os.getenv("DISCORD_TOKEN")
+# bot.run(TOKEN)
