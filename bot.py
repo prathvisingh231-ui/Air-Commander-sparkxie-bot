@@ -4334,6 +4334,171 @@ async def airscan(i):
         embed=e
     )
 
+
+# =========================================================
+# SNIPE SYSTEM
+# Prefix: ,
+# Slash: /snipe
+# =========================================================
+
+snipe_cache = {}
+
+
+# =========================================================
+# MESSAGE DELETE EVENT
+# =========================================================
+
+@bot.event
+async def on_message_delete(message):
+
+    # Ignore bots
+    if message.author.bot:
+        return
+
+    # Save deleted message
+    snipe_cache[message.channel.id] = {
+        "content": message.content,
+        "author_name": str(message.author),
+        "author_id": message.author.id,
+        "avatar": message.author.display_avatar.url,
+        "attachments": [
+            attachment.url
+            for attachment in message.attachments
+        ],
+        "created_at": message.created_at
+    }
+
+    # IMPORTANT:
+    # If your bot already has on_message_delete,
+    # merge the above cache logic into that existing event.
+    
+
+# =========================================================
+# PREFIX SNIPE
+# =========================================================
+
+@bot.command(name="snipe")
+async def snipe(ctx):
+
+    data = snipe_cache.get(ctx.channel.id)
+
+    if not data:
+        return await ctx.send(
+            "❌ There is no recently deleted message "
+            "in this channel."
+        )
+
+    content = data["content"]
+
+    if not content:
+        content = "*No text content*"
+
+    embed = discord.Embed(
+        title="🕵️ Snipe",
+        description=content[:4096],
+        color=discord.Color.red(),
+        timestamp=data["created_at"]
+    )
+
+    embed.set_author(
+        name=data["author_name"],
+        icon_url=data["avatar"]
+    )
+
+    embed.add_field(
+        name="👤 Author",
+        value=f"<@{data['author_id']}>",
+        inline=True
+    )
+
+    # Show attachment if available
+    if data["attachments"]:
+
+        attachment_text = "\n".join(
+            data["attachments"]
+        )
+
+        embed.add_field(
+            name="📎 Attachment",
+            value=attachment_text[:1024],
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"User ID: {data['author_id']}"
+    )
+
+    await ctx.send(embed=embed)
+
+
+# =========================================================
+# SLASH SNIPE
+# =========================================================
+
+@bot.tree.command(
+    name="snipe",
+    description="Show the most recently deleted message"
+)
+async def slash_snipe(
+    interaction: discord.Interaction
+):
+
+    data = snipe_cache.get(
+        interaction.channel.id
+    )
+
+    if not data:
+
+        return await interaction.response.send_message(
+            "❌ There is no recently deleted message "
+            "in this channel.",
+            ephemeral=True
+        )
+
+    content = data["content"]
+
+    if not content:
+        content = "*No text content*"
+
+    embed = discord.Embed(
+        title="🕵️ Snipe",
+        description=content[:4096],
+        color=discord.Color.red(),
+        timestamp=data["created_at"]
+    )
+
+    embed.set_author(
+        name=data["author_name"],
+        icon_url=data["avatar"]
+    )
+
+    embed.add_field(
+        name="👤 Author",
+        value=f"<@{data['author_id']}>",
+        inline=True
+    )
+
+    if data["attachments"]:
+
+        attachment_text = "\n".join(
+            data["attachments"]
+        )
+
+        embed.add_field(
+            name="📎 Attachment",
+            value=attachment_text[:1024],
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"User ID: {data['author_id']}"
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
+
 # =========================================================
 # BOT STARTUP
 # =========================================================
