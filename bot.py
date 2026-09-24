@@ -7,7 +7,6 @@ import re
 import ticket
 from datetime import datetime, timezone
 
-from cogs import ticket
 from pathlib import Path
 from flask import Flask
 import discord
@@ -16,7 +15,6 @@ import games
 import basic_commands
 from discord import app_commands
 from discord.ext import commands
-
 
 # =========================================================
 # CONFIGURATION
