@@ -4967,7 +4967,7 @@ async def restore_snapshot(guild, snapshot):
                 positions={
                     role: data.get("position", 1)
                 },
-                reason="AirMarshal Recovery"
+                reason="AirMarshal Recovery"à
             )
 
         except (discord.Forbidden, discord.HTTPException):
@@ -4980,6 +4980,49 @@ async def restore_snapshot(guild, snapshot):
         updated_channels
     )
 
+# ===== SNIPE SYSTEM =====
+
+snipe_cache = {}
+
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+
+    snipe_cache[message.channel.id] = {
+        "content": message.content,
+        "author": message.author,
+        "author_id": message.author.id,
+        "avatar": message.author.display_avatar.url
+    }
+
+    await bot.process_commands(message)
+
+
+@bot.tree.command(name="snipe", description="Show the last deleted message in this channel.")
+async def snipe(interaction: discord.Interaction):
+    data = snipe_cache.get(interaction.channel.id)
+
+    if not data:
+        return await interaction.response.send_message(
+            "❌ There is no deleted message to snipe.",
+            ephemeral=True
+        )
+
+    embed = discord.Embed(
+        title="🕵️ Deleted Message",
+        description=data["content"] or "*No text content*",
+        color=discord.Color.red()
+    )
+
+    embed.set_author(
+        name=str(data["author"]),
+        icon_url=data["avatar"]
+    )
+
+    embed.set_footer(text=f"User ID: {data['author_id']}")
+
+    await interaction.response.send_message(embed=embed)
 
 # =========================================================
 # BOT STARTUP
