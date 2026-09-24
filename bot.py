@@ -4967,7 +4967,7 @@ async def restore_snapshot(guild, snapshot):
                 positions={
                     role: data.get("position", 1)
                 },
-                reason="AirMarshal Recovery"à
+                reason="AirMarshal Recovery"
             )
 
         except (discord.Forbidden, discord.HTTPException):
