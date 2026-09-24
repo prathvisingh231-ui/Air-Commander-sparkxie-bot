@@ -5,6 +5,8 @@ import asyncio
 import io
 import re
 import ticket
+import aiohttp
+import discord
 from datetime import datetime, timezone
 
 from pathlib import Path
@@ -15,6 +17,7 @@ import games
 import basic_commands
 from discord import app_commands
 from discord.ext import commands
+
 
 # =========================================================
 # CONFIGURATION
@@ -5023,6 +5026,632 @@ async def snipe(interaction: discord.Interaction):
     embed.set_footer(text=f"User ID: {data['author_id']}")
 
     await interaction.response.send_message(embed=embed)
+
+
+@bot.command(name="snipe")
+async def snipe(ctx):
+    data = snipe_cache.get(ctx.channel.id)
+
+    if not data:
+        return await ctx.send("❌ There is no deleted message to snipe.")
+
+    embed = discord.Embed(
+        title="🕵️ Deleted Message",
+        description=data["content"] or "*No text content*",
+        color=discord.Color.red()
+    )
+
+    embed.set_author(
+        name=str(data["author"]),
+        icon_url=data["avatar"]
+    )
+
+    embed.set_footer(text=f"User ID: {data['author_id']}")
+
+    await ctx.send(embed=embed)
+
+
+# =========================================================
+# STEAL CONFIG
+# =========================================================
+
+MAX_EMOJIS = 50
+MAX_STICKERS = 5
+
+CUSTOM_EMOJI_REGEX = re.compile(
+    r"<(?P<animated>a?):(?P<name>[A-Za-z0-9_]+):(?P<id>\d+)>"
+)
+
+
+# =========================================================
+# DOWNLOAD FILE
+# =========================================================
+
+async def download_file(url):
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+
+                if response.status != 200:
+                    return None
+
+                return await response.read()
+
+    except Exception:
+        return None
+
+
+# =========================================================
+# UNIQUE EMOJI NAME
+# =========================================================
+
+async def unique_emoji_name(guild, name):
+
+    base = name[:32]
+
+    existing = {
+        emoji.name.lower()
+        for emoji in guild.emojis
+    }
+
+    if base.lower() not in existing:
+        return base
+
+    for i in range(1, 100):
+
+        suffix = f"_{i}"
+
+        new_name = (
+            base[:32 - len(suffix)]
+            + suffix
+        )
+
+        if new_name.lower() not in existing:
+            return new_name
+
+    return f"emoji_{len(guild.emojis) + 1}"[:32]
+
+
+# =========================================================
+# EMOJI STEAL CORE
+# =========================================================
+
+async def steal_emojis_from_text(guild, text, author):
+
+    matches = list(
+        CUSTOM_EMOJI_REGEX.finditer(text or "")
+    )
+
+    if not matches:
+        return [], []
+
+    # Maximum 50
+    matches = matches[:MAX_EMOJIS]
+
+    added = []
+    failed = []
+
+    for match in matches:
+
+        name = match.group("name")
+        emoji_id = match.group("id")
+        animated = bool(match.group("animated"))
+
+        extension = "gif" if animated else "png"
+
+        url = (
+            f"https://cdn.discordapp.com/emojis/"
+            f"{emoji_id}.{extension}"
+        )
+
+        try:
+
+            data = await download_file(url)
+
+            if not data:
+                failed.append(name)
+                continue
+
+            final_name = await unique_emoji_name(
+                guild,
+                name
+            )
+
+            emoji = await guild.create_custom_emoji(
+                name=final_name,
+                image=data,
+                reason=f"Emoji stolen by {author}"
+            )
+
+            added.append(str(emoji))
+
+        except Exception:
+            failed.append(name)
+
+    return added, failed
+
+
+# =========================================================
+# PREFIX GROUP
+# =========================================================
+
+@bot.group(
+    name="steal",
+    invoke_without_command=True
+)
+async def steal(ctx):
+
+    await ctx.send(
+        "😈 **Steal Commands**\n\n"
+        "`,steal emoji` → Reply to an emoji message\n"
+        "`,steal emoji <:emoji:id>` → Direct emoji steal\n"
+        "`,steal sticker` → Reply to a sticker message"
+    )
+
+
+# =========================================================
+# PREFIX — EMOJI
+# =========================================================
+
+@steal.command(name="emoji")
+@commands.has_guild_permissions(manage_emojis=True)
+@commands.bot_has_guild_permissions(manage_emojis=True)
+async def steal_emoji(ctx, *, emojis: str = None):
+
+    # -----------------------------------------------------
+    # REPLY MODE
+    # -----------------------------------------------------
+
+    if not emojis:
+
+        reference = ctx.message.reference
+
+        if not reference or not reference.message_id:
+
+            return await ctx.send(
+                "❌ Emoji wale message ko **reply** karke "
+                "`,steal emoji` use karo."
+            )
+
+        try:
+
+            target = await ctx.channel.fetch_message(
+                reference.message_id
+            )
+
+        except Exception:
+
+            return await ctx.send(
+                "❌ Replied message nahi mila."
+            )
+
+        text = target.content
+
+    # -----------------------------------------------------
+    # DIRECT MODE
+    # -----------------------------------------------------
+
+    else:
+        text = emojis
+
+    added, failed = await steal_emojis_from_text(
+        ctx.guild,
+        text,
+        ctx.author
+    )
+
+    if not added and not failed:
+
+        return await ctx.send(
+            "❌ Is message/text mein koi custom emoji nahi mila."
+        )
+
+    embed = discord.Embed(
+        title="😈 Emoji Stealer",
+        color=discord.Color.green()
+    )
+
+    if added:
+
+        embed.add_field(
+            name=f"✅ Stolen — {len(added)}",
+            value=" ".join(added)[:1024],
+            inline=False
+        )
+
+    if failed:
+
+        embed.add_field(
+            name=f"❌ Failed — {len(failed)}",
+            value=", ".join(failed)[:1024],
+            inline=False
+        )
+
+    embed.set_footer(
+        text=f"Requested by {ctx.author}"
+    )
+
+    await ctx.send(embed=embed)
+
+
+# =========================================================
+# PREFIX — STICKER
+# =========================================================
+
+@steal.command(name="sticker")
+@commands.has_guild_permissions(manage_emojis=True)
+@commands.bot_has_guild_permissions(manage_emojis=True)
+async def steal_sticker(ctx):
+
+    reference = ctx.message.reference
+
+    if not reference or not reference.message_id:
+
+        return await ctx.send(
+            "❌ Sticker wale message ko **reply** karke "
+            "`,steal sticker` use karo."
+        )
+
+    try:
+
+        target = await ctx.channel.fetch_message(
+            reference.message_id
+        )
+
+    except Exception:
+
+        return await ctx.send(
+            "❌ Replied message nahi mila."
+        )
+
+    if not target.stickers:
+
+        return await ctx.send(
+            "❌ Replied message mein sticker nahi hai."
+        )
+
+    sticker = target.stickers[0]
+
+    try:
+
+        data = await download_file(
+            sticker.url
+        )
+
+        if not data:
+
+            return await ctx.send(
+                "❌ Sticker download nahi ho paya."
+            )
+
+        # Discord sticker format
+        if sticker.format == discord.StickerFormatType.png:
+            filename = f"{sticker.name[:30]}.png"
+
+        elif sticker.format == discord.StickerFormatType.apng:
+            filename = f"{sticker.name[:30]}.png"
+
+        elif sticker.format == discord.StickerFormatType.lottie:
+            filename = f"{sticker.name[:30]}.json"
+
+        else:
+            filename = f"{sticker.name[:30]}.png"
+
+        new_sticker = await ctx.guild.create_sticker(
+            name=sticker.name[:30],
+            description="Stolen sticker",
+            emoji="⭐",
+            file=discord.File(
+                io.BytesIO(data),
+                filename=filename
+            ),
+            reason=f"Sticker stolen by {ctx.author}"
+        )
+
+        embed = discord.Embed(
+            title="😈 Sticker Stolen!",
+            description=(
+                f"Successfully added **{new_sticker.name}** "
+                f"to this server."
+            ),
+            color=discord.Color.green()
+        )
+
+        embed.set_footer(
+            text=f"Stolen by {ctx.author}"
+        )
+
+        await ctx.send(embed=embed)
+
+    except discord.HTTPException as e:
+
+        await ctx.send(
+            "❌ Sticker add nahi ho paya.\n"
+            "Possible reason: server sticker limit, "
+            "format ya permission."
+        )
+
+
+# =========================================================
+# SLASH — EMOJI DIRECT
+# =========================================================
+
+@bot.tree.command(
+    name="steal_emoji",
+    description="Steal up to 50 custom emojis"
+)
+@discord.app_commands.describe(
+    emojis="Custom emojis, maximum 50"
+)
+@discord.app_commands.checks.has_permissions(
+    manage_emojis=True
+)
+async def slash_steal_emoji(
+    interaction: discord.Interaction,
+    emojis: str
+):
+
+    if not interaction.guild:
+
+        return await interaction.response.send_message(
+            "❌ Ye command server mein use karo.",
+            ephemeral=True
+        )
+
+    await interaction.response.defer()
+
+    added, failed = await steal_emojis_from_text(
+        interaction.guild,
+        emojis,
+        interaction.user
+    )
+
+    if not added and not failed:
+
+        return await interaction.followup.send(
+            "❌ Koi custom emoji nahi mila."
+        )
+
+    embed = discord.Embed(
+        title="😈 Emoji Stealer",
+        color=discord.Color.green()
+    )
+
+    if added:
+
+        embed.add_field(
+            name=f"✅ Stolen — {len(added)}",
+            value=" ".join(added)[:1024],
+            inline=False
+        )
+
+    if failed:
+
+        embed.add_field(
+            name=f"❌ Failed — {len(failed)}",
+            value=", ".join(failed)[:1024],
+            inline=False
+        )
+
+    await interaction.followup.send(
+        embed=embed
+    )
+
+
+# =========================================================
+# SLASH — EMOJI FROM MESSAGE
+# =========================================================
+
+@bot.tree.command(
+    name="steal_emoji_reply",
+    description="Steal emojis from a Discord message"
+)
+@discord.app_commands.describe(
+    message_id="Message ID containing the emojis"
+)
+@discord.app_commands.checks.has_permissions(
+    manage_emojis=True
+)
+async def slash_steal_emoji_reply(
+    interaction: discord.Interaction,
+    message_id: str
+):
+
+    if not interaction.guild:
+
+        return await interaction.response.send_message(
+            "❌ Server mein use karo.",
+            ephemeral=True
+        )
+
+    try:
+        message_id_int = int(message_id)
+
+    except ValueError:
+
+        return await interaction.response.send_message(
+            "❌ Invalid message ID.",
+            ephemeral=True
+        )
+
+    try:
+
+        channel = interaction.channel
+
+        if not channel:
+
+            raise Exception()
+
+        target = await channel.fetch_message(
+            message_id_int
+        )
+
+    except Exception:
+
+        return await interaction.response.send_message(
+            "❌ Message nahi mila.",
+            ephemeral=True
+        )
+
+    await interaction.response.defer()
+
+    added, failed = await steal_emojis_from_text(
+        interaction.guild,
+        target.content,
+        interaction.user
+    )
+
+    if not added and not failed:
+
+        return await interaction.followup.send(
+            "❌ Is message mein custom emojis nahi mile."
+        )
+
+    embed = discord.Embed(
+        title="😈 Emoji Stealer",
+        color=discord.Color.green()
+    )
+
+    if added:
+
+        embed.add_field(
+            name=f"✅ Stolen — {len(added)}",
+            value=" ".join(added)[:1024],
+            inline=False
+        )
+
+    if failed:
+
+        embed.add_field(
+            name=f"❌ Failed — {len(failed)}",
+            value=", ".join(failed)[:1024],
+            inline=False
+        )
+
+    await interaction.followup.send(
+        embed=embed
+    )
+
+
+# =========================================================
+# SLASH — STICKER
+# =========================================================
+
+@bot.tree.command(
+    name="steal_sticker",
+    description="Steal a sticker from a Discord message"
+)
+@discord.app_commands.describe(
+    message_id="Message ID containing the sticker"
+)
+@discord.app_commands.checks.has_permissions(
+    manage_emojis=True
+)
+async def slash_steal_sticker(
+    interaction: discord.Interaction,
+    message_id: str
+):
+
+    if not interaction.guild:
+
+        return await interaction.response.send_message(
+            "❌ Server mein use karo.",
+            ephemeral=True
+        )
+
+    try:
+        message_id_int = int(message_id)
+
+    except ValueError:
+
+        return await interaction.response.send_message(
+            "❌ Invalid message ID.",
+            ephemeral=True
+        )
+
+    try:
+
+        target = await interaction.channel.fetch_message(
+            message_id_int
+        )
+
+    except Exception:
+
+        return await interaction.response.send_message(
+            "❌ Message nahi mila.",
+            ephemeral=True
+        )
+
+    if not target.stickers:
+
+        return await interaction.response.send_message(
+            "❌ Is message mein sticker nahi hai.",
+            ephemeral=True
+        )
+
+    await interaction.response.defer()
+
+    sticker = target.stickers[0]
+
+    try:
+
+        data = await download_file(
+            sticker.url
+        )
+
+        if not data:
+
+            return await interaction.followup.send(
+                "❌ Sticker download nahi ho paya."
+            )
+
+        if sticker.format == discord.StickerFormatType.png:
+            filename = f"{sticker.name[:30]}.png"
+
+        elif sticker.format == discord.StickerFormatType.apng:
+            filename = f"{sticker.name[:30]}.png"
+
+        elif sticker.format == discord.StickerFormatType.lottie:
+            filename = f"{sticker.name[:30]}.json"
+
+        else:
+            filename = f"{sticker.name[:30]}.png"
+
+        new_sticker = await interaction.guild.create_sticker(
+            name=sticker.name[:30],
+            description="Stolen sticker",
+            emoji="⭐",
+            file=discord.File(
+                io.BytesIO(data),
+                filename=filename
+            ),
+            reason=f"Sticker stolen by {interaction.user}"
+        )
+
+        embed = discord.Embed(
+            title="😈 Sticker Stolen!",
+            description=(
+                f"Successfully added **{new_sticker.name}** "
+                "to this server."
+            ),
+            color=discord.Color.green()
+        )
+
+        embed.set_footer(
+            text=f"Stolen by {interaction.user}"
+        )
+
+        await interaction.followup.send(
+            embed=embed
+        )
+
+    except discord.HTTPException:
+
+        await interaction.followup.send(
+            "❌ Sticker add nahi ho paya. "
+            "Server limit/format/permission check karo."
+        )
+
 
 # =========================================================
 # BOT STARTUP
