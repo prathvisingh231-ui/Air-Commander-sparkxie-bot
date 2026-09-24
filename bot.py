@@ -11,9 +11,6 @@ import discord
 import db
 import games
 import basic_commands
-import autorolesetup
-import autosetup
-import security 
 from discord import app_commands
 from discord.ext import commands
 
