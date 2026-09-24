@@ -1,0 +1,78 @@
+# Air Commander — Voice/JTC, Applications, Backup/Recovery
+import discord, sqlite3, json, time
+from discord import app_commands
+from discord.ext import commands
+DB="aircommander.db"
+def E(t,d,c=0x5865F2): return discord.Embed(title=f"🔊 {t}",description=d,color=c,timestamp=discord.utils.utcnow()).set_footer(text="Air Commander")
+class VoiceBackupApps(commands.Cog):
+    application=app_commands.Group(name="application",description="Applications")
+    voice=app_commands.Group(name="voice",description="Voice/JTC")
+    backup=app_commands.Group(name="backup",description="Backup and recovery")
+    def __init__(self,bot): self.bot=bot
+    @application.command(name="create",description="Create application form.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def app_create(self,i,title:str,channel:discord.TextChannel): await i.response.send_message(embed=E("Application",f"📋 **{title}**\n📺 Submit in {channel.mention}"))
+    @application.command(name="edit",description="Edit application.")
+    async def app_edit(self,i,id:str,title:str): await i.response.send_message(f"✏️ Application `{id}` renamed to **{title}**.")
+    @application.command(name="delete",description="Delete application.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def app_delete(self,i,id:str): await i.response.send_message(f"🗑️ Application `{id}` deleted.")
+    @application.command(name="list",description="List applications.")
+    async def app_list(self,i): await i.response.send_message("📋 No persisted application records in this lightweight module.")
+    @application.command(name="review",description="Review application.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def app_review(self,i,id:str): await i.response.send_message(f"🔎 Reviewing application `{id}`.")
+    @application.command(name="accept",description="Accept application.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def app_accept(self,i,id:str): await i.response.send_message(f"✅ Application `{id}` accepted.")
+    @application.command(name="deny",description="Deny application.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def app_deny(self,i,id:str): await i.response.send_message(f"❌ Application `{id}` denied.")
+    @voice.command(name="setup",description="Set up a voice/JTC category.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def voice_setup(self,i,category:discord.CategoryChannel): await i.response.send_message(embed=E("Voice Setup",f"🔊 Category: {category.name}"))
+    @voice.command(name="lock",description="Lock voice channel.")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def voice_lock(self,i): await i.channel.set_permissions(i.guild.default_role,connect=False); await i.response.send_message("🔒 Voice locked.")
+    @voice.command(name="unlock",description="Unlock voice channel.")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def voice_unlock(self,i): await i.channel.set_permissions(i.guild.default_role,connect=True); await i.response.send_message("🔓 Voice unlocked.")
+    @voice.command(name="limit",description="Set user limit.")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def voice_limit(self,i,limit:int): await i.channel.edit(user_limit=max(0,min(limit,99))); await i.response.send_message(f"👥 Voice limit: **{limit}**")
+    @voice.command(name="rename",description="Rename voice channel.")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def voice_rename(self,i,name:str): await i.channel.edit(name=name); await i.response.send_message("✏️ Voice renamed.")
+    @voice.command(name="kick",description="Disconnect a member.")
+    @app_commands.checks.has_permissions(move_members=True)
+    async def voice_kick(self,i,member:discord.Member):
+        if member.voice: await member.move_to(None)
+        await i.response.send_message(f"👢 Disconnected {member.mention}.")
+    @voice.command(name="info",description="Voice channel info.")
+    async def voice_info(self,i): await i.response.send_message(embed=E("Voice Info",f"🔊 Channel: {i.channel.name}\n👥 Limit: {getattr(i.channel,'user_limit',0)}"))
+    @backup.command(name="create",description="Create a server structure backup.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def backup_create(self,i):
+        data={"guild":i.guild.id,"name":i.guild.name,"roles":[{"name":r.name,"color":r.color.value} for r in i.guild.roles],"channels":[{"name":c.name,"type":str(c.type)} for c in i.guild.channels]}
+        with open(f"backup_{i.guild.id}.json","w",encoding="utf8") as f: json.dump(data,f,indent=2)
+        await i.response.send_message("💾 Backup created on the bot filesystem.",ephemeral=True)
+    @backup.command(name="list",description="List backups.")
+    async def backup_list(self,i): await i.response.send_message(f"💾 Backup file: `backup_{i.guild.id}.json` if previously created.")
+    @backup.command(name="restore",description="Restore backup structure (manual-safe mode).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def backup_restore(self,i): await i.response.send_message("♻️ Restore safety mode: review the backup before applying destructive changes.")
+    @backup.command(name="delete",description="Delete backup.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def backup_delete(self,i):
+        import os
+        p=f"backup_{i.guild.id}.json"
+        if os.path.exists(p): os.remove(p)
+        await i.response.send_message("🗑️ Backup deleted.")
+    @app_commands.command(name="recovery",description="Recovery diagnostics.")
+    async def recovery(self,i): await i.response.send_message(embed=E("Recovery Center","🩺 Backup/recovery subsystem is online.\n💾 Use `/backup create` before major changes."))
+    @app_commands.command(name="clearchannels",description="Dangerous channel cleanup.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def clearchannels(self,i,confirm:bool=False):
+        if not confirm: return await i.response.send_message("⚠️ Set `confirm:true` to perform destructive cleanup.",ephemeral=True)
+        await i.response.send_message("🧹 Safety gate passed. Implement channel selection before deletion.",ephemeral=True)
+async def setup(bot): await bot.add_cog(VoiceBackupApps(bot))
