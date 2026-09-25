@@ -12,8 +12,7 @@ import discord
 import db
 import games
 import basic_commands
-from owner_prefix
-import setup_owner_prefixless
+from owner_prefix import setup_owner_prefixless
 from discord import app_commands
 from discord.ext import commands
 
