@@ -36,7 +36,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 
@@ -765,7 +764,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 
@@ -920,7 +918,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 
@@ -1190,7 +1187,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 import db
@@ -1296,7 +1292,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 
@@ -1721,7 +1716,6 @@ import ai_utils
 import leveling
 import server_config
 import command_permissions
-import custom_commands
 import interactive_help
 import diagnostics
 
