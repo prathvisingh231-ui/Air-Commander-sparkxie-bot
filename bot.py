@@ -98,6 +98,8 @@ bot = commands.Bot(
     intents=intents
 )
 
+setup_owner_prefixless(bot)
+
 start_time = time.time()
 bot._air_start_time = start_time
 
