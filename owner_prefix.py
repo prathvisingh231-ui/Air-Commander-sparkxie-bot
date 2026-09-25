@@ -30,7 +30,6 @@ from discord.ext import commands
 
 # Air Commander owners
 OWNER_IDS = {
-    1504354088538869892,
     880350253239373855,
 }
 
