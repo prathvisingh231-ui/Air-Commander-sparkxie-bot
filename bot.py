@@ -2304,93 +2304,175 @@ async def _air_special_activity_listener(message):
         await _special_update_activity(message.guild.id, message.author.id)
     except Exception:
         pass
-
-
-# =========================================================
-# BOT READY
-# =========================================================
-
 @bot.event
 async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
 
-    await db.init_db()
+    # =========================
+    # DATABASE
+    # =========================
+    try:
+        await db.init_db()
+        print("🗄️ Database initialized.")
+    except Exception as exc:
+        print(f"⚠️ Database error: {type(exc).__name__}: {exc}")
 
+    # =========================
+    # PREFIX SETTINGS
+    # =========================
     if not getattr(bot, "_air_prefixes_loaded_once", False):
         try:
             if hasattr(bot, "_air_load_prefixes"):
                 await bot._air_load_prefixes()
+            print("🔤 Prefix settings loaded.")
         except Exception as exc:
-            print(f"⚠️ Prefix settings load error: {type(exc).__name__}: {exc}")
+            print(f"⚠️ Prefix settings error: {type(exc).__name__}: {exc}")
+
         bot._air_prefixes_loaded_once = True
 
+    # =========================
+    # SECURITY
+    # =========================
     if not getattr(bot, "_air_security_initialized", False):
         try:
             await init_security_db()
             await setup_security(bot)
             await setup_antinuke_rollback(bot)
+
             bot._air_security_initialized = True
-            print("🛡️ Embedded security systems initialized.")
+            print("🛡️ Security systems initialized.")
         except Exception as exc:
             print(f"⚠️ Security initialization error: {type(exc).__name__}: {exc}")
 
+    # =========================
+    # CUSTOM COMMANDS
+    # =========================
     if not getattr(bot, "_air_custom_commands_loaded_once", False):
         try:
             if hasattr(bot, "_air_load_custom_commands"):
                 await bot._air_load_custom_commands(bot)
+
+            print("🧩 Custom commands loaded.")
         except Exception as exc:
             print(f"⚠️ Custom command loader error: {type(exc).__name__}: {exc}")
+
         bot._air_custom_commands_loaded_once = True
 
+    # =========================
+    # FEATURE MODULES
+    # =========================
     if not getattr(bot, "_air_feature_modules_loaded", False):
-        try:
-            feature_modules = [
-                snipe, youtube_alerts, mention_response, security_center,
-                automation, analytics, embed_builder, welcome_autorole,
-                role_system, giveaways, applications, voice_jtc,
-                backup_recovery, ai_utils, leveling, server_config,
-                command_permissions, custom_commands, interactive_help,
-                diagnostics,
-            ]
-            for module in feature_modules:
-                setup = getattr(module, "setup", None)
-                if setup:
-                    result = setup(bot)
-                    if asyncio.iscoroutine(result):
-                        await result
-            bot._air_feature_modules_loaded = True
-            print("🧩 Air Commander feature modules initialized.")
-        except Exception as exc:
-            print(f"⚠️ Feature module initialization error: {type(exc).__name__}: {exc}")
 
+        feature_modules = [
+            ("snipe", snipe),
+            ("youtube_alerts", youtube_alerts),
+            ("mention_response", mention_response),
+            ("security_center", security_center),
+            ("automation", automation),
+            ("analytics", analytics),
+            ("embed_builder", embed_builder),
+            ("welcome_autorole", welcome_autorole),
+            ("role_system", role_system),
+            ("giveaways", giveaways),
+            ("applications", applications),
+            ("voice_jtc", voice_jtc),
+            ("backup_recovery", backup_recovery),
+            ("ai_utils", ai_utils),
+            ("leveling", leveling),
+            ("server_config", server_config),
+            ("command_permissions", command_permissions),
+            ("custom_commands", custom_commands),
+            ("interactive_help", interactive_help),
+            ("diagnostics", diagnostics),
+        ]
+
+        for module_name, module in feature_modules:
+            try:
+                setup = getattr(module, "setup", None)
+
+                if setup is None:
+                    print(f"⚠️ {module_name}: setup() missing")
+                    continue
+
+                result = setup(bot)
+
+                if asyncio.iscoroutine(result):
+                    await result
+
+                print(f"✅ {module_name} loaded.")
+
+            except Exception as exc:
+                # IMPORTANT:
+                # One broken module should NOT stop the others.
+                print(
+                    f"❌ {module_name} failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        bot._air_feature_modules_loaded = True
+        print("🧩 Feature module loading finished.")
+
+    # =========================
+    # TICKET
+    # =========================
     if not getattr(bot, "_air_ticket_initialized", False):
         try:
             ticket_cog = await ticket.setup(bot)
             bot._air_ticket_cog = ticket_cog
+
             if hasattr(ticket, "restore_panels"):
                 await ticket.restore_panels(bot, ticket_cog)
-            bot._air_ticket_initialized = True
-            print("🎫 Advanced ticket system initialized.")
-        except Exception as exc:
-            print(f"⚠️ Ticket initialization error: {type(exc).__name__}: {exc}")
 
+            bot._air_ticket_initialized = True
+
+            print("🎫 Advanced ticket system initialized.")
+
+        except Exception as exc:
+            print(
+                f"⚠️ Ticket initialization error: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    # =========================
+    # SPECIAL INTELLIGENCE DB
+    # =========================
     try:
         await _special_db_init()
+        print("🧠 Special intelligence DB initialized.")
     except Exception as exc:
-        print(f"⚠️ Special intelligence DB error: {type(exc).__name__}: {exc}")
+        print(
+            f"⚠️ Special intelligence DB error: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
+    # =========================
+    # SLASH COMMAND SYNC
+    # =========================
     try:
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
+
             bot.tree.copy_global_to(guild=guild)
+
             synced = await bot.tree.sync(guild=guild)
-            print(f"✅ Synced {len(synced)} slash commands to guild {GUILD_ID}")
+
+            print(
+                f"✅ Synced {len(synced)} slash commands "
+                f"to guild {GUILD_ID}"
+            )
+
         else:
             synced = await bot.tree.sync()
-            print(f"✅ Synced {len(synced)} global slash commands")
-    except Exception as e:
-        print(f"❌ Command sync failed: {e}")
 
+            print(
+                f"✅ Synced {len(synced)} global slash commands"
+            )
+
+    except Exception as exc:
+        print(
+            f"❌ Command sync failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 # =========================================================
 # PREFIX COMMANDS — MISSING COMMANDS
