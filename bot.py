@@ -1300,7 +1300,7 @@ import custom_commands
 import interactive_help
 import diagnostics
 
-OWNER_ID = 1504354088538869892
+OWNER_ID = 880350253239373855
 DB_URL = os.getenv("DATABASE_URL")
 _pool = None
 
