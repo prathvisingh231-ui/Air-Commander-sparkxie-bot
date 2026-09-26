@@ -1671,10 +1671,10 @@ class Security(commands.Cog):
 
 async def setup_security(bot):
     await bot.add_cog(Security(bot))
-    bot.tree.add_command(WarningGroup())
-    bot.tree.add_command(AutoModGroup())
-    bot.tree.add_command(AntiNukeGroup())
-    bot.tree.add_command(AntiLinkGroup())
+    #bot.tree.add_command(WarningGroup())
+    #bot.tree.add_command(AutoModGroup())
+    #bot.tree.add_command(AntiNukeGroup())
+    #bot.tree.add_command(AntiLinkGroup())
 
 
 class WarningGroup(app_commands.Group):
