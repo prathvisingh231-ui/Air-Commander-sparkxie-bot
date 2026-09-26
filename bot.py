@@ -96,6 +96,7 @@ intents.members = True
 bot = commands.Bot(
     command_prefix=",",
     intents=intents
+    help_command=None
 )
 
 setup_owner_prefixless(bot)
