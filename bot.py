@@ -2425,6 +2425,15 @@ async def on_ready():
         print(f"⚠️ Database error: {type(exc).__name__}: {exc}")
 
     # =========================
+    # SLASH COMMAND SYNC
+    # =========================
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Slash commands synced: {len(synced)}")
+    except Exception as exc:
+        print(f"❌ Slash command sync error: {type(exc).__name__}: {exc}")
+
+    # =========================
     # PREFIX SETTINGS
     # =========================
     if not getattr(bot, "_air_prefixes_loaded_once", False):
