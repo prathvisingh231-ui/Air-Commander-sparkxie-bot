@@ -1771,6 +1771,7 @@ class AntiNukeGroup(app_commands.Group):
             await interaction.response.send_message(embed=embed("Protected owner", "The configured owner cannot be removed from the whitelist.", False), ephemeral=True); return
         await unwhitelist_user(interaction.guild.id, member.id)
         await interaction.response.send_message(embed=embed("Anti-nuke whitelist updated", f"{member.mention} is no longer trusted."))
+        bot.tree.add_command(AntiNukeGroup())
 
 
 class AntiLinkGroup(app_commands.Group):
