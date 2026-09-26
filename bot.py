@@ -1340,31 +1340,6 @@ def setup_moderation_extra(bot: commands.Bot):
     bot.command_prefix = dynamic_prefix
     bot._air_load_prefixes = load_prefixes
 
-    @bot.tree.command(name="warn", description="Warn a member and save a persistent moderation record")
-    @app_commands.describe(member="Member to warn", reason="Reason for the warning", evidence="Optional evidence or reference")
-    @app_commands.checks.has_permissions(moderate_members=True)
-    async def warn(i: discord.Interaction, member: discord.Member, reason: str = "No reason provided", evidence: str = "Not provided"):
-        if not i.guild: return await i.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
-        if member == i.user or member.bot: return await i.response.send_message("❌ That member cannot be warned.", ephemeral=True)
-        if member.top_role >= i.user.top_role: return await i.response.send_message("❌ You cannot warn a member with an equal or higher role.", ephemeral=True)
-        if i.guild.me and member.top_role >= i.guild.me.top_role: return await i.response.send_message("❌ I cannot manage that member because of role hierarchy.", ephemeral=True)
-        case_code, warning_count = await db.create_warning(i.guild.id, member.id, i.user.id, reason[:1024], evidence[:1024])
-        e = clean_embed("Warning Issued", f"{member.mention} has received a moderation warning.", discord.Color.orange()); e.set_thumbnail(url=member.display_avatar.url)
-        e.add_field(name="Member", value=f"{member.mention}\n`{member.id}`", inline=True); e.add_field(name="Total Warnings", value=f"**{warning_count}**", inline=True); e.add_field(name="Case", value=f"`{case_code}`", inline=True); e.add_field(name="Moderator", value=i.user.mention, inline=True); e.add_field(name="Reason", value=reason[:1024], inline=False)
-        if evidence != "Not provided": e.add_field(name="Evidence", value=evidence[:1024], inline=False)
-        await i.response.send_message(embed=e)
-
-    @bot.tree.command(name="warnings", description="View a member's warning history")
-    @app_commands.describe(member="Member to inspect")
-    @app_commands.checks.has_permissions(moderate_members=True)
-    async def warnings(i: discord.Interaction, member: discord.Member):
-        if not i.guild: return await i.response.send_message("❌ This command can only be used in a server.", ephemeral=True)
-        rows = await db.get_warnings(i.guild.id, member.id); e = clean_embed("Warning History", f"Moderation history for {member.mention}.", discord.Color.orange()); e.set_thumbnail(url=member.display_avatar.url); e.add_field(name="Total", value=f"**{len(rows)}** warning(s)", inline=True)
-        if not rows: e.add_field(name="History", value="No warnings recorded.", inline=False)
-        else:
-            lines = [f"`{row['case_code']}` • {discord.utils.format_dt(row['created_at'], 'R')}\n**Reason:** {row['reason'][:300]}\n**Moderator:** <@{row['moderator_id']}>" for row in rows[:10]]; e.add_field(name="Recent Warnings", value="\n\n".join(lines)[:1024], inline=False)
-        await i.response.send_message(embed=e, ephemeral=True)
-
     prefix_group = app_commands.Group(name="prefix", description="Configure the server's text command prefix")
     @prefix_group.command(name="set", description="Set the server prefix")
     @app_commands.describe(prefix="New prefix, 1-5 characters")
