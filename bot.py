@@ -1358,7 +1358,7 @@ def setup_moderation_extra(bot: commands.Bot):
 
     #bot.tree.add_command(prefix_group)
     #setup_cmdmaker(bot)
-    setup_autorolesetup(bot)
+    #.setup_autorolesetup(bot)
 
 
 import asyncio
