@@ -1357,7 +1357,7 @@ def setup_moderation_extra(bot: commands.Bot):
         prefix = bot._air_prefixes.get(i.guild.id, ","); e = clean_embed("Server Prefix", f"The current text command prefix is **`{prefix}`**."); e.add_field(name="Example", value=f"`{prefix}help`", inline=False); await i.response.send_message(embed=e)
 
     #bot.tree.add_command(prefix_group)
-    setup_cmdmaker(bot)
+    #setup_cmdmaker(bot)
     setup_autorolesetup(bot)
 
 
