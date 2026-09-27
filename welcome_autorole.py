@@ -2235,7 +2235,6 @@ class Welcome(commands.Cog):
         if name not in data["embeds"]:
             await interaction.response.send_message(
                 f"❌ Welcome embed `{name}` doesn't exist.",
-                ephemeral=True
             )
             return
 
@@ -2275,7 +2274,6 @@ class Welcome(commands.Cog):
         if name not in data["embeds"]:
             await interaction.response.send_message(
                 f"❌ Welcome embed `{name}` doesn't exist.",
-                ephemeral=True
             )
             return
 
@@ -2317,7 +2315,6 @@ class Welcome(commands.Cog):
         if not embeds:
             await interaction.response.send_message(
                 "📭 No welcome embed templates created.",
-                ephemeral=True
             )
             return
 
@@ -2371,7 +2368,6 @@ class Welcome(commands.Cog):
         if name not in data["embeds"]:
             await interaction.response.send_message(
                 f"❌ Welcome embed `{name}` doesn't exist.",
-                ephemeral=True
             )
             return
 
@@ -2444,7 +2440,7 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            f"✅ Welcome channel set to {channel.mention}.
+            f"✅ Welcome channel set to {channel.mention}."
         )
 
     # ========================================================
@@ -2473,7 +2469,6 @@ class Welcome(commands.Cog):
         if not channel_id:
             await interaction.response.send_message(
                 "📭 No welcome channel is configured.",
-                ephemeral=True
             )
             return
 
@@ -2484,7 +2479,6 @@ class Welcome(commands.Cog):
         if channel:
             await interaction.response.send_message(
                 f"📍 Welcome channel: {channel.mention}",
-                ephemeral=True
             )
         else:
             await interaction.response.send_message(
