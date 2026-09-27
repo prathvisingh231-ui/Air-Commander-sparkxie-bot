@@ -1,11 +1,11 @@
 # ============================================================
 # AIR COMMANDER — ADVANCED LEVELING SYSTEM
+# PREFIX + SLASH VERSION
 # ============================================================
 
 import json
 import os
 import time
-import math
 from typing import Optional
 
 import discord
@@ -69,7 +69,6 @@ def guild_config(guild_id: int):
 
     config = DATA[gid]
 
-    # Migration protection for older databases
     config.setdefault("enabled", True)
     config.setdefault("xp_per_message", DEFAULT_XP_PER_MESSAGE)
     config.setdefault("cooldown", DEFAULT_COOLDOWN)
@@ -94,14 +93,6 @@ def guild_config(guild_id: int):
 # ============================================================
 
 def xp_required(level: int) -> int:
-    """
-    XP needed to reach the next level.
-
-    Example:
-    Level 0 -> 100 XP
-    Level 1 -> 155 XP
-    Level 2 -> 220 XP
-    """
     return 100 + (level * 55) + int((level ** 2) * 5)
 
 
@@ -186,6 +177,10 @@ def is_manager():
 
 class Leveling(commands.Cog):
 
+    # --------------------------------------------------------
+    # SLASH GROUPS
+    # --------------------------------------------------------
+
     leveling = app_commands.Group(
         name="leveling",
         description="Configure the Air Commander leveling system"
@@ -218,19 +213,22 @@ class Leveling(commands.Cog):
         if not config["enabled"]:
             return
 
-        # Ignored channel
         if message.channel.id in config["ignored_channels"]:
             return
 
-        # Ignored roles
-        member_role_ids = {role.id for role in message.author.roles}
+        member_role_ids = {
+            role.id for role in message.author.roles
+        }
 
         if member_role_ids.intersection(
             set(config["ignored_roles"])
         ):
             return
 
-        user = user_data(config, message.author.id)
+        user = user_data(
+            config,
+            message.author.id
+        )
 
         now = time.time()
 
@@ -239,7 +237,10 @@ class Leveling(commands.Cog):
             message.author.id
         )
 
-        last_xp = self.cooldowns.get(cooldown_key, 0)
+        last_xp = self.cooldowns.get(
+            cooldown_key,
+            0
+        )
 
         if now - last_xp < config["cooldown"]:
             user["messages"] += 1
@@ -249,17 +250,21 @@ class Leveling(commands.Cog):
         self.cooldowns[cooldown_key] = now
 
         old_xp = user["xp"]
-        old_level, _, _ = calculate_level(old_xp)
 
-        # Base XP
+        old_level, _, _ = calculate_level(
+            old_xp
+        )
+
         gained = config["xp_per_message"]
 
-        # Role boosters
         multiplier = 1.0
 
+        # Role boosters
         for role in message.author.roles:
 
-            boost = config["role_boosters"].get(str(role.id))
+            boost = config["role_boosters"].get(
+                str(role.id)
+            )
 
             if boost:
                 try:
@@ -267,11 +272,13 @@ class Leveling(commands.Cog):
                         multiplier,
                         float(boost)
                     )
-                except ValueError:
+                except (ValueError, TypeError):
                     pass
 
         # Channel booster
-        channel_boost = config["channel_boosters"].get(
+        channel_boost = config[
+            "channel_boosters"
+        ].get(
             str(message.channel.id)
         )
 
@@ -281,22 +288,29 @@ class Leveling(commands.Cog):
                     multiplier,
                     float(channel_boost)
                 )
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
-        gained = max(1, int(gained * multiplier))
+        gained = max(
+            1,
+            int(gained * multiplier)
+        )
 
         user["xp"] += gained
         user["messages"] += 1
 
-        new_level, _, _ = calculate_level(user["xp"])
+        new_level, _, _ = calculate_level(
+            user["xp"]
+        )
 
         save_data(DATA)
 
-        # Level up
         if new_level > old_level:
 
-            for level in range(old_level + 1, new_level + 1):
+            for level in range(
+                old_level + 1,
+                new_level + 1
+            ):
                 await self.handle_level_up(
                     message.guild,
                     message.author,
@@ -307,12 +321,18 @@ class Leveling(commands.Cog):
     # LEVEL UP
     # ========================================================
 
-    async def handle_level_up(self, guild, member, level):
+    async def handle_level_up(
+        self,
+        guild,
+        member,
+        level
+    ):
 
         config = guild_config(guild.id)
 
-        # Give reward role
-        reward_role_id = config["role_rewards"].get(
+        reward_role_id = config[
+            "role_rewards"
+        ].get(
             str(level)
         )
 
@@ -349,6 +369,7 @@ class Leveling(commands.Cog):
         channel = None
 
         if config["announce_channel"]:
+
             channel = guild.get_channel(
                 int(config["announce_channel"])
             )
@@ -365,7 +386,7 @@ class Leveling(commands.Cog):
             pass
 
     # ========================================================
-    # /rank
+    # SLASH /rank
     # ========================================================
 
     @app_commands.command(
@@ -398,16 +419,21 @@ class Leveling(commands.Cog):
             total_xp
         )
 
-        # Server rank
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get("xp", 0),
+            key=lambda item: item[1].get(
+                "xp",
+                0
+            ),
             reverse=True
         )
 
         position = 1
 
-        for index, (uid, _) in enumerate(ranking, start=1):
+        for index, (uid, _) in enumerate(
+            ranking,
+            start=1
+        ):
             if uid == str(member.id):
                 position = index
                 break
@@ -463,7 +489,7 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # PREFIX ,rank
+    # PREFIX ,rank / ,level / ,lvl
     # ========================================================
 
     @commands.command(
@@ -478,7 +504,9 @@ class Leveling(commands.Cog):
 
         member = member or ctx.author
 
-        config = guild_config(ctx.guild.id)
+        config = guild_config(
+            ctx.guild.id
+        )
 
         user = user_data(
             config,
@@ -493,13 +521,19 @@ class Leveling(commands.Cog):
 
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get("xp", 0),
+            key=lambda item: item[1].get(
+                "xp",
+                0
+            ),
             reverse=True
         )
 
         position = 1
 
-        for index, (uid, _) in enumerate(ranking, start=1):
+        for index, (uid, _) in enumerate(
+            ranking,
+            start=1
+        ):
             if uid == str(member.id):
                 position = index
                 break
@@ -553,7 +587,7 @@ class Leveling(commands.Cog):
         await ctx.send(embed=embed)
 
     # ========================================================
-    # /leaderboard
+    # SLASH /leaderboard
     # ========================================================
 
     @app_commands.command(
@@ -571,7 +605,10 @@ class Leveling(commands.Cog):
 
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get("xp", 0),
+            key=lambda item: item[1].get(
+                "xp",
+                0
+            ),
             reverse=True
         )
 
@@ -594,10 +631,11 @@ class Leveling(commands.Cog):
                 int(uid)
             )
 
-            if member:
-                name = member.display_name
-            else:
-                name = f"User {uid}"
+            name = (
+                member.display_name
+                if member
+                else f"User {uid}"
+            )
 
             level, _, _ = calculate_level(
                 data.get("xp", 0)
@@ -626,25 +664,35 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # PREFIX ,leaderboard
+    # PREFIX ,leaderboard / ,lb / ,levels
     # ========================================================
 
     @commands.command(
         name="leaderboard",
         aliases=["lb", "levels"]
     )
-    async def prefix_leaderboard(self, ctx):
+    async def prefix_leaderboard(
+        self,
+        ctx
+    ):
 
-        config = guild_config(ctx.guild.id)
+        config = guild_config(
+            ctx.guild.id
+        )
 
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get("xp", 0),
+            key=lambda item: item[1].get(
+                "xp",
+                0
+            ),
             reverse=True
         )
 
         if not ranking:
-            await ctx.send("📊 No XP data yet.")
+            await ctx.send(
+                "📊 No XP data yet."
+            )
             return
 
         lines = []
@@ -691,7 +739,7 @@ class Leveling(commands.Cog):
         await ctx.send(embed=embed)
 
     # ========================================================
-    # /leveling enable
+    # SLASH /leveling enable
     # ========================================================
 
     @leveling.command(
@@ -718,7 +766,7 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # /leveling disable
+    # SLASH /leveling disable
     # ========================================================
 
     @leveling.command(
@@ -745,7 +793,7 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # /leveling xp
+    # SLASH /leveling xp
     # ========================================================
 
     @leveling.command(
@@ -769,7 +817,6 @@ class Leveling(commands.Cog):
         )
 
         config["xp_per_message"] = amount
-
         save_data(DATA)
 
         await interaction.response.send_message(
@@ -777,7 +824,7 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # /leveling cooldown
+    # SLASH /leveling cooldown
     # ========================================================
 
     @leveling.command(
@@ -801,7 +848,6 @@ class Leveling(commands.Cog):
         )
 
         config["cooldown"] = seconds
-
         save_data(DATA)
 
         await interaction.response.send_message(
@@ -809,7 +855,7 @@ class Leveling(commands.Cog):
         )
 
     # ========================================================
-    # /leveling announce
+    # SLASH /leveling announce
     # ========================================================
 
     @leveling.command(
@@ -833,184 +879,370 @@ class Leveling(commands.Cog):
         )
 
         config["announce"] = enabled
-
         save_data(DATA)
 
-        status = "enabled" if enabled else "disabled"
+        status = (
+            "enabled"
+            if enabled
+            else "disabled"
+        )
 
         await interaction.response.send_message(
             f"✅ Level-up announcements **{status}**."
         )
 
     # ========================================================
-    # /leveling channel
+    # PREFIX ,leveling
     # ========================================================
 
-    @leveling.command(
-        name="channel",
-        description="Set level-up announcement channel"
+    @commands.group(
+        name="leveling",
+        invoke_without_command=True
     )
-    @app_commands.describe(
-        channel="Announcement channel"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def leveling_channel(
+    async def leveling_prefix(
         self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel
+        ctx
+    ):
+
+        await ctx.send(
+            "📊 **Leveling Configuration**\n\n"
+            "`,leveling enable`\n"
+            "`,leveling disable`\n"
+            "`,leveling xp <amount>`\n"
+            "`,leveling cooldown <seconds>`\n"
+            "`,leveling announce <on/off>`\n"
+            "`,leveling channel #channel`\n"
+            "`,leveling channelreset`"
+        )
+
+    # ========================================================
+    # PREFIX ,leveling enable
+    # ========================================================
+
+    @leveling_prefix.command(
+        name="enable"
+    )
+    @is_manager()
+    async def prefix_leveling_enable(
+        self,
+        ctx
     ):
 
         config = guild_config(
-            interaction.guild.id
+            ctx.guild.id
         )
 
-        config["announce_channel"] = channel.id
-
+        config["enabled"] = True
         save_data(DATA)
 
-        await interaction.response.send_message(
-            f"✅ Level announcements will be sent in {channel.mention}."
+        await ctx.send(
+            "✅ **Leveling system enabled.**"
         )
 
     # ========================================================
-    # /leveling message
+    # PREFIX ,leveling disable
     # ========================================================
 
-    @leveling.command(
-        name="message",
-        description="Set custom level-up message"
+    @leveling_prefix.command(
+        name="disable"
     )
-    @app_commands.describe(
-        message="Custom message"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def leveling_message(
+    @is_manager()
+    async def prefix_leveling_disable(
         self,
-        interaction: discord.Interaction,
-        message: str
+        ctx
     ):
 
         config = guild_config(
-            interaction.guild.id
+            ctx.guild.id
         )
 
-        config["level_message"] = message
-
+        config["enabled"] = False
         save_data(DATA)
 
-        await interaction.response.send_message(
-            "✅ Level-up message updated.\n\n"
-            "**Variables:** "
-            "`{user}` `{username}` `{level}` `{xp}` `{server}` `{membercount}`"
+        await ctx.send(
+            "🔴 **Leveling system disabled.**"
         )
 
     # ========================================================
-    # /levelrole add
+    # PREFIX ,leveling xp
     # ========================================================
 
-    @levelrole.command(
-        name="add",
-        description="Give a role when a member reaches a level"
+    @leveling_prefix.command(
+        name="xp"
     )
-    @app_commands.describe(
-        level="Required level",
-        role="Reward role"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def levelrole_add(
+    @is_manager()
+    async def prefix_leveling_xp(
         self,
-        interaction: discord.Interaction,
-        level: app_commands.Range[int, 1, 10000],
-        role: discord.Role
+        ctx,
+        amount: int
     ):
 
-        if role >= interaction.guild.me.top_role:
-            await interaction.response.send_message(
-                "❌ I cannot manage that role. "
-                "Move my bot role above the reward role.",
-                ephemeral=True
+        if amount < 1 or amount > 1000:
+            await ctx.send(
+                "❌ XP must be between **1 and 1000**."
             )
             return
 
         config = guild_config(
-            interaction.guild.id
+            ctx.guild.id
         )
 
-        config["role_rewards"][str(level)] = role.id
-
+        config["xp_per_message"] = amount
         save_data(DATA)
 
-        await interaction.response.send_message(
-            f"✅ **Level {level}** reward set to {role.mention}."
+        await ctx.send(
+            f"✅ XP per message set to **{amount} XP**."
         )
 
     # ========================================================
-    # /levelrole remove
+    # PREFIX ,leveling cooldown
     # ========================================================
 
-    @levelrole.command(
-        name="remove",
-        description="Remove a level reward"
+    @leveling_prefix.command(
+        name="cooldown"
     )
-    @app_commands.describe(
-        level="Level whose reward should be removed"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def levelrole_remove(
+    @is_manager()
+    async def prefix_leveling_cooldown(
         self,
-        interaction: discord.Interaction,
-        level: app_commands.Range[int, 1, 10000]
+        ctx,
+        seconds: int
+    ):
+
+        if seconds < 0 or seconds > 3600:
+            await ctx.send(
+                "❌ Cooldown must be between **0 and 3600 seconds**."
+            )
+            return
+
+        config = guild_config(
+            ctx.guild.id
+        )
+
+        config["cooldown"] = seconds
+        save_data(DATA)
+
+        await ctx.send(
+            f"✅ XP cooldown set to **{seconds}s**."
+        )
+
+    # ========================================================
+    # PREFIX ,leveling announce
+    # ========================================================
+
+    @leveling_prefix.command(
+        name="announce"
+    )
+    @is_manager()
+    async def prefix_leveling_announce(
+        self,
+        ctx,
+        value: str
+    ):
+
+        value = value.lower()
+
+        if value not in {
+            "on",
+            "off",
+            "enable",
+            "disable"
+        }:
+            await ctx.send(
+                "❌ Use `on` or `off`.\n"
+                "Example: `,leveling announce on`"
+            )
+            return
+
+        enabled = value in {
+            "on",
+            "enable"
+        }
+
+        config = guild_config(
+            ctx.guild.id
+        )
+
+        config["announce"] = enabled
+        save_data(DATA)
+
+        status = (
+            "enabled"
+            if enabled
+            else "disabled"
+        )
+
+        await ctx.send(
+            f"✅ Level-up announcements **{status}**."
+        )
+
+    # ========================================================
+    # PREFIX ,leveling channel
+    # ========================================================
+
+    @leveling_prefix.command(
+        name="channel"
+    )
+    @is_manager()
+    async def prefix_leveling_channel(
+        self,
+        ctx,
+        channel: discord.TextChannel
     ):
 
         config = guild_config(
-            interaction.guild.id
+            ctx.guild.id
         )
 
-        removed = config["role_rewards"].pop(
+        config["announce_channel"] = channel.id
+        save_data(DATA)
+
+        await ctx.send(
+            f"✅ Level-up announcement channel set to "
+            f"{channel.mention}."
+        )
+
+    # ========================================================
+    # PREFIX ,leveling channelreset
+    # ========================================================
+
+    @leveling_prefix.command(
+        name="channelreset"
+    )
+    @is_manager()
+    async def prefix_leveling_channelreset(
+        self,
+        ctx
+    ):
+
+        config = guild_config(
+            ctx.guild.id
+        )
+
+        config["announce_channel"] = None
+        save_data(DATA)
+
+        await ctx.send(
+            "✅ Level-up announcement channel reset."
+        )
+
+    # ========================================================
+    # PREFIX ,levelrole
+    # ========================================================
+
+    @commands.group(
+        name="levelrole",
+        invoke_without_command=True
+    )
+    async def levelrole_prefix(
+        self,
+        ctx
+    ):
+
+        await ctx.send(
+            "🏆 **Level Role Commands**\n\n"
+            "`,levelrole add <level> @role`\n"
+            "`,levelrole remove <level>`\n"
+            "`,levelrole list`"
+        )
+
+    # ========================================================
+    # PREFIX ,levelrole add
+    # ========================================================
+
+    @levelrole_prefix.command(
+        name="add"
+    )
+    @is_manager()
+    async def prefix_levelrole_add(
+        self,
+        ctx,
+        level: int,
+        role: discord.Role
+    ):
+
+        if level < 1:
+            await ctx.send(
+                "❌ Level must be **1 or higher**."
+            )
+            return
+
+        config = guild_config(
+            ctx.guild.id
+        )
+
+        config["role_rewards"][
+            str(level)
+        ] = role.id
+
+        save_data(DATA)
+
+        await ctx.send(
+            f"✅ {role.mention} will be awarded "
+            f"at **Level {level}**."
+        )
+
+    # ========================================================
+    # PREFIX ,levelrole remove
+    # ========================================================
+
+    @levelrole_prefix.command(
+        name="remove"
+    )
+    @is_manager()
+    async def prefix_levelrole_remove(
+        self,
+        ctx,
+        level: int
+    ):
+
+        config = guild_config(
+            ctx.guild.id
+        )
+
+        removed = config[
+            "role_rewards"
+        ].pop(
             str(level),
             None
         )
 
+        if removed is None:
+            await ctx.send(
+                f"❌ No reward role is configured "
+                f"for Level **{level}**."
+            )
+            return
+
         save_data(DATA)
 
-        if removed:
-            await interaction.response.send_message(
-                f"✅ Level **{level}** reward removed."
-            )
-        else:
-            await interaction.response.send_message(
-                f"ℹ️ No reward was configured for level **{level}**."
-            )
+        await ctx.send(
+            f"✅ Reward role for Level "
+            f"**{level}** removed."
+        )
 
     # ========================================================
-    # /levelrole list
+    # PREFIX ,levelrole list
     # ========================================================
 
-    @levelrole.command(
-        name="list",
-        description="List level reward roles"
+    @levelrole_prefix.command(
+        name="list"
     )
-    async def levelrole_list(
+    @is_manager()
+    async def prefix_levelrole_list(
         self,
-        interaction: discord.Interaction
+        ctx
     ):
 
         config = guild_config(
-            interaction.guild.id
+            ctx.guild.id
         )
 
-        rewards = config["role_rewards"]
+        rewards = config[
+            "role_rewards"
+        ]
 
         if not rewards:
-            await interaction.response.send_message(
+            await ctx.send(
                 "📋 No level reward roles configured."
             )
             return
@@ -1022,341 +1254,33 @@ class Leveling(commands.Cog):
             key=lambda x: int(x[0])
         ):
 
-            role = interaction.guild.get_role(
+            role = ctx.guild.get_role(
                 int(role_id)
             )
 
-            role_text = (
+            role_name = (
                 role.mention
                 if role
-                else f"`Deleted role ({role_id})`"
+                else f"`Deleted Role ({role_id})`"
             )
 
             lines.append(
-                f"**Level {level}** → {role_text}"
+                f"**Level {level}** → {role_name}"
             )
 
         embed = discord.Embed(
-            title="🎁 Level Rewards",
+            title="🏆 Level Reward Roles",
             description="\n".join(lines),
-            color=discord.Color.blurple()
+            color=discord.Color.gold()
         )
 
-        await interaction.response.send_message(
+        await ctx.send(
             embed=embed
         )
-
-    # ========================================================
-    # /leveling ignore-channel
-    # ========================================================
-
-    @leveling.command(
-        name="ignore-channel",
-        description="Ignore a channel for XP"
-    )
-    @app_commands.describe(
-        channel="Channel to ignore"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def ignore_channel(
-        self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        if channel.id not in config["ignored_channels"]:
-            config["ignored_channels"].append(
-                channel.id
-            )
-
-        save_data(DATA)
-
-        await interaction.response.send_message(
-            f"🚫 {channel.mention} is now ignored for XP."
-        )
-
-    # ========================================================
-    # /leveling ignore-role
-    # ========================================================
-
-    @leveling.command(
-        name="ignore-role",
-        description="Ignore a role for XP"
-    )
-    @app_commands.describe(
-        role="Role to ignore"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def ignore_role(
-        self,
-        interaction: discord.Interaction,
-        role: discord.Role
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        if role.id not in config["ignored_roles"]:
-            config["ignored_roles"].append(
-                role.id
-            )
-
-        save_data(DATA)
-
-        await interaction.response.send_message(
-            f"🚫 {role.mention} is now ignored for XP."
-        )
-
-    # ========================================================
-    # /leveling add-xp
-    # ========================================================
-
-    @leveling.command(
-        name="add-xp",
-        description="Give XP to a member"
-    )
-    @app_commands.describe(
-        member="Member",
-        amount="XP amount"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def add_xp(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member,
-        amount: app_commands.Range[int, 1, 1000000]
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        user = user_data(
-            config,
-            member.id
-        )
-
-        old_level, _, _ = calculate_level(
-            user["xp"]
-        )
-
-        user["xp"] += amount
-
-        new_level, _, _ = calculate_level(
-            user["xp"]
-        )
-
-        save_data(DATA)
-
-        await interaction.response.send_message(
-            f"✅ Added **{amount:,} XP** to {member.mention}.\n"
-            f"⭐ Level: **{new_level}**"
-        )
-
-        if new_level > old_level:
-            for level in range(
-                old_level + 1,
-                new_level + 1
-            ):
-                await self.handle_level_up(
-                    interaction.guild,
-                    member,
-                    level
-                )
-
-    # ========================================================
-    # /leveling remove-xp
-    # ========================================================
-
-    @leveling.command(
-        name="remove-xp",
-        description="Remove XP from a member"
-    )
-    @app_commands.describe(
-        member="Member",
-        amount="XP amount"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def remove_xp(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member,
-        amount: app_commands.Range[int, 1, 1000000]
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        user = user_data(
-            config,
-            member.id
-        )
-
-        user["xp"] = max(
-            0,
-            user["xp"] - amount
-        )
-
-        save_data(DATA)
-
-        level, _, _ = calculate_level(
-            user["xp"]
-        )
-
-        await interaction.response.send_message(
-            f"✅ Removed **{amount:,} XP** from {member.mention}.\n"
-            f"⭐ Current level: **{level}**"
-        )
-
-    # ========================================================
-    # /leveling reset-user
-    # ========================================================
-
-    @leveling.command(
-        name="reset-user",
-        description="Reset a member's XP"
-    )
-    @app_commands.describe(
-        member="Member to reset"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def reset_user(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        config["users"].pop(
-            str(member.id),
-            None
-        )
-
-        save_data(DATA)
-
-        await interaction.response.send_message(
-            f"♻️ Reset XP for {member.mention}."
-        )
-
-    # ========================================================
-    # /leveling stats
-    # ========================================================
-
-    @leveling.command(
-        name="stats",
-        description="View leveling system statistics"
-    )
-    async def leveling_stats(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        config = guild_config(
-            interaction.guild.id
-        )
-
-        total_users = len(config["users"])
-
-        total_xp = sum(
-            user.get("xp", 0)
-            for user in config["users"].values()
-        )
-
-        total_messages = sum(
-            user.get("messages", 0)
-            for user in config["users"].values()
-        )
-
-        embed = discord.Embed(
-            title="📊 Leveling Statistics",
-            color=discord.Color.blurple()
-        )
-
-        embed.add_field(
-            name="👥 Users",
-            value=f"**{total_users:,}**"
-        )
-
-        embed.add_field(
-            name="✨ Total XP",
-            value=f"**{total_xp:,}**"
-        )
-
-        embed.add_field(
-            name="💬 Messages",
-            value=f"**{total_messages:,}**"
-        )
-
-        embed.add_field(
-            name="⚙️ Status",
-            value=(
-                "🟢 Enabled"
-                if config["enabled"]
-                else "🔴 Disabled"
-            )
-        )
-
-        await interaction.response.send_message(
-            embed=embed
-        )
-
-    # ========================================================
-    # ERROR HANDLER
-    # ========================================================
-
-    async def cog_app_command_error(
-        self,
-        interaction,
-        error
-    ):
-
-        if isinstance(
-            error,
-            app_commands.errors.MissingPermissions
-        ):
-            message = (
-                "❌ You need **Manage Server** permission "
-                "to use this command."
-            )
-        else:
-            message = (
-                f"❌ Leveling command error:\n"
-                f"`{error}`"
-            )
-
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                message,
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                message,
-                ephemeral=True
-            )
 
 
 # ============================================================
-# SETUP
+# EXTENSION SETUP
 # ============================================================
 
 async def setup(bot):
