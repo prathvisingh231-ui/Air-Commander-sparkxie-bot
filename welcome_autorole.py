@@ -2206,9 +2206,7 @@ class Welcome(commands.Cog):
                 self,
                 interaction.guild.id,
                 name
-            ),
-
-            ephemeral=True
+            )
         )
 
     # ========================================================
@@ -2248,9 +2246,7 @@ class Welcome(commands.Cog):
                 self,
                 interaction.guild.id,
                 name
-            ),
-
-            ephemeral=True
+            )
         )
 
     # ========================================================
@@ -2291,8 +2287,7 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            f"🗑️ Welcome embed `{name}` deleted.",
-            ephemeral=True
+            f"🗑️ Welcome embed `{name}` deleted."
         )
 
     # ========================================================
@@ -2346,8 +2341,7 @@ class Welcome(commands.Cog):
         )
 
         await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
+            embed=embed
         )
 
     # ========================================================
@@ -2389,7 +2383,6 @@ class Welcome(commands.Cog):
         await interaction.response.send_message(
             f"✅ Welcome template `{name}` is now active "
             f"in {channel.mention}.",
-            ephemeral=True
         )
 
     # ========================================================
@@ -2419,8 +2412,7 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            "🔴 Welcome system disabled.",
-            ephemeral=True
+            "🔴 Welcome system disabled
         )
 
     # ========================================================
@@ -2451,8 +2443,7 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            f"✅ Welcome channel set to {channel.mention}.",
-            ephemeral=True
+            f"✅ Welcome channel set to {channel.mention}.
         )
 
     # ========================================================
@@ -2497,8 +2488,7 @@ class Welcome(commands.Cog):
         else:
             await interaction.response.send_message(
                 "⚠️ The configured welcome channel "
-                "no longer exists.",
-                ephemeral=True
+                "no longer exists."
             )
 
     # ========================================================
@@ -2531,8 +2521,7 @@ class Welcome(commands.Cog):
         await interaction.response.send_message(
             "✅ Welcome message saved.\n\n"
             "Use `{embed}` in the message if you "
-            "want the active embed to be sent too.",
-            ephemeral=True
+            "want the active embed to be sent too."
         )
 
     # ========================================================
@@ -2562,8 +2551,7 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            "🗑️ Welcome message cleared.",
-            ephemeral=True
+            "🗑️ Welcome message cleared."
         )
 
     # ========================================================
@@ -2597,8 +2585,7 @@ class Welcome(commands.Cog):
 
         if not name:
             await interaction.response.send_message(
-                "❌ No template specified or active.",
-                ephemeral=True
+                "❌ No template specified or active."
             )
             return
 
@@ -2608,8 +2595,7 @@ class Welcome(commands.Cog):
 
         if not template:
             await interaction.response.send_message(
-                f"❌ Welcome embed `{name}` doesn't exist.",
-                ephemeral=True
+                f"❌ Welcome embed `{name}` doesn't exist."
             )
             return
 
@@ -2654,8 +2640,7 @@ class Welcome(commands.Cog):
                 )
 
                 await interaction.response.send_message(
-                    f"✅ Welcome test sent to {target.mention}.",
-                    ephemeral=True
+                    f"✅ Welcome test sent to {target.mention}."
                 )
 
                 return
@@ -2669,7 +2654,6 @@ class Welcome(commands.Cog):
         await interaction.response.send_message(
             content=message or None,
             embed=embed,
-            ephemeral=True
         )
 
     # ========================================================
