@@ -90,7 +90,6 @@ def run_web():
 # =========================================================
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 intents.members = True
 
@@ -108,6 +107,7 @@ bot._air_start_time = start_time
 games.setup(bot)
 basic_commands.setup(bot)
 
+
 # =========================================================
 # SLASH COMMAND SYNC
 # =========================================================
@@ -116,22 +116,39 @@ basic_commands.setup(bot)
 async def setup_hook():
     print("🔄 Air Commander setup_hook started...")
 
-    # Load leveling extension
+    # -------------------------
+    # LOAD LEVELING
+    # -------------------------
     try:
         await bot.load_extension("leveling")
         print("✅ Leveling extension loaded")
     except commands.ExtensionAlreadyLoaded:
         print("ℹ️ Leveling extension already loaded")
     except Exception as e:
-        print(f"❌ Leveling extension failed: {type(e).__name__}: {e}")
+        print(
+            f"❌ Leveling extension failed: "
+            f"{type(e).__name__}: {e}"
+        )
 
-    # Sync slash commands
+    # -------------------------
+    # GLOBAL SLASH SYNC
+    # -------------------------
     try:
         synced = await bot.tree.sync()
-        print(f"🌐 Slash commands synced: {len(synced)}")
-    except Exception as e:
-        print(f"❌ Slash command sync failed: {type(e).__name__}: {e}")
 
+        print(
+            f"🌐 Slash commands synced: "
+            f"{len(synced)}"
+        )
+
+        for cmd in synced:
+            print(f"   └─ /{cmd.name}")
+
+    except Exception as e:
+        print(
+            f"❌ Slash command sync failed: "
+            f"{type(e).__name__}: {e}"
+        )
 
 # =========================================================
 # PURGE / AFK / STEAL
