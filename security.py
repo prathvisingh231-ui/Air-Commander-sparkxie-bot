@@ -403,3 +403,22 @@ class AntiLinkGroup(app_commands.Group):
     async def unwhitelist(self, interaction, member: discord.Member):
         await unwhitelist_user(interaction.guild.id, member.id)
         await interaction.response.send_message(embed=embed("Anti-link whitelist updated", f"{member.mention} can no longer bypass anti-link."))
+
+
+# =========================================================
+# DISCORD EXTENSION SETUP
+# =========================================================
+
+async def setup(bot):
+    await bot.add_cog(Security(bot))
+
+    # Register slash command groups
+    bot.tree.add_command(WarningGroup())
+    bot.tree.add_command(AutoModGroup())
+    bot.tree.add_command(AntiNukeGroup())
+    bot.tree.add_command(AntiLinkGroup())
+
+    # Initialize security database
+    await init_security_db()
+
+    print("🛡️ Security module loaded")
