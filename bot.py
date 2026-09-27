@@ -108,6 +108,30 @@ bot._air_start_time = start_time
 games.setup(bot)
 basic_commands.setup(bot)
 
+# =========================================================
+# SLASH COMMAND SYNC
+# =========================================================
+
+@bot.event
+async def setup_hook():
+    print("🔄 Air Commander setup_hook started...")
+
+    # Load leveling extension
+    try:
+        await bot.load_extension("leveling")
+        print("✅ Leveling extension loaded")
+    except commands.ExtensionAlreadyLoaded:
+        print("ℹ️ Leveling extension already loaded")
+    except Exception as e:
+        print(f"❌ Leveling extension failed: {type(e).__name__}: {e}")
+
+    # Sync slash commands
+    try:
+        synced = await bot.tree.sync()
+        print(f"🌐 Slash commands synced: {len(synced)}")
+    except Exception as e:
+        print(f"❌ Slash command sync failed: {type(e).__name__}: {e}")
+
 
 # =========================================================
 # PURGE / AFK / STEAL
@@ -4727,27 +4751,6 @@ async def airscan(i):
         embed=e
     )
 
-# =========================================================
-# SLASH COMMAND SYNC
-# =========================================================
-
-@bot.event
-async def setup_hook():
-    try:
-        # Load the leveling extension if it is not already loaded
-        try:
-            await bot.load_extension("leveling")
-            print("✅ Leveling extension loaded")
-        except commands.ExtensionAlreadyLoaded:
-            print("ℹ️ Leveling extension already loaded")
-
-        # Sync all registered slash commands
-        synced = await bot.tree.sync()
-
-        print(f"🌐 Slash commands synced: {len(synced)}")
-
-    except Exception as e:
-        print(f"❌ Slash command sync failed: {type(e).__name__}: {e}")
 # =========================================================
 # BOT STARTUP
 # =========================================================
