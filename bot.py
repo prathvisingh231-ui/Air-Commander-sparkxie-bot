@@ -1775,76 +1775,9 @@ class AutoModGroup(app_commands.Group):
         await interaction.response.send_message(embed=embed("Automod disabled", "Message automod is now off."))
 
 
-class AntiNukeGroup(app_commands.Group):
-    def __init__(self): super().__init__(name="antinuke", description="Protect the server from destructive actions")
-
-    @app_commands.command(name="enable", description="Enable anti-nuke protection")
-    @app_commands.check(admin_check)
-    async def enable(self, interaction):
-        me = interaction.guild.me
-        if not me or not me.top_role:
-            await interaction.response.send_message(embed=embed("Cannot enable anti-nuke", "I cannot see my role hierarchy.", False), ephemeral=True); return
-        higher_admins = [m for m in interaction.guild.members if m.id != me.id and m.guild_permissions.administrator and not m.bot and m.top_role >= me.top_role]
-        if higher_admins:
-            names = ", ".join(m.mention for m in higher_admins[:5])
-            await interaction.response.send_message(embed=embed("Move my role to the top first", f"Before enabling Anti-nuke, move my bot role **above every administrator role**.\n\nCurrently at/above my role: {names}", False), ephemeral=True); return
-        await whitelist_user(interaction.guild.id, OWNER_ID)
-        await whitelist_user(interaction.guild.id, me.id)
-        await set_cfg(interaction.guild.id, antinuke_enabled=True, antinuke_action="ban")
-        await interaction.response.send_message(embed=embed("Anti-nuke enabled", "🛡️ Non-whitelisted users who perform protected destructive server actions are immediately banned when Discord's audit log identifies the actor.\n\nOwner and bot are automatically whitelisted."))
-
-    @app_commands.command(name="disable", description="Disable anti-nuke")
-    @app_commands.check(admin_check)
-    async def disable(self, interaction):
-        await set_cfg(interaction.guild.id, antinuke_enabled=False)
-        await interaction.response.send_message(embed=embed("Anti-nuke disabled", "Protection is now off."))
-
-    @app_commands.command(name="whitelist", description="Whitelist a trusted member")
-    @app_commands.check(admin_check)
-    async def whitelist(self, interaction, member: discord.Member):
-        await whitelist_user(interaction.guild.id, member.id)
-        await interaction.response.send_message(embed=embed("Anti-nuke whitelist updated", f"{member.mention} is now trusted."))
-
-    @app_commands.command(name="unwhitelist", description="Remove a member from the anti-nuke whitelist")
-    @app_commands.check(admin_check)
-    async def unwhitelist(self, interaction, member: discord.Member):
-        if member.id == OWNER_ID:
-            await interaction.response.send_message(embed=embed("Protected owner", "The configured owner cannot be removed from the whitelist.", False), ephemeral=True); return
-        await unwhitelist_user(interaction.guild.id, member.id)
-        await interaction.response.send_message(embed=embed("Anti-nuke whitelist updated", f"{member.mention} is no longer trusted."))
-        bot.tree.add_command(AntiNukeGroup())
-
-
-class AntiLinkGroup(app_commands.Group):
-    def __init__(self): super().__init__(name="antilink", description="Block unauthorized links")
-
-    @app_commands.command(name="enable", description="Enable anti-link")
-    @app_commands.check(admin_check)
-    async def enable(self, interaction):
-        await set_cfg(interaction.guild.id, antilink_enabled=True)
-        await interaction.response.send_message(embed=embed("Anti-link enabled", "Unauthorized links will be deleted. Anti-link whitelist members are bypassed."))
-
-    @app_commands.command(name="disable", description="Disable anti-link")
-    @app_commands.check(admin_check)
-    async def disable(self, interaction):
-        await set_cfg(interaction.guild.id, antilink_enabled=False)
-        await interaction.response.send_message(embed=embed("Anti-link disabled", "Link filtering is now off."))
-
-    @app_commands.command(name="whitelist", description="Whitelist a member for links")
-    @app_commands.check(admin_check)
-    async def whitelist(self, interaction, member: discord.Member):
-        await whitelist_user(interaction.guild.id, member.id)
-        await interaction.response.send_message(embed=embed("Anti-link whitelist updated", f"{member.mention} can now post links."))
-
-    @app_commands.command(name="unwhitelist", description="Remove a member from the anti-link whitelist")
-    @app_commands.check(admin_check)
-    async def unwhitelist(self, interaction, member: discord.Member):
-        await unwhitelist_user(interaction.guild.id, member.id)
-        await interaction.response.send_message(embed=embed("Anti-link whitelist updated", f"{member.mention} can no longer bypass anti-link."))
-
-
-import asyncio
+import asyncpg
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 # =========================================================
