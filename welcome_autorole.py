@@ -2412,7 +2412,8 @@ class Welcome(commands.Cog):
         save_data(DATA)
 
         await interaction.response.send_message(
-            "🔴 Welcome system disabled
+            "🔴 Welcome system disabled"
+            
         )
 
     # ========================================================
