@@ -4728,6 +4728,58 @@ async def airscan(i):
     )
 
 # =========================================================
+# EXTENSION LOADER + SLASH COMMAND SYNC
+# =========================================================
+
+EXTENSIONS = [
+    "leveling",
+    "ticket",
+    "security",
+    "snipe",
+    "youtube_alerts",
+    "mention_response",
+    "security_center",
+    "automation",
+    "analytics",
+    "embed_builder",
+    "welcome_autorole",
+    "role_system",
+    "giveaways",
+    "applications",
+    "voice_jtc",
+    "backup_recovery",
+    "ai_utils",
+    "server_config",
+    "command_permissions",
+    "custom_commands",
+    "interactive_help",
+    "diagnostics",
+    "antinuke",
+]
+
+
+async def startup():
+    for extension in EXTENSIONS:
+        try:
+            await bot.load_extension(extension)
+            print(f"✅ Loaded: {extension}")
+        except commands.ExtensionAlreadyLoaded:
+            print(f"ℹ️ Already loaded: {extension}")
+        except Exception as e:
+            print(f"❌ Failed to load {extension}: {e}")
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"🌐 Synced {len(synced)} global slash commands")
+    except Exception as e:
+        print(f"❌ Slash sync failed: {e}")
+
+
+@bot.event
+async def setup_hook():
+    await startup()
+
+# =========================================================
 # BOT STARTUP
 # =========================================================
 
