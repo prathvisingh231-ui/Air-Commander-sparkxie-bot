@@ -109,48 +109,6 @@ basic_commands.setup(bot)
 
 
 # =========================================================
-# SLASH COMMAND SYNC
-# =========================================================
-
-@bot.event
-async def setup_hook():
-    print("🔄 Air Commander setup_hook started...")
-
-    # -------------------------
-    # LOAD LEVELING
-    # -------------------------
-    try:
-        await bot.load_extension("leveling")
-        print("✅ Leveling extension loaded")
-    except commands.ExtensionAlreadyLoaded:
-        print("ℹ️ Leveling extension already loaded")
-    except Exception as e:
-        print(
-            f"❌ Leveling extension failed: "
-            f"{type(e).__name__}: {e}"
-        )
-
-    # -------------------------
-    # GLOBAL SLASH SYNC
-    # -------------------------
-    try:
-        synced = await bot.tree.sync()
-
-        print(
-            f"🌐 Slash commands synced: "
-            f"{len(synced)}"
-        )
-
-        for cmd in synced:
-            print(f"   └─ /{cmd.name}")
-
-    except Exception as e:
-        print(
-            f"❌ Slash command sync failed: "
-            f"{type(e).__name__}: {e}"
-        )
-
-# =========================================================
 # PURGE / AFK / STEAL
 # =========================================================
 
@@ -2439,9 +2397,17 @@ async def on_ready():
 
         bot._air_custom_commands_loaded_once = True
 
-    # =========================
-    # FEATURE MODULES
-    # =========================
+async def setup_hook():
+    """Main startup loader."""
+
+    print("\n" + "=" * 60)
+    print("🚀 AIR COMMANDER STARTUP")
+    print("=" * 60)
+
+    # =================================================
+    # 1. LOAD ALL FEATURE MODULES
+    # =================================================
+
     if not getattr(bot, "_air_feature_modules_loaded", False):
 
         feature_modules = [
@@ -2467,12 +2433,18 @@ async def on_ready():
             ("diagnostics", diagnostics),
         ]
 
+        loaded = 0
+        failed = 0
+
+        print("🧩 Loading feature modules...")
+
         for module_name, module in feature_modules:
             try:
                 setup = getattr(module, "setup", None)
 
                 if setup is None:
                     print(f"⚠️ {module_name}: setup() missing")
+                    failed += 1
                     continue
 
                 result = setup(bot)
@@ -2480,19 +2452,104 @@ async def on_ready():
                 if asyncio.iscoroutine(result):
                     await result
 
+                loaded += 1
                 print(f"✅ {module_name} loaded.")
 
             except Exception as exc:
-                # IMPORTANT:
-                # One broken module should NOT stop the others.
+                failed += 1
                 print(
                     f"❌ {module_name} failed: "
                     f"{type(exc).__name__}: {exc}"
                 )
 
         bot._air_feature_modules_loaded = True
-        print("🧩 Feature module loading finished.")
 
+        print(
+            f"🧩 Feature loading finished: "
+            f"{loaded} loaded, {failed} failed."
+        )
+
+    # =================================================
+    # 2. MODERATION / EMBEDDED SYSTEMS
+    # =================================================
+
+    try:
+        setup_moderation_extra(bot)
+        print("✅ Moderation systems loaded.")
+    except Exception as exc:
+        print(
+            f"❌ Moderation systems failed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    # =================================================
+    # 3. SYNC ALL REGISTERED SLASH COMMANDS
+    # =================================================
+
+    print("\n" + "=" * 60)
+    print("🔄 AIR COMMANDER — SLASH COMMAND SYNC")
+    print("=" * 60)
+
+    try:
+
+        if GUILD_ID:
+
+            guild_id = int(GUILD_ID)
+            guild = discord.Object(id=guild_id)
+
+            # Copy all registered commands to the test guild
+            bot.tree.copy_global_to(guild=guild)
+
+            synced = await bot.tree.sync(guild=guild)
+
+            print(
+                f"⚡ Guild slash sync complete: "
+                f"{len(synced)} commands"
+            )
+
+            print(f"🏠 Guild ID: {guild_id}")
+
+        else:
+
+            synced = await bot.tree.sync()
+
+            print(
+                f"🌐 Global slash sync complete: "
+                f"{len(synced)} commands"
+            )
+
+        # -------------------------------------------------
+        # PRINT COMMAND LIST
+        # -------------------------------------------------
+
+        if synced:
+
+            print("\n📋 REGISTERED SLASH COMMANDS:")
+
+            for command in sorted(
+                synced,
+                key=lambda command: command.name
+            ):
+                print(f"   └─ /{command.name}")
+
+        else:
+
+            print(
+                "⚠️ Discord received 0 slash commands."
+            )
+
+    except Exception as exc:
+
+        print("\n❌ COMMAND SYNC FAILED")
+
+        print(
+            f"Reason: {type(exc).__name__}: {exc}"
+        )
+
+    print("=" * 60)
+    print("✅ AIR COMMANDER STARTUP COMPLETE")
+    print("=" * 60)
+    )
     # =========================
     # TICKET
     # =========================
@@ -2525,6 +2582,8 @@ async def on_ready():
             f"⚠️ Special intelligence DB error: "
             f"{type(exc).__name__}: {exc}"
         )
+
+
 
 
 # =========================================================
