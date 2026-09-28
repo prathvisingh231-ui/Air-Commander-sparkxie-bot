@@ -2549,7 +2549,7 @@ async def setup_hook():
     print("=" * 60)
     print("✅ AIR COMMANDER STARTUP COMPLETE")
     print("=" * 60)
-    )
+    
     # =========================
     # TICKET
     # =========================
