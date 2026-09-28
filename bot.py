@@ -2526,34 +2526,6 @@ async def on_ready():
             f"{type(exc).__name__}: {exc}"
         )
 
-    # =========================
-    # SLASH COMMAND SYNC
-    # =========================
-    try:
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-
-            bot.tree.copy_global_to(guild=guild)
-
-            synced = await bot.tree.sync(guild=guild)
-
-            print(
-                f"✅ Synced {len(synced)} slash commands "
-                f"to guild {GUILD_ID}"
-            )
-
-        else:
-            synced = await bot.tree.sync()
-
-            print(
-                f"✅ Synced {len(synced)} global slash commands"
-            )
-
-    except Exception as exc:
-        print(
-            f"❌ Command sync failed: "
-            f"{type(exc).__name__}: {exc}"
-        )
 
 # =========================================================
 # PREFIX COMMANDS — MISSING COMMANDS
