@@ -2643,26 +2643,25 @@ async def _air_startup_loader(bot):
     print("✅ AIR COMMANDER STARTUP COMPLETE")
     print("=" * 60)
     
-    # =========================
-    # TICKET
-    # =========================
-    if not getattr(bot, "_air_ticket_initialized", False):
-        try:
-            ticket_cog = await ticket.setup(bot)
-            bot._air_ticket_cog = ticket_cog
+  # =========================
+# TICKET
+# =========================
+if not getattr(bot, "_air_ticket_initialized", False):
+    try:
+        ticket_cog = await ticket.setup(bot)
+        bot._air_ticket_cog = ticket_cog
 
-            if hasattr(ticket, "restore_panels"):
-                await ticket.restore_panels(bot, ticket_cog)
+        if hasattr(ticket, "restore_panels"):
+            await ticket.restore_panels(bot, ticket_cog)
 
-            bot._air_ticket_initialized = True
+        bot._air_ticket_initialized = True
 
-            print("🎫 Advanced ticket system initialized.")
-
-        except Exception as exc:
-            print(
-                f"⚠️ Ticket initialization error: "
-                f"{type(exc).__name__}: {exc}"
-            )
+        print("🎫 Advanced ticket system initialized.")
+    except Exception as exc:
+        print(
+            f"⚠️ Ticket initialization error: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 
 
