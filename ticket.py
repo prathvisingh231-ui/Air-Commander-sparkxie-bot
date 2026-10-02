@@ -1,933 +1,2194 @@
-"""Air Commander Advanced Ticket System - Panel/Template Manager Prototype.
-
-This module is loaded by bot.py with:
-    import ticket
-    await ticket.setup(bot)
-    await ticket.restore_panels(bot, ticket_cog)
-"""
-
-from __future__ import annotations
-
-import asyncio
-import io
-import json
-import re
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional
+# ============================================================
+# AIR COMMANDER — ADVANCED TICKET SYSTEM
+# ticket.py
+#
+# PREFIX:
+# ,ticket setup
+# ,ticket panel create
+# ,ticket panel edit
+# ,ticket panel send
+# ,ticket panel delete
+# ,ticket category add
+# ,ticket category edit
+# ,ticket category remove
+# ,ticket category list
+# ,ticket config
+# ,ticket close
+# ,ticket reopen
+# ,ticket claim
+# ,ticket add @user
+# ,ticket remove @user
+# ,ticket rename name
+#
+# SLASH:
+# /ticket setup
+# /ticket panel create
+# /ticket panel edit
+# /ticket panel send
+# /ticket panel delete
+# /ticket category add
+# /ticket category edit
+# /ticket category remove
+# /ticket category list
+# /ticket config
+# /ticket close
+# /ticket reopen
+# /ticket claim
+# /ticket add
+# /ticket remove
+# /ticket rename
+# ============================================================
 
 import discord
-from discord import app_commands
 from discord.ext import commands
+from discord import app_commands
+
+import asyncio
+import json
+import os
+import re
+from pathlib import Path
+from datetime import datetime, timezone
+
+
+# ============================================================
+# CONFIG
+# ============================================================
 
 DATA_DIR = Path("data")
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
+
 DATA_FILE = DATA_DIR / "tickets.json"
 
-DEFAULT = {
-    "support_role_id": None,
-    "category_id": None,
-    "log_channel_id": None,
-    "transcript_channel_id": None,
-    "panel_channel_id": None,
-    "panel_message_id": None,
-    "panel_title": "🎫 Support Center",
-    "panel_description": "Select a ticket type below to open a private support ticket.",
-    "panel_color": 0x5865F2,
-    "panel_footer": "Air Commander Tickets",
-    "templates": {
-        "support": {
-            "label": "Support", "emoji": "🎫",
-            "description": "Open a general support ticket.",
-            "color": 0x5865F2,
-            "welcome_title": "🎫 Support Ticket",
-            "welcome_description": "Please explain your issue clearly."
-        },
-        "purchase": {
-            "label": "Purchase", "emoji": "🛒",
-            "description": "Questions about purchases or orders.",
-            "color": 0x57F287,
-            "welcome_title": "🛒 Purchase Ticket",
-            "welcome_description": "Please provide your order details."
-        },
-        "report": {
-            "label": "Report", "emoji": "🚨",
-            "description": "Report a user or server issue.",
-            "color": 0xED4245,
-            "welcome_title": "🚨 Report Ticket",
-            "welcome_description": "Please provide the relevant details."
-        },
+
+# ============================================================
+# DEFAULT DATA
+# ============================================================
+
+DEFAULT_GUILD_DATA = {
+    "categories": {
+        "general": {
+            "name": "General Support",
+            "emoji": "🎫",
+            "description": "Get general help from our support team.",
+            "prefix": "support"
+        }
     },
-    "panels": {},
-    "next_panel_id": 1,
+    "panel": {
+        "title": "✈️ Air Commander Support Center",
+        "description": (
+            "Need help? Open a support ticket below.\n\n"
+            "Our support team will assist you as soon as possible.\n\n"
+            "Select a category from the menu below."
+        ),
+        "color": 0x5865F2,
+        "footer": "Air Commander • Support System",
+        "channel_id": None,
+        "message_id": None
+    },
+    "config": {
+        "support_role_id": None,
+        "log_channel_id": None,
+        "ticket_category_id": None,
+        "transcript": True,
+        "naming": "ticket-{username}"
+    },
+    "tickets": {}
 }
 
 
-def clone_default():
-    return json.loads(json.dumps(DEFAULT))
+# ============================================================
+# DATABASE HELPERS
+# ============================================================
 
-
-def load_all():
+def load_data():
     if not DATA_FILE.exists():
-        return {}
+        DATA_FILE.write_text(
+            json.dumps({}, indent=4),
+            encoding="utf-8"
+        )
+
     try:
-        return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            return {}
+
+        return data
+
     except Exception:
         return {}
 
 
-def save_all(data):
-    tmp = DATA_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(DATA_FILE)
+def save_data(data):
+    temp_file = DATA_FILE.with_suffix(".tmp")
+
+    with open(temp_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+    temp_file.replace(DATA_FILE)
 
 
-def get_config(guild_id):
-    data = load_all()
-    key = str(guild_id)
-    if key not in data:
-        data[key] = clone_default()
-        save_all(data)
-        return data[key]
+def ensure_guild(data, guild_id):
+    gid = str(guild_id)
 
-    config = data[key]
-    changed = False
-    for k, v in DEFAULT.items():
-        if k not in config:
-            config[k] = json.loads(json.dumps(v))
-            changed = True
-    config.setdefault("panels", {})
-    config.setdefault("next_panel_id", 1)
-    if changed:
-        save_all(data)
-    return config
+    if gid not in data:
+        data[gid] = json.loads(
+            json.dumps(DEFAULT_GUILD_DATA)
+        )
+        save_data(data)
+
+    guild_data = data[gid]
+
+    guild_data.setdefault("categories", {})
+    guild_data.setdefault("panel", {})
+    guild_data.setdefault("config", {})
+    guild_data.setdefault("tickets", {})
+
+    return guild_data
 
 
-def save_config(guild_id, config):
-    data = load_all()
-    data[str(guild_id)] = config
-    save_all(data)
+# ============================================================
+# HELPERS
+# ============================================================
 
-
-def slug(text):
-    text = re.sub(r"[^a-z0-9-]+", "-", text.lower().strip())
-    return text.strip("-")[:35] or "ticket"
-
-
-def ticket_owner(channel):
-    if not channel.topic:
-        return None
-    m = re.search(r"owner=(\d+)", channel.topic)
-    return int(m.group(1)) if m else None
-
-
-def is_ticket(channel):
-    return isinstance(channel, discord.TextChannel) and (
-        channel.name.startswith("ticket-") or channel.name.startswith("closed-")
+def is_admin(member: discord.Member):
+    return (
+        member.guild_permissions.administrator
+        or member.guild_permissions.manage_guild
     )
 
 
-def is_support(member, config):
-    if not isinstance(member, discord.Member):
-        return False
-    if member.guild_permissions.administrator or member.guild_permissions.manage_guild:
-        return True
-    role_id = config.get("support_role_id")
-    return bool(role_id and any(r.id == int(role_id) for r in member.roles))
+def clean_channel_name(name):
+    name = name.lower().strip()
+    name = re.sub(r"[^a-z0-9\-_ ]+", "", name)
+    name = name.replace(" ", "-")
+
+    if not name:
+        name = "ticket"
+
+    return name[:80]
 
 
-def admin_check(member):
-    return isinstance(member, discord.Member) and member.guild_permissions.manage_guild
+def category_name_from_key(key, category_data):
+    emoji = category_data.get("emoji", "🎫")
+    name = category_data.get("name", "General Support")
+
+    return f"{emoji} {name}"
 
 
-def panel_color(panel):
-    try:
-        return int(str(panel.get("color", "5865F2")).replace("#", ""), 16)
-    except (ValueError, TypeError):
-        return 0x5865F2
+def make_ticket_name(template, member, category_key):
+    username = clean_channel_name(member.name)
+
+    replacements = {
+        "{username}": username,
+        "{user}": username,
+        "{category}": clean_channel_name(category_key),
+        "{userid}": str(member.id)
+    }
+
+    result = template or "ticket-{username}"
+
+    for key, value in replacements.items():
+        result = result.replace(key, value)
+
+    return clean_channel_name(result)
 
 
-def template_color(template):
-    try:
-        return int(str(template.get("color", "5865F2")).replace("#", ""), 16)
-    except (ValueError, TypeError):
-        return 0x5865F2
+def find_ticket(guild_data, channel_id):
+    channel_id = str(channel_id)
+
+    for ticket_id, ticket in guild_data["tickets"].items():
+        if str(ticket.get("channel_id")) == channel_id:
+            return ticket_id, ticket
+
+    return None, None
 
 
-def get_templates_for_panel(config, panel):
-    out = []
-    for key in panel.get("template_keys", []):
-        if key in config.get("templates", {}):
-            out.append((key, config["templates"][key]))
-    return out
+def get_ticket_by_user(guild_data, user_id):
+    user_id = str(user_id)
+
+    for ticket_id, ticket in guild_data["tickets"].items():
+        if (
+            str(ticket.get("user_id")) == user_id
+            and ticket.get("closed") is False
+        ):
+            return ticket_id, ticket
+
+    return None, None
 
 
-async def log_event(guild, config, embed):
-    channel_id = config.get("log_channel_id")
-    if not channel_id:
-        return
-    channel = guild.get_channel(int(channel_id))
-    if channel:
-        try:
-            await channel.send(embed=embed)
-        except discord.HTTPException:
-            pass
+# ============================================================
+# TICKET VIEW
+# ============================================================
 
+class TicketPanelView(discord.ui.View):
 
-async def transcript(channel):
-    lines = [f"Ticket: #{channel.name}", f"Created: {channel.created_at.isoformat()}", ""]
-    try:
-        async for m in channel.history(limit=None, oldest_first=True):
-            stamp = m.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-            content = m.content or ""
-            if m.attachments:
-                content += " " + " ".join(a.url for a in m.attachments)
-            lines.append(f"[{stamp}] {m.author} ({m.author.id}): {content}")
-    except discord.HTTPException:
-        lines.append("[Unable to read complete message history]")
-    return "\n".join(lines)
-
-
-# =========================================================
-# LIVE TICKET PANEL
-# =========================================================
-
-
-class TicketPanel(discord.ui.View):
-    def __init__(self, cog, guild_id, panel_id):
+    def __init__(self, cog):
         super().__init__(timeout=None)
         self.cog = cog
-        self.guild_id = guild_id
-        self.panel_id = panel_id
-        config = get_config(guild_id)
-        panel = config.get("panels", {}).get(str(panel_id), {})
-        options = []
-        for key, template in get_templates_for_panel(config, panel)[:25]:
-            options.append(discord.SelectOption(
-                label=str(template.get("label", key))[:100],
-                value=key,
-                description=str(template.get("description", "Open a ticket."))[:100],
-                emoji=template.get("emoji") or None,
-            ))
-        if not options:
-            options = [discord.SelectOption(label="Support", value="support", emoji="🎫")]
-        self.add_item(TicketSelect(cog, guild_id, options))
+
+        self.add_item(
+            TicketCategorySelect(cog)
+        )
 
 
-class TicketSelect(discord.ui.Select):
-    def __init__(self, cog, guild_id, options):
+class TicketCategorySelect(discord.ui.Select):
+
+    def __init__(self, cog):
         self.cog = cog
-        self.guild_id = guild_id
+
+        options = [
+            discord.SelectOption(
+                label="General Support",
+                description="Get general support.",
+                emoji="🎫",
+                value="general"
+            )
+        ]
+
         super().__init__(
-            placeholder="🎫 Select a ticket type...",
+            placeholder="🎫 Select a ticket category...",
             min_values=1,
             max_values=1,
             options=options,
-            custom_id=f"air_ticket_select:{guild_id}",
+            custom_id="aircommander:ticket_category"
         )
 
-    async def callback(self, interaction):
-        await self.cog.open_ticket(interaction, self.values[0])
+    async def callback(self, interaction: discord.Interaction):
 
+        await self.cog.handle_category_select(
+            interaction,
+            self.values[0]
+        )
 
-class TicketActions(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=None)
-        self.cog = cog
 
-    @discord.ui.button(label="Claim", emoji="🙋", style=discord.ButtonStyle.primary, custom_id="air_ticket_claim")
-    async def claim(self, interaction, button):
-        await self.cog.claim(interaction)
-
-    @discord.ui.button(label="Close", emoji="🔒", style=discord.ButtonStyle.secondary, custom_id="air_ticket_close")
-    async def close(self, interaction, button):
-        await self.cog.close(interaction)
-
-    @discord.ui.button(label="Delete", emoji="🗑️", style=discord.ButtonStyle.danger, custom_id="air_ticket_delete")
-    async def delete(self, interaction, button):
-        await self.cog.delete(interaction)
-
-
-# =========================================================
-# MANAGER MODALS
-# =========================================================
-
-
-class PanelCreateModal(discord.ui.Modal, title="➕ Create Ticket Panel"):
-    name = discord.ui.TextInput(label="Panel Name", placeholder="Support Center", max_length=80)
-    description = discord.ui.TextInput(label="Description", placeholder="Choose a ticket type below.", style=discord.TextStyle.paragraph, max_length=2000)
-    channel_id = discord.ui.TextInput(label="Panel Channel ID", placeholder="123456789012345678", max_length=25)
-    color = discord.ui.TextInput(label="Embed Color", placeholder="#5865F2", required=False, max_length=7)
-    footer = discord.ui.TextInput(label="Footer", placeholder="Air Commander Tickets", required=False, max_length=200)
-
-    def __init__(self, cog):
-        super().__init__()
-        self.cog = cog
-
-    async def on_submit(self, interaction):
-        try:
-            channel_id = int(self.channel_id.value.strip())
-        except ValueError:
-            return await interaction.response.send_message("❌ Invalid channel ID.", ephemeral=True)
-        channel = interaction.guild.get_channel(channel_id)
-        if not isinstance(channel, discord.TextChannel):
-            return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
-        color = panel_color({"color": self.color.value or "#5865F2"})
-        config = self.cog.cfg(interaction.guild)
-        panel_id = int(config.get("next_panel_id", 1))
-        config["next_panel_id"] = panel_id + 1
-        config.setdefault("panels", {})[str(panel_id)] = {
-            "id": panel_id,
-            "name": self.name.value.strip(),
-            "description": self.description.value.strip(),
-            "channel_id": channel.id,
-            "color": color,
-            "footer": self.footer.value.strip() or "Air Commander Tickets",
-            "template_keys": [],
-            "message_id": None,
-        }
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-class PanelEditModal(discord.ui.Modal, title="🎨 Edit Ticket Panel"):
-    name = discord.ui.TextInput(label="Panel Name", max_length=80)
-    description = discord.ui.TextInput(label="Description", style=discord.TextStyle.paragraph, max_length=2000)
-    channel_id = discord.ui.TextInput(label="Panel Channel ID", max_length=25)
-    color = discord.ui.TextInput(label="Embed Color", required=False, max_length=7)
-    footer = discord.ui.TextInput(label="Footer", required=False, max_length=200)
-
-    def __init__(self, cog, panel_id, panel):
-        super().__init__()
-        self.cog = cog
-        self.panel_id = panel_id
-        self.name.default = panel.get("name", "")
-        self.description.default = panel.get("description", "")
-        self.channel_id.default = str(panel.get("channel_id", ""))
-        self.color.default = f"#{int(panel.get('color', 0x5865F2)):06X}"
-        self.footer.default = panel.get("footer", "Air Commander Tickets")
-
-    async def on_submit(self, interaction):
-        try:
-            channel_id = int(self.channel_id.value.strip())
-        except ValueError:
-            return await interaction.response.send_message("❌ Invalid channel ID.", ephemeral=True)
-        if not isinstance(interaction.guild.get_channel(channel_id), discord.TextChannel):
-            return await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
-        config = self.cog.cfg(interaction.guild)
-        panel = config["panels"].get(str(self.panel_id))
-        if not panel:
-            return await interaction.response.send_message("❌ Panel not found.", ephemeral=True)
-        panel.update({
-            "name": self.name.value.strip(),
-            "description": self.description.value.strip(),
-            "channel_id": channel_id,
-            "color": panel_color({"color": self.color.value or "#5865F2"}),
-            "footer": self.footer.value.strip() or "Air Commander Tickets",
-        })
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-class TemplateCreateModal(discord.ui.Modal, title="➕ Create Ticket Template"):
-    key = discord.ui.TextInput(label="Template Key", placeholder="support", max_length=32)
-    label = discord.ui.TextInput(label="Dropdown Label", placeholder="Support", max_length=100)
-    description = discord.ui.TextInput(label="Dropdown Description", placeholder="Open a support ticket.", max_length=100)
-    emoji = discord.ui.TextInput(label="Emoji", placeholder="🎫", required=False, max_length=10)
-    welcome = discord.ui.TextInput(label="Welcome Message", placeholder="Please explain your issue clearly.", style=discord.TextStyle.paragraph, max_length=2000)
-
-    def __init__(self, cog):
-        super().__init__()
-        self.cog = cog
-
-    async def on_submit(self, interaction):
-        key = slug(self.key.value).replace("-", "_")[:32]
-        config = self.cog.cfg(interaction.guild)
-        config.setdefault("templates", {})[key] = {
-            "label": self.label.value.strip(),
-            "emoji": self.emoji.value.strip() or "🎫",
-            "description": self.description.value.strip(),
-            "color": 0x5865F2,
-            "welcome_title": f"🎫 {self.label.value.strip()} Ticket",
-            "welcome_description": self.welcome.value.strip(),
-        }
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-class TemplateEditModal(discord.ui.Modal, title="🎨 Edit Ticket Template"):
-    label = discord.ui.TextInput(label="Dropdown Label", max_length=100)
-    description = discord.ui.TextInput(label="Dropdown Description", max_length=100)
-    emoji = discord.ui.TextInput(label="Emoji", required=False, max_length=10)
-    welcome_title = discord.ui.TextInput(label="Welcome Title", max_length=200)
-    welcome_description = discord.ui.TextInput(label="Welcome Message", style=discord.TextStyle.paragraph, max_length=2000)
-
-    def __init__(self, cog, key, template):
-        super().__init__()
-        self.cog = cog
-        self.key = key
-        self.label.default = template.get("label", "")
-        self.description.default = template.get("description", "")
-        self.emoji.default = template.get("emoji", "🎫")
-        self.welcome_title.default = template.get("welcome_title", f"🎫 {template.get('label', key)} Ticket")
-        self.welcome_description.default = template.get("welcome_description", "")
-
-    async def on_submit(self, interaction):
-        config = self.cog.cfg(interaction.guild)
-        template = config.get("templates", {}).get(self.key)
-        if not template:
-            return await interaction.response.send_message("❌ Template not found.", ephemeral=True)
-        template.update({
-            "label": self.label.value.strip(),
-            "description": self.description.value.strip(),
-            "emoji": self.emoji.value.strip() or "🎫",
-            "welcome_title": self.welcome_title.value.strip(),
-            "welcome_description": self.welcome_description.value.strip(),
-        })
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-# =========================================================
-# SELECT VIEWS
-# =========================================================
-
-
-class PanelSelect(discord.ui.Select):
-    def __init__(self, cog, panels, action):
-        self.cog, self.action = cog, action
-        options = [discord.SelectOption(label=p.get("name", f"Panel {p.get('id')}" )[:100], value=str(p["id"]), emoji="🧩") for p in panels[:25]]
-        super().__init__(placeholder=f"🧩 Select a panel to {action}...", options=options)
-
-    async def callback(self, interaction):
-        panel_id = int(self.values[0])
-        config = self.cog.cfg(interaction.guild)
-        panel = config.get("panels", {}).get(str(panel_id))
-        if not panel:
-            return await interaction.response.send_message("❌ Panel not found.", ephemeral=True)
-        if self.action == "edit":
-            return await interaction.response.send_modal(PanelEditModal(self.cog, panel_id, panel))
-        if self.action == "delete":
-            config["panels"].pop(str(panel_id), None)
-            save_config(interaction.guild.id, config)
-            return await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-        if self.action == "send":
-            await interaction.response.defer(ephemeral=True)
-            msg, error = await self.cog.send_panel(interaction.guild, panel)
-            return await interaction.followup.send(error or f"✅ **{panel['name']}** sent. Message ID: `{msg.id}`", ephemeral=True)
-        if self.action == "templates":
-            return await interaction.response.edit_message(embed=self.cog.add_template_embed(interaction.guild, panel), view=PanelTemplateView(self.cog, panel_id))
-
-
-class PanelTemplateView(discord.ui.View):
-    def __init__(self, cog, panel_id):
-        super().__init__(timeout=300)
-        self.cog, self.panel_id = cog, panel_id
-        config = cog.cfg(cog._current_guild_id)
-        templates = list(config.get("templates", {}).items())
-        options = [discord.SelectOption(label=t.get("label", key)[:100], value=key, default=key in config["panels"].get(str(panel_id), {}).get("template_keys", []), emoji=t.get("emoji") or None) for key,t in templates[:25]]
-        if options:
-            self.add_item(TemplateMultiSelect(cog, panel_id, options))
-        back = discord.ui.Button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
-        back.callback = self.back
-        self.add_item(back)
-
-    async def back(self, interaction):
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-class TemplateMultiSelect(discord.ui.Select):
-    def __init__(self, cog, panel_id, options):
-        self.cog, self.panel_id = cog, panel_id
-        super().__init__(placeholder="🎫 Select templates for this panel...", min_values=0, max_values=min(25, len(options)), options=options)
-
-    async def callback(self, interaction):
-        config = self.cog.cfg(interaction.guild)
-        panel = config["panels"].get(str(self.panel_id))
-        if not panel:
-            return await interaction.response.send_message("❌ Panel not found.", ephemeral=True)
-        panel["template_keys"] = list(self.values)
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-class ConfigureModal(discord.ui.Modal, title="⚙️ Configure Ticket System"):
-    support_role_id = discord.ui.TextInput(label="Support Role ID", placeholder="Role ID (blank = keep current)", required=False, max_length=30)
-    category_id = discord.ui.TextInput(label="Ticket Category ID", placeholder="Category channel ID", required=False, max_length=30)
-    log_channel_id = discord.ui.TextInput(label="Log Channel ID", placeholder="Log channel ID", required=False, max_length=30)
-    transcript_channel_id = discord.ui.TextInput(label="Transcript Channel ID", placeholder="Transcript channel ID", required=False, max_length=30)
-    footer = discord.ui.TextInput(label="Ticket Footer", placeholder="Air Commander Tickets", required=False, max_length=100)
-
-    def __init__(self, cog):
-        super().__init__()
-        self.cog = cog
-
-    async def on_submit(self, interaction):
-        if not admin_check(interaction.user):
-            return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        c = self.cog.cfg(interaction.guild)
-        values = {
-            "support_role_id": (self.support_role_id.value or "").strip(),
-            "category_id": (self.category_id.value or "").strip(),
-            "log_channel_id": (self.log_channel_id.value or "").strip(),
-            "transcript_channel_id": (self.transcript_channel_id.value or "").strip(),
-        }
-        for key, value in values.items():
-            if value:
-                try:
-                    c[key] = int(value)
-                except ValueError:
-                    return await interaction.response.send_message(f"❌ Invalid ID for `{key}`.", ephemeral=True)
-        if self.footer.value.strip():
-            c["panel_footer"] = self.footer.value.strip()
-        save_config(interaction.guild.id, c)
-        await interaction.response.edit_message(embed=self.cog.configure_embed(interaction.guild), view=ConfigureView(self.cog))
-
-
-class ConfigureView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-
-    @discord.ui.button(label="Configure", emoji="⚙️", style=discord.ButtonStyle.primary)
-    async def configure(self, interaction, button):
-        if not admin_check(interaction.user):
-            return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        c = self.cog.cfg(interaction.guild)
-        modal = ConfigureModal(self.cog)
-        modal.support_role_id.default = str(c.get("support_role_id") or "")
-        modal.category_id.default = str(c.get("category_id") or "")
-        modal.log_channel_id.default = str(c.get("log_channel_id") or "")
-        modal.transcript_channel_id.default = str(c.get("transcript_channel_id") or "")
-        modal.footer.default = str(c.get("panel_footer") or "Air Commander Tickets")
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary)
-    async def refresh(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.configure_embed(interaction.guild), view=ConfigureView(self.cog))
-
-    @discord.ui.button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary)
-    async def back(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-# =========================================================
-# MANAGER VIEWS
-# =========================================================
-
-
-class PanelManagerView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-
-    @discord.ui.button(label="Create Panel", emoji="➕", style=discord.ButtonStyle.success, row=0)
-    async def create(self, interaction, button):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.send_modal(PanelCreateModal(self.cog))
-
-    @discord.ui.button(label="Panel List", emoji="📋", style=discord.ButtonStyle.primary, row=0)
-    async def listing(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.panel_list_embed(interaction.guild), view=PanelListView(self.cog))
-
-    @discord.ui.button(label="Edit Panel", emoji="🎨", style=discord.ButtonStyle.primary, row=0)
-    async def edit(self, interaction, button):
-        await self.cog.panel_select_action(interaction, "edit")
-
-    @discord.ui.button(label="Delete Panel", emoji="🗑️", style=discord.ButtonStyle.danger, row=1)
-    async def delete(self, interaction, button):
-        await self.cog.panel_select_action(interaction, "delete")
-
-    @discord.ui.button(label="Add Template", emoji="🎫", style=discord.ButtonStyle.primary, row=1)
-    async def templates(self, interaction, button):
-        await self.cog.panel_select_action(interaction, "templates")
-
-    @discord.ui.button(label="Send Panel", emoji="📤", style=discord.ButtonStyle.success, row=1)
-    async def send(self, interaction, button):
-        await self.cog.panel_select_action(interaction, "send")
-
-    @discord.ui.button(label="Configure", emoji="⚙️", style=discord.ButtonStyle.secondary, row=2)
-    async def configure(self, interaction, button):
-        if not admin_check(interaction.user):
-            return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.edit_message(embed=self.cog.configure_embed(interaction.guild), view=ConfigureView(self.cog))
-
-
-class PanelListView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-
-    @discord.ui.button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary)
-    async def back(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.panel_manager_embed(interaction.guild), view=PanelManagerView(self.cog))
-
-
-class TemplateManagerView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-
-    @discord.ui.button(label="Create Template", emoji="➕", style=discord.ButtonStyle.success, row=0)
-    async def create(self, interaction, button):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.send_modal(TemplateCreateModal(self.cog))
-
-    @discord.ui.button(label="Template List", emoji="📋", style=discord.ButtonStyle.primary, row=0)
-    async def listing(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.template_list_embed(interaction.guild), view=TemplateListView(self.cog))
-
-    @discord.ui.button(label="Edit Template", emoji="🎨", style=discord.ButtonStyle.primary, row=0)
-    async def edit(self, interaction, button):
-        await self.cog.template_select_edit(interaction)
-
-    @discord.ui.button(label="Delete Template", emoji="🗑️", style=discord.ButtonStyle.danger, row=1)
-    async def delete(self, interaction, button):
-        await self.cog.template_select_delete(interaction)
-
-    @discord.ui.button(label="Refresh", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
-    async def refresh(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-class TemplateListView(discord.ui.View):
-    def __init__(self, cog):
-        super().__init__(timeout=300)
-        self.cog = cog
-
-    @discord.ui.button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary)
-    async def back(self, interaction, button):
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-class KeySelect(discord.ui.Select):
-    def __init__(self, cog, keys, action):
-        self.cog, self.action = cog, action
-        options = [discord.SelectOption(label=str(k)[:100], value=str(k), emoji="🎫") for k in keys[:25]]
-        super().__init__(placeholder=f"🎫 Select a template to {action}...", options=options)
-
-    async def callback(self, interaction):
-        key = self.values[0]
-        config = self.cog.cfg(interaction.guild)
-        template = config.get("templates", {}).get(key)
-        if not template:
-            return await interaction.response.send_message("❌ Template not found.", ephemeral=True)
-        if self.action == "edit":
-            return await interaction.response.send_modal(TemplateEditModal(self.cog, key, template))
-        config["templates"].pop(key, None)
-        for panel in config.get("panels", {}).values():
-            panel["template_keys"] = [x for x in panel.get("template_keys", []) if x != key]
-        save_config(interaction.guild.id, config)
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-class KeySelectView(discord.ui.View):
-    def __init__(self, cog, keys, action):
-        super().__init__(timeout=300)
-        self.cog = cog
-        self.add_item(KeySelect(cog, keys, action))
-        back = discord.ui.Button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary)
-        back.callback = self.back
-        self.add_item(back)
-
-    async def back(self, interaction):
-        await interaction.response.edit_message(embed=self.cog.template_manager_embed(interaction.guild), view=TemplateManagerView(self.cog))
-
-
-# =========================================================
-# COG
-# =========================================================
-
+# ============================================================
+# MAIN COG
+# ============================================================
 
 class TicketSystem(commands.Cog):
-    ticket = app_commands.Group(name="ticket", description="Advanced ticket management.")
+
+    ticket = app_commands.Group(
+        name="ticket",
+        description="Air Commander ticket system."
+    )
+
+    panel = app_commands.Group(
+        name="panel",
+        description="Manage ticket panels.",
+        parent=ticket
+    )
+
+    category = app_commands.Group(
+        name="category",
+        description="Manage ticket categories.",
+        parent=ticket
+    )
 
     def __init__(self, bot):
         self.bot = bot
-        self._current_guild_id = 0
+        self.data = load_data()
 
-    async def cog_load(self):
-        self.bot.add_view(TicketActions(self))
+        self._register_persistent_view()
 
-    def cfg(self, guild):
-        self._current_guild_id = guild.id
-        return get_config(guild.id)
+    def _register_persistent_view(self):
 
-    # ---------- manager embeds ----------
-    def panel_manager_embed(self, guild):
-        config = self.cfg(guild)
-        e = discord.Embed(title="🎫 Ticket Panel Manager", description="Manage all ticket panels from the buttons below.", color=0x5865F2)
-        panels = config.get("panels", {})
-        e.add_field(name="📊 Panels", value=f"`{len(panels)}` panel(s) created", inline=True)
-        e.add_field(name="🎫 Templates", value=f"`{len(config.get('templates', {}))}` available", inline=True)
-        e.set_footer(text="Air Commander • Ticket System")
-        return e
-
-    def configure_embed(self, guild):
-        config = self.cfg(guild)
-        role = guild.get_role(int(config["support_role_id"])) if config.get("support_role_id") else None
-        category = guild.get_channel(int(config["category_id"])) if config.get("category_id") else None
-        logs = guild.get_channel(int(config["log_channel_id"])) if config.get("log_channel_id") else None
-        transcript = guild.get_channel(int(config["transcript_channel_id"])) if config.get("transcript_channel_id") else None
-        e = discord.Embed(title="⚙️ Ticket Configuration", description="Configure the core ticket system settings from the button below.", color=0x5865F2)
-        e.add_field(name="👥 Support Role", value=role.mention if role else "Not configured", inline=False)
-        e.add_field(name="📁 Ticket Category", value=category.mention if category else "Not configured", inline=False)
-        e.add_field(name="📜 Log Channel", value=logs.mention if logs else "Not configured", inline=False)
-        e.add_field(name="🧾 Transcript Channel", value=transcript.mention if transcript else "Not configured", inline=False)
-        e.add_field(name="📝 Footer", value=config.get("panel_footer", "Air Commander Tickets"), inline=False)
-        e.set_footer(text="Air Commander • Ticket System")
-        return e
-
-    def panel_list_embed(self, guild):
-        config = self.cfg(guild)
-        e = discord.Embed(title="📋 Ticket Panel List", color=0x5865F2)
-        panels = list(config.get("panels", {}).values())
-        if not panels:
-            e.description = "📭 No panels created yet."
-            return e
-        for p in panels[:25]:
-            channel = guild.get_channel(int(p.get("channel_id", 0))) if p.get("channel_id") else None
-            names = [config.get("templates", {}).get(k, {}).get("label", k) for k in p.get("template_keys", [])]
-            e.add_field(name=f"🧩 #{p['id']} • {p.get('name', 'Unnamed')}", value=f"📍 {channel.mention if channel else 'Channel not found'}\n🎫 {', '.join(names) if names else 'No templates attached'}\n📨 Message: `{p.get('message_id') or 'Not sent'}`", inline=False)
-        return e
-
-    def template_manager_embed(self, guild):
-        config = self.cfg(guild)
-        e = discord.Embed(title="🎫 Ticket Template Manager", description="Create, list, edit and delete ticket templates.", color=0x5865F2)
-        e.add_field(name="📊 Templates", value=f"`{len(config.get('templates', {}))}` template(s)", inline=True)
-        e.set_footer(text="Air Commander • Ticket System")
-        return e
-
-    def template_list_embed(self, guild):
-        config = self.cfg(guild)
-        e = discord.Embed(title="📋 Ticket Template List", color=0x5865F2)
-        templates = config.get("templates", {})
-        if not templates:
-            e.description = "📭 No templates created."
-            return e
-        for key, t in list(templates.items())[:25]:
-            e.add_field(name=f"🎫 `{key}` • {t.get('label', key)}", value=f"{t.get('emoji','🎫')} {t.get('description','No description')}", inline=False)
-        return e
-
-    def add_template_embed(self, guild, panel):
-        e = discord.Embed(title=f"🎫 Add Templates • {panel.get('name','Panel')}", description="Select the templates that should appear in this panel. Selected items are saved immediately.", color=0x5865F2)
-        return e
-
-    async def panel_select_action(self, interaction, action):
-        if not admin_check(interaction.user):
-            return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        panels = list(self.cfg(interaction.guild).get("panels", {}).values())
-        if not panels:
-            return await interaction.response.send_message("📭 Create a panel first.", ephemeral=True)
-        view = discord.ui.View(timeout=300)
-        view.add_item(PanelSelect(self, panels, action))
-        back = discord.ui.Button(label="Back", emoji="↩️", style=discord.ButtonStyle.secondary)
-        async def back_cb(i):
-            await i.response.edit_message(embed=self.panel_manager_embed(i.guild), view=PanelManagerView(self))
-        back.callback = back_cb
-        view.add_item(back)
-        await interaction.response.edit_message(embed=discord.Embed(title=f"🧩 Select Panel • {action.title()}", description="Choose a panel below.", color=0x5865F2), view=view)
-
-    async def template_select_edit(self, interaction):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        keys = list(self.cfg(interaction.guild).get("templates", {}).keys())
-        if not keys: return await interaction.response.send_message("📭 No templates available.", ephemeral=True)
-        await interaction.response.edit_message(embed=discord.Embed(title="🎨 Edit Template", description="Select a template.", color=0x5865F2), view=KeySelectView(self, keys, "edit"))
-
-    async def template_select_delete(self, interaction):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        keys = list(self.cfg(interaction.guild).get("templates", {}).keys())
-        if not keys: return await interaction.response.send_message("📭 No templates available.", ephemeral=True)
-        await interaction.response.edit_message(embed=discord.Embed(title="🗑️ Delete Template", description="Select a template. It will also be removed from every panel.", color=0xED4245), view=KeySelectView(self, keys, "delete"))
-
-    async def send_panel(self, guild, panel):
-        config = self.cfg(guild)
-        templates = get_templates_for_panel(config, panel)
-        if not templates:
-            return None, "❌ Add at least one template to this panel first."
-        channel = guild.get_channel(int(panel.get("channel_id", 0))) if panel.get("channel_id") else None
-        if not isinstance(channel, discord.TextChannel):
-            return None, "❌ Panel channel not found. Edit the panel and set a valid channel."
-        embed = discord.Embed(title=panel.get("name", "Ticket Panel"), description=panel.get("description", ""), color=panel_color(panel))
-        embed.set_footer(text=panel.get("footer", "Air Commander Tickets"))
-        view = TicketPanel(self, guild.id, int(panel["id"]))
         try:
-            message = await channel.send(embed=embed, view=view)
-        except discord.Forbidden:
-            return None, "❌ I don't have permission to send messages in that channel."
-        panel["message_id"] = message.id
-        config["panel_channel_id"] = channel.id
-        config["panel_message_id"] = message.id
-        save_config(guild.id, config)
-        return message, None
+            self.bot.add_view(
+                TicketPanelView(self)
+            )
+        except Exception as e:
+            print(
+                f"[Ticket] Persistent view error: {type(e).__name__}: {e}"
+            )
 
-    # ---------- ticket runtime ----------
-    async def open_ticket(self, interaction, template_key):
+    # ========================================================
+    # EMBED
+    # ========================================================
+
+    def panel_embed(self, guild_data):
+
+        panel = guild_data["panel"]
+
+        embed = discord.Embed(
+            title=panel.get(
+                "title",
+                "✈️ Air Commander Support Center"
+            ),
+            description=panel.get(
+                "description",
+                "Select a ticket category below."
+            ),
+            color=panel.get(
+                "color",
+                0x5865F2
+            ),
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        footer = panel.get(
+            "footer",
+            "Air Commander • Support System"
+        )
+
+        embed.set_footer(
+            text=footer
+        )
+
+        return embed
+
+    # ========================================================
+    # CATEGORY SELECT
+    # ========================================================
+
+    async def handle_category_select(
+        self,
+        interaction: discord.Interaction,
+        category_key: str
+    ):
+
         guild = interaction.guild
-        if not guild or not isinstance(interaction.user, discord.Member): return
-        config = self.cfg(guild)
-        template = config["templates"].get(template_key)
-        if not template:
-            return await interaction.response.send_message("❌ Ticket template not found.", ephemeral=True)
-        for ch in guild.text_channels:
-            if ch.name.startswith(f"ticket-{interaction.user.id}-"):
-                return await interaction.response.send_message(f"⚠️ You already have {ch.mention}.", ephemeral=True)
-        category = guild.get_channel(int(config["category_id"])) if config.get("category_id") else None
-        if not isinstance(category, discord.CategoryChannel): category = None
-        support = guild.get_role(int(config["support_role_id"])) if config.get("support_role_id") else None
+
+        if guild is None:
+            return
+
+        data = load_data()
+        guild_data = ensure_guild(
+            data,
+            guild.id
+        )
+
+        categories = guild_data["categories"]
+
+        if category_key not in categories:
+            await interaction.response.send_message(
+                "❌ This ticket category no longer exists.",
+                ephemeral=False
+            )
+            return
+
+        existing_id, existing_ticket = get_ticket_by_user(
+            guild_data,
+            interaction.user.id
+        )
+
+        if existing_ticket:
+            channel = guild.get_channel(
+                int(existing_ticket["channel_id"])
+            )
+
+            if channel:
+                await interaction.response.send_message(
+                    f"❌ You already have an open ticket: {channel.mention}",
+                    ephemeral=False
+                )
+                return
+
+        await interaction.response.defer(
+            ephemeral=False
+        )
+
+        category_data = categories[category_key]
+
+        channel = await self.create_ticket(
+            guild,
+            interaction.user,
+            category_key,
+            category_data,
+            guild_data
+        )
+
+        if channel is None:
+            await interaction.followup.send(
+                "❌ I couldn't create the ticket. Check my permissions.",
+                ephemeral=False
+            )
+            return
+
+        await interaction.followup.send(
+            f"🎫 Your ticket has been created: {channel.mention}",
+            ephemeral=False
+        )
+
+    # ========================================================
+    # CREATE TICKET
+    # ========================================================
+
+    async def create_ticket(
+        self,
+        guild,
+        member,
+        category_key,
+        category_data,
+        guild_data
+    ):
+
+        config = guild_data["config"]
+
+        support_role = None
+
+        support_role_id = config.get(
+            "support_role_id"
+        )
+
+        if support_role_id:
+            support_role = guild.get_role(
+                int(support_role_id)
+            )
+
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, attach_files=True, embed_links=True),
+            guild.default_role: discord.PermissionOverwrite(
+                view_channel=False
+            ),
+            member: discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                attach_files=True,
+                embed_links=True
+            )
         }
-        if support:
-            overwrites[support] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_messages=True, attach_files=True, embed_links=True)
+
+        if support_role:
+            overwrites[support_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+                attach_files=True,
+                embed_links=True
+            )
+
         if guild.me:
-            overwrites[guild.me] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True, manage_messages=True)
+            overwrites[guild.me] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_channels=True,
+                manage_messages=True,
+                attach_files=True,
+                embed_links=True
+            )
+
+        parent = None
+
+        parent_id = config.get(
+            "ticket_category_id"
+        )
+
+        if parent_id:
+            parent = guild.get_channel(
+                int(parent_id)
+            )
+
+        channel_name = make_ticket_name(
+            config.get(
+                "naming",
+                "ticket-{username}"
+            ),
+            member,
+            category_key
+        )
+
         try:
-            channel = await guild.create_text_channel(f"ticket-{interaction.user.id}-{slug(template_key)}"[:100], category=category, overwrites=overwrites, topic=f"Air Commander ticket | owner={interaction.user.id} | type={template_key}", reason=f"Ticket opened by {interaction.user}")
-        except discord.Forbidden:
-            return await interaction.response.send_message("❌ I need Manage Channels permission.", ephemeral=True)
-        embed = discord.Embed(title=template.get("welcome_title", "🎫 Ticket"), description=template.get("welcome_description", "Please explain your request."), color=template_color(template), timestamp=datetime.now(timezone.utc))
-        embed.add_field(name="👤 Owner", value=interaction.user.mention)
-        embed.add_field(name="📁 Type", value=template.get("label", template_key))
-        embed.set_footer(text=config.get("panel_footer", "Air Commander Tickets"))
-        content = interaction.user.mention + (f" {support.mention}" if support else "")
-        await channel.send(content=content, embed=embed, view=TicketActions(self))
-        await interaction.response.send_message(f"✅ Ticket created: {channel.mention}", ephemeral=True)
-        log = discord.Embed(title="🎫 Ticket Opened", color=0x57F287, timestamp=datetime.now(timezone.utc))
-        log.add_field(name="User", value=interaction.user.mention); log.add_field(name="Type", value=template.get("label", template_key)); log.add_field(name="Channel", value=channel.mention)
-        await log_event(guild, config, log)
+            channel = await guild.create_text_channel(
+                channel_name,
+                category=parent,
+                overwrites=overwrites,
+                reason="Air Commander Ticket Creation"
+            )
+        except Exception as e:
+            print(
+                f"[Ticket] Channel creation failed: "
+                f"{type(e).__name__}: {e}"
+            )
+            return None
 
-    async def claim(self, interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member): return
-        config = self.cfg(interaction.guild)
-        if not is_support(interaction.user, config): return await interaction.response.send_message("❌ Support team only.", ephemeral=True)
-        if not is_ticket(interaction.channel): return await interaction.response.send_message("❌ This is not a ticket.", ephemeral=True)
-        await interaction.response.send_message(f"🙋 Ticket claimed by {interaction.user.mention}.")
+        data = load_data()
+        guild_data = ensure_guild(
+            data,
+            guild.id
+        )
 
-    async def close(self, interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not is_ticket(interaction.channel): return await interaction.response.send_message("❌ This is not a ticket.", ephemeral=True)
-        owner = ticket_owner(interaction.channel); config = self.cfg(interaction.guild)
-        if not is_support(interaction.user, config) and owner != interaction.user.id: return await interaction.response.send_message("❌ Only the owner or support team can close this ticket.", ephemeral=True)
-        await interaction.channel.edit(name=f"closed-{interaction.channel.name[7:]}" if interaction.channel.name.startswith("ticket-") else interaction.channel.name)
-        await interaction.response.send_message("🔒 Ticket closed.")
+        ticket_id = str(channel.id)
 
-    async def delete(self, interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member) or not is_ticket(interaction.channel): return await interaction.response.send_message("❌ This is not a ticket.", ephemeral=True)
-        config = self.cfg(interaction.guild)
-        if not is_support(interaction.user, config): return await interaction.response.send_message("❌ Support team only.", ephemeral=True)
-        channel = interaction.channel; text = await transcript(channel)
-        transcript_channel = interaction.guild.get_channel(int(config["transcript_channel_id"])) if config.get("transcript_channel_id") else None
-        if isinstance(transcript_channel, discord.TextChannel):
-            await transcript_channel.send(content=f"🧾 Transcript for `{channel.name}` — deleted by {interaction.user.mention}", file=discord.File(io.BytesIO(text.encode("utf-8")), filename=f"{channel.name}.txt"))
-        await interaction.response.send_message("🗑️ Deleting ticket..."); await asyncio.sleep(1); await channel.delete(reason=f"Ticket deleted by {interaction.user}")
+        guild_data["tickets"][ticket_id] = {
+            "channel_id": channel.id,
+            "user_id": member.id,
+            "category": category_key,
+            "created_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "closed": False,
+            "claimed_by": None,
+            "added_users": []
+        }
 
-    # ---------- slash manager commands ----------
-    @ticket.command(name="panel", description="Open the Ticket Panel Manager.")
-    async def slash_panel(self, interaction):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.send_message(embed=self.panel_manager_embed(interaction.guild), view=PanelManagerView(self), ephemeral=True)
+        save_data(data)
 
-    @ticket.command(name="template", description="Open the Ticket Template Manager.")
-    async def slash_template(self, interaction):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.send_message(embed=self.template_manager_embed(interaction.guild), view=TemplateManagerView(self), ephemeral=True)
+        embed = discord.Embed(
+            title=(
+                f"{category_data.get('emoji', '🎫')} "
+                f"{category_data.get('name', 'Support')}"
+            ),
+            description=(
+                f"Welcome {member.mention}! 👋\n\n"
+                f"{category_data.get('description', '')}\n\n"
+                "Please explain your issue clearly and "
+                "a member of the support team will assist you."
+            ),
+            color=0x5865F2,
+            timestamp=datetime.now(timezone.utc)
+        )
 
-    @ticket.command(name="configure", description="Open the Ticket Configuration manager.")
-    async def slash_configure(self, interaction):
-        if not admin_check(interaction.user):
-            return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        await interaction.response.send_message(embed=self.configure_embed(interaction.guild), view=ConfigureView(self), ephemeral=True)
+        embed.add_field(
+            name="👤 Created By",
+            value=member.mention,
+            inline=True
+        )
 
-    @ticket.command(name="setup", description="Configure ticket category, support role and logs.")
-    @app_commands.describe(support_role="Support/staff role.", category="Ticket category.", log_channel="Ticket log channel.", transcript_channel="Transcript channel.")
-    async def slash_setup(self, interaction, support_role: discord.Role, category: discord.CategoryChannel, log_channel: Optional[discord.TextChannel] = None, transcript_channel: Optional[discord.TextChannel] = None):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        c = self.cfg(interaction.guild); c.update({"support_role_id": support_role.id, "category_id": category.id, "log_channel_id": log_channel.id if log_channel else None, "transcript_channel_id": transcript_channel.id if transcript_channel else None}); save_config(interaction.guild.id, c)
-        await interaction.response.send_message("✅ Ticket system configured.", ephemeral=True)
+        embed.add_field(
+            name="🏷️ Category",
+            value=category_data.get(
+                "name",
+                "General Support"
+            ),
+            inline=True
+        )
 
-    @ticket.command(name="settings", description="Show ticket settings.")
-    async def slash_settings(self, interaction):
-        if not admin_check(interaction.user): return await interaction.response.send_message("❌ Manage Server permission required.", ephemeral=True)
-        c = self.cfg(interaction.guild); role = interaction.guild.get_role(c["support_role_id"]) if c.get("support_role_id") else None; cat = interaction.guild.get_channel(c["category_id"]) if c.get("category_id") else None; log = interaction.guild.get_channel(c["log_channel_id"]) if c.get("log_channel_id") else None
-        e = discord.Embed(title="⚙️ Ticket Settings", color=0x5865F2); e.add_field(name="👥 Support Role", value=role.mention if role else "Not set", inline=False); e.add_field(name="📁 Category", value=cat.mention if cat else "Not set", inline=False); e.add_field(name="📜 Logs", value=log.mention if log else "Not set", inline=False); await interaction.response.send_message(embed=e, ephemeral=True)
+        embed.set_footer(
+            text="Air Commander • Ticket System"
+        )
 
-    @ticket.command(name="close", description="Close the current ticket.")
-    async def slash_close(self, interaction): await self.close(interaction)
+        view = TicketControlView(
+            self
+        )
 
-    @ticket.command(name="delete", description="Delete the current ticket.")
-    async def slash_delete(self, interaction): await self.delete(interaction)
+        content = member.mention
 
-    @ticket.command(name="claim", description="Claim the current ticket.")
-    async def slash_claim(self, interaction): await self.claim(interaction)
+        if support_role:
+            content += f" {support_role.mention}"
 
-    # ---------- prefix manager ----------
-    @commands.group(name="ticket", invoke_without_command=True)
-    @commands.guild_only()
-    async def prefix_ticket(self, ctx):
-        await ctx.send("🎫 Use `,ticket panel` or `,ticket template` to open the managers.")
+        await channel.send(
+            content=content,
+            embed=embed,
+            view=view
+        )
 
-    @prefix_ticket.command(name="panel")
-    @commands.has_guild_permissions(manage_guild=True)
-    async def prefix_panel(self, ctx):
-        await ctx.send(embed=self.panel_manager_embed(ctx.guild), view=PanelManagerView(self))
+        await self.log_event(
+            guild,
+            guild_data,
+            "🎫 Ticket Created",
+            (
+                f"Ticket: {channel.mention}\n"
+                f"User: {member.mention}\n"
+                f"Category: {category_data.get('name')}"
+            )
+        )
 
-    @prefix_ticket.command(name="template")
-    @commands.has_guild_permissions(manage_guild=True)
-    async def prefix_template(self, ctx):
-        await ctx.send(embed=self.template_manager_embed(ctx.guild), view=TemplateManagerView(self))
+        return channel
 
-    @prefix_ticket.command(name="configure")
-    @commands.has_guild_permissions(manage_guild=True)
-    async def prefix_configure(self, ctx):
-        await ctx.send(embed=self.configure_embed(ctx.guild), view=ConfigureView(self))
+    # ========================================================
+    # LOGGING
+    # ========================================================
 
-    @prefix_ticket.command(name="setup")
-    @commands.has_guild_permissions(manage_guild=True)
-    async def prefix_setup(self, ctx, support_role: discord.Role, category: discord.CategoryChannel, log_channel: Optional[discord.TextChannel] = None, transcript_channel: Optional[discord.TextChannel] = None):
-        c = self.cfg(ctx.guild); c.update({"support_role_id": support_role.id, "category_id": category.id, "log_channel_id": log_channel.id if log_channel else None, "transcript_channel_id": transcript_channel.id if transcript_channel else None}); save_config(ctx.guild.id, c); await ctx.send("✅ Ticket system configured.")
+    async def log_event(
+        self,
+        guild,
+        guild_data,
+        title,
+        description
+    ):
 
-    @prefix_ticket.command(name="close")
-    async def prefix_close(self, ctx): await self._prefix_action(ctx, "close")
+        channel_id = guild_data["config"].get(
+            "log_channel_id"
+        )
 
-    @prefix_ticket.command(name="delete")
-    async def prefix_delete(self, ctx): await self._prefix_action(ctx, "delete")
+        if not channel_id:
+            return
 
-    @prefix_ticket.command(name="claim")
-    async def prefix_claim(self, ctx): await self._prefix_action(ctx, "claim")
+        channel = guild.get_channel(
+            int(channel_id)
+        )
 
-    async def _prefix_action(self, ctx, action):
-        class R:
-            def __init__(self, ctx): self.ctx, self.guild, self.user, self.channel, self.response, self.followup = ctx, ctx.guild, ctx.author, ctx.channel, self, self
-            async def send_message(self, content=None, **kwargs): return await self.ctx.send(content=content, **kwargs)
-            async def defer(self, **kwargs): return None
-            async def send(self, content=None, **kwargs): return await self.ctx.send(content=content, **kwargs)
-        await getattr(self, action)(R(ctx))
+        if not channel:
+            return
 
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=0x5865F2,
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        embed.set_footer(
+            text="Air Commander • Ticket Logs"
+        )
+
+        try:
+            await channel.send(
+                embed=embed
+            )
+        except Exception:
+            pass
+
+    # ========================================================
+    # TRANSCRIPT
+    # ========================================================
+
+    async def create_transcript(
+        self,
+        channel
+    ):
+
+        lines = []
+
+        try:
+            async for message in channel.history(
+                limit=None,
+                oldest_first=True
+            ):
+                timestamp = message.created_at.strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
+                content = message.content or ""
+
+                if message.attachments:
+                    attachments = " ".join(
+                        a.url
+                        for a in message.attachments
+                    )
+                    content += f" [Attachments: {attachments}]"
+
+                lines.append(
+                    f"[{timestamp}] "
+                    f"{message.author} ({message.author.id}): "
+                    f"{content}"
+                )
+
+        except Exception as e:
+            lines.append(
+                f"Transcript error: {e}"
+            )
+
+        return "\n".join(lines)
+
+    # ========================================================
+    # TICKET CONTROL VIEW
+    # ========================================================
+
+    # ========================================================
+    # /ticket setup
+    # ========================================================
+
+    @ticket.command(
+        name="setup",
+        description="Create the basic ticket system configuration."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticket_setup(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        save_data(data)
+
+        embed = discord.Embed(
+            title="🎫 Ticket System Ready",
+            description=(
+                "Air Commander Ticket System has been initialized.\n\n"
+                "Default category:\n"
+                "🎫 **General Support**\n\n"
+                "You can now customize categories and send a panel."
+            ),
+            color=0x5865F2
+        )
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    # ========================================================
+    # /ticket panel create
+    # ========================================================
+
+    @panel.command(
+        name="create",
+        description="Create or reset the ticket panel."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def panel_create(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        guild_data["panel"] = {
+            "title": "✈️ Air Commander Support Center",
+            "description": (
+                "Need help? Open a support ticket below.\n\n"
+                "Our support team will assist you as soon as possible.\n\n"
+                "Select a category from the menu below."
+            ),
+            "color": 0x5865F2,
+            "footer": "Air Commander • Support System",
+            "channel_id": None,
+            "message_id": None
+        }
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            "✅ Ticket panel created/reset successfully."
+        )
+
+    # ========================================================
+    # /ticket panel edit
+    # ========================================================
+
+    @panel.command(
+        name="edit",
+        description="Edit the ticket panel."
+    )
+    @app_commands.describe(
+        title="Panel title",
+        description="Panel description",
+        color="Hex color, example: #5865F2"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def panel_edit(
+        self,
+        interaction: discord.Interaction,
+        title: str = None,
+        description: str = None,
+        color: str = None
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        panel = guild_data["panel"]
+
+        if title:
+            panel["title"] = title
+
+        if description:
+            panel["description"] = description
+
+        if color:
+            try:
+                color = color.replace("#", "")
+                panel["color"] = int(
+                    color,
+                    16
+                )
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Invalid color. Example: `#5865F2`"
+                )
+                return
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            "✅ Ticket panel updated."
+        )
+
+    # ========================================================
+    # /ticket panel send
+    # ========================================================
+
+    @panel.command(
+        name="send",
+        description="Send the ticket panel."
+    )
+    @app_commands.describe(
+        channel="Channel where the panel should be sent."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def panel_send(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        embed = self.panel_embed(
+            guild_data
+        )
+
+        view = TicketPanelView(
+            self
+        )
+
+        try:
+            message = await channel.send(
+                embed=embed,
+                view=view
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Failed to send panel: `{e}`"
+            )
+            return
+
+        guild_data["panel"]["channel_id"] = channel.id
+        guild_data["panel"]["message_id"] = message.id
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"✅ Ticket panel sent to {channel.mention}."
+        )
+
+    # ========================================================
+    # /ticket panel delete
+    # ========================================================
+
+    @panel.command(
+        name="delete",
+        description="Delete the configured ticket panel."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def panel_delete(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        channel_id = guild_data["panel"].get(
+            "channel_id"
+        )
+
+        message_id = guild_data["panel"].get(
+            "message_id"
+        )
+
+        if not channel_id or not message_id:
+            await interaction.response.send_message(
+                "❌ No saved ticket panel found."
+            )
+            return
+
+        channel = interaction.guild.get_channel(
+            int(channel_id)
+        )
+
+        if channel:
+            try:
+                message = await channel.fetch_message(
+                    int(message_id)
+                )
+
+                await message.delete()
+
+            except Exception:
+                pass
+
+        guild_data["panel"]["channel_id"] = None
+        guild_data["panel"]["message_id"] = None
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            "🗑️ Ticket panel deleted."
+        )
+
+    # ========================================================
+    # CATEGORY ADD
+    # ========================================================
+
+    @category.command(
+        name="add",
+        description="Add a ticket dropdown category."
+    )
+    @app_commands.describe(
+        name="Category name",
+        emoji="Category emoji",
+        description="Category description",
+        prefix="Ticket channel prefix"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_add(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        emoji: str = "🎫",
+        description: str = "Get help from our support team.",
+        prefix: str = "ticket"
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        key = re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            name.lower()
+        ).strip("-")
+
+        if not key:
+            await interaction.response.send_message(
+                "❌ Invalid category name."
+            )
+            return
+
+        if key in guild_data["categories"]:
+            await interaction.response.send_message(
+                "❌ A category with this name already exists."
+            )
+            return
+
+        guild_data["categories"][key] = {
+            "name": name[:100],
+            "emoji": emoji[:10],
+            "description": description[:300],
+            "prefix": clean_channel_name(prefix)
+        }
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"✅ Added `{name}` to the ticket dropdown."
+        )
+
+    # ========================================================
+    # CATEGORY EDIT
+    # ========================================================
+
+    @category.command(
+        name="edit",
+        description="Edit a ticket dropdown category."
+    )
+    @app_commands.describe(
+        category_key="Existing category key",
+        name="New category name",
+        emoji="New emoji",
+        description="New description",
+        prefix="New channel prefix"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_edit(
+        self,
+        interaction: discord.Interaction,
+        category_key: str,
+        name: str = None,
+        emoji: str = None,
+        description: str = None,
+        prefix: str = None
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        category_key = category_key.lower()
+
+        if category_key not in guild_data["categories"]:
+            await interaction.response.send_message(
+                "❌ Category not found."
+            )
+            return
+
+        category_data = guild_data["categories"][
+            category_key
+        ]
+
+        if name:
+            category_data["name"] = name[:100]
+
+        if emoji:
+            category_data["emoji"] = emoji[:10]
+
+        if description:
+            category_data["description"] = description[:300]
+
+        if prefix:
+            category_data["prefix"] = clean_channel_name(
+                prefix
+            )
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            "✅ Ticket category updated."
+        )
+
+    # ========================================================
+    # CATEGORY REMOVE
+    # ========================================================
+
+    @category.command(
+        name="remove",
+        description="Remove a ticket dropdown category."
+    )
+    @app_commands.describe(
+        category_key="Category key to remove."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_remove(
+        self,
+        interaction: discord.Interaction,
+        category_key: str
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        category_key = category_key.lower()
+
+        if category_key not in guild_data["categories"]:
+            await interaction.response.send_message(
+                "❌ Category not found."
+            )
+            return
+
+        del guild_data["categories"][
+            category_key
+        ]
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"🗑️ Removed `{category_key}` from the dropdown."
+        )
+
+    # ========================================================
+    # CATEGORY LIST
+    # ========================================================
+
+    @category.command(
+        name="list",
+        description="List all ticket categories."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_list(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        embed = discord.Embed(
+            title="🎫 Ticket Categories",
+            color=0x5865F2
+        )
+
+        categories = guild_data["categories"]
+
+        if not categories:
+            embed.description = (
+                "No ticket categories configured."
+            )
+        else:
+            lines = []
+
+            for key, value in categories.items():
+                lines.append(
+                    f"{value.get('emoji', '🎫')} "
+                    f"**{value.get('name', key)}**\n"
+                    f"`{key}` • {value.get('description', '')}"
+                )
+
+            embed.description = "\n\n".join(
+                lines
+            )
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    # ========================================================
+    # /ticket config
+    # ========================================================
+
+    @ticket.command(
+        name="config",
+        description="Configure ticket system settings."
+    )
+    @app_commands.describe(
+        support_role="Support team role",
+        log_channel="Ticket log channel",
+        ticket_category="Discord category for tickets",
+        transcript="Enable transcripts",
+        naming="Ticket channel naming template"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ticket_config(
+        self,
+        interaction: discord.Interaction,
+        support_role: discord.Role = None,
+        log_channel: discord.TextChannel = None,
+        ticket_category: discord.CategoryChannel = None,
+        transcript: bool = None,
+        naming: str = None
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        config = guild_data["config"]
+
+        if support_role:
+            config["support_role_id"] = support_role.id
+
+        if log_channel:
+            config["log_channel_id"] = log_channel.id
+
+        if ticket_category:
+            config["ticket_category_id"] = ticket_category.id
+
+        if transcript is not None:
+            config["transcript"] = transcript
+
+        if naming:
+            config["naming"] = naming[:80]
+
+        save_data(data)
+
+        embed = discord.Embed(
+            title="⚙️ Ticket Configuration",
+            color=0x5865F2
+        )
+
+        role_text = "Not set"
+
+        if config.get("support_role_id"):
+            role = interaction.guild.get_role(
+                int(config["support_role_id"])
+            )
+
+            if role:
+                role_text = role.mention
+
+        log_text = "Not set"
+
+        if config.get("log_channel_id"):
+            channel = interaction.guild.get_channel(
+                int(config["log_channel_id"])
+            )
+
+            if channel:
+                log_text = channel.mention
+
+        category_text = "Not set"
+
+        if config.get("ticket_category_id"):
+            category = interaction.guild.get_channel(
+                int(config["ticket_category_id"])
+            )
+
+            if category:
+                category_text = category.name
+
+        embed.add_field(
+            name="🛡️ Support Role",
+            value=role_text,
+            inline=True
+        )
+
+        embed.add_field(
+            name="📋 Log Channel",
+            value=log_text,
+            inline=True
+        )
+
+        embed.add_field(
+            name="📂 Ticket Category",
+            value=category_text,
+            inline=True
+        )
+
+        embed.add_field(
+            name="📄 Transcript",
+            value=str(
+                config.get("transcript", True)
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="🏷️ Naming",
+            value=f"`{config.get('naming')}`",
+            inline=True
+        )
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    # ========================================================
+    # CLOSE
+    # ========================================================
+
+    @ticket.command(
+        name="close",
+        description="Close the current ticket."
+    )
+    async def ticket_close(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        await self.close_ticket(
+            interaction
+        )
+
+    # ========================================================
+    # REOPEN
+    # ========================================================
+
+    @ticket.command(
+        name="reopen",
+        description="Reopen the current ticket."
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def ticket_reopen(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        member = interaction.guild.get_member(
+            int(ticket["user_id"])
+        )
+
+        if member:
+            await interaction.channel.set_permissions(
+                member,
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True
+            )
+
+        ticket["closed"] = False
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            "🔓 Ticket reopened."
+        )
+
+    # ========================================================
+    # CLAIM
+    # ========================================================
+
+    @ticket.command(
+        name="claim",
+        description="Claim the current ticket."
+    )
+    async def ticket_claim(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        if not is_admin(interaction.user):
+            support_role_id = guild_data["config"].get(
+                "support_role_id"
+            )
+
+            if not support_role_id or not any(
+                role.id == int(support_role_id)
+                for role in interaction.user.roles
+            ):
+                await interaction.response.send_message(
+                    "❌ You are not part of the support team."
+                )
+                return
+
+        ticket["claimed_by"] = interaction.user.id
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"🙋 Ticket claimed by {interaction.user.mention}."
+        )
+
+    # ========================================================
+    # ADD USER
+    # ========================================================
+
+    @ticket.command(
+        name="add",
+        description="Add a user to the current ticket."
+    )
+    @app_commands.describe(
+        user="User to add."
+    )
+    async def ticket_add(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member
+    ):
+
+        if not is_admin(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions."
+            )
+            return
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        await interaction.channel.set_permissions(
+            user,
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True,
+            attach_files=True,
+            embed_links=True
+        )
+
+        ticket.setdefault(
+            "added_users",
+            []
+        )
+
+        if user.id not in ticket["added_users"]:
+            ticket["added_users"].append(
+                user.id
+            )
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"👥 Added {user.mention} to the ticket."
+        )
+
+    # ========================================================
+    # REMOVE USER
+    # ========================================================
+
+    @ticket.command(
+        name="remove",
+        description="Remove a user from the current ticket."
+    )
+    @app_commands.describe(
+        user="User to remove."
+    )
+    async def ticket_remove(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member
+    ):
+
+        if not is_admin(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions."
+            )
+            return
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        if user.id == ticket.get("user_id"):
+            await interaction.response.send_message(
+                "❌ You cannot remove the ticket creator."
+            )
+            return
+
+        await interaction.channel.set_permissions(
+            user,
+            overwrite=None
+        )
+
+        if user.id in ticket.get(
+            "added_users",
+            []
+        ):
+            ticket["added_users"].remove(
+                user.id
+            )
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"👋 Removed {user.mention} from the ticket."
+        )
+
+    # ========================================================
+    # RENAME
+    # ========================================================
+
+    @ticket.command(
+        name="rename",
+        description="Rename the current ticket."
+    )
+    @app_commands.describe(
+        name="New channel name."
+    )
+    async def ticket_rename(
+        self,
+        interaction: discord.Interaction,
+        name: str
+    ):
+
+        if not is_admin(interaction.user):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions."
+            )
+            return
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        name = clean_channel_name(
+            name
+        )
+
+        await interaction.channel.edit(
+            name=name,
+            reason="Air Commander Ticket Rename"
+        )
+
+        await interaction.response.send_message(
+            f"✏️ Ticket renamed to `{name}`."
+        )
+
+    # ========================================================
+    # PREFIX GROUP
+    # ========================================================
+
+    @commands.group(
+        name="ticket",
+        invoke_without_command=True
+    )
+    async def ticket_prefix(
+        self,
+        ctx
+    ):
+
+        embed = discord.Embed(
+            title="🎫 Air Commander Ticket System",
+            description=(
+                "` ,ticket setup `\n"
+                "` ,ticket panel create `\n"
+                "` ,ticket panel edit `\n"
+                "` ,ticket panel send #channel `\n"
+                "` ,ticket panel delete `\n\n"
+                "` ,ticket category add `\n"
+                "` ,ticket category edit `\n"
+                "` ,ticket category remove `\n"
+                "` ,ticket category list `\n\n"
+                "` ,ticket config `\n"
+                "` ,ticket close `\n"
+                "` ,ticket reopen `\n"
+                "` ,ticket claim `\n"
+                "` ,ticket add @user `\n"
+                "` ,ticket remove @user `\n"
+                "` ,ticket rename name `"
+            ),
+            color=0x5865F2
+        )
+
+        await ctx.send(
+            embed=embed
+        )
+
+    # ========================================================
+    # PREFIX SETUP
+    # ========================================================
+
+    @ticket_prefix.command(
+        name="setup"
+    )
+    @commands.has_permissions(administrator=True)
+    async def prefix_setup(
+        self,
+        ctx
+    ):
+
+        data = load_data()
+
+        ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        save_data(data)
+
+        await ctx.send(
+            "✅ Ticket system initialized."
+        )
+
+    # ========================================================
+    # PREFIX CATEGORY ADD
+    # ========================================================
+
+    @ticket_prefix.group(
+        name="category",
+        invoke_without_command=True
+    )
+    @commands.has_permissions(administrator=True)
+    async def prefix_category(
+        self,
+        ctx
+    ):
+
+        await ctx.send(
+            "🎫 Use `,ticket category add/edit/remove/list`."
+        )
+
+    @prefix_category.command(
+        name="add"
+    )
+    async def prefix_category_add(
+        self,
+        ctx,
+        name: str,
+        emoji: str = "🎫",
+        *,
+        description: str = "Get help from our support team."
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        key = re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            name.lower()
+        ).strip("-")
+
+        if key in guild_data["categories"]:
+            await ctx.send(
+                "❌ Category already exists."
+            )
+            return
+
+        guild_data["categories"][key] = {
+            "name": name[:100],
+            "emoji": emoji[:10],
+            "description": description[:300],
+            "prefix": "ticket"
+        }
+
+        save_data(data)
+
+        await ctx.send(
+            f"✅ Added `{name}` to the dropdown."
+        )
+
+    # ========================================================
+    # PREFIX CATEGORY LIST
+    # ========================================================
+
+    @prefix_category.command(
+        name="list"
+    )
+    async def prefix_category_list(
+        self,
+        ctx
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        embed = discord.Embed(
+            title="🎫 Ticket Categories",
+            color=0x5865F2
+        )
+
+        lines = []
+
+        for key, value in guild_data["categories"].items():
+            lines.append(
+                f"{value.get('emoji', '🎫')} "
+                f"**{value.get('name', key)}** — `{key}`"
+            )
+
+        embed.description = (
+            "\n".join(lines)
+            if lines
+            else "No categories."
+        )
+
+        await ctx.send(
+            embed=embed
+        )
+
+    # ========================================================
+    # PREFIX CATEGORY REMOVE
+    # ========================================================
+
+    @prefix_category.command(
+        name="remove"
+    )
+    async def prefix_category_remove(
+        self,
+        ctx,
+        category_key: str
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        category_key = category_key.lower()
+
+        if category_key not in guild_data["categories"]:
+            await ctx.send(
+                "❌ Category not found."
+            )
+            return
+
+        del guild_data["categories"][
+            category_key
+        ]
+
+        save_data(data)
+
+        await ctx.send(
+            f"🗑️ Removed `{category_key}`."
+        )
+
+    # ========================================================
+    # PREFIX CLOSE
+    # ========================================================
+
+    @ticket_prefix.command(
+        name="close"
+    )
+    async def prefix_close(
+        self,
+        ctx
+    ):
+
+        await self.close_ticket(
+            ctx
+        )
+
+    # ========================================================
+    # PREFIX CLAIM
+    # ========================================================
+
+    @ticket_prefix.command(
+        name="claim"
+    )
+    async def prefix_claim(
+        self,
+        ctx
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            ctx.channel.id
+        )
+
+        if not ticket:
+            await ctx.send(
+                "❌ This is not a ticket."
+            )
+            return
+
+        if not is_admin(ctx.author):
+            support_role_id = guild_data["config"].get(
+                "support_role_id"
+            )
+
+            if not support_role_id or not any(
+                role.id == int(support_role_id)
+                for role in ctx.author.roles
+            ):
+                await ctx.send(
+                    "❌ You are not support staff."
+                )
+                return
+
+        ticket["claimed_by"] = ctx.author.id
+
+        save_data(data)
+
+        await ctx.send(
+            f"🙋 Ticket claimed by {ctx.author.mention}."
+        )
+
+    # ========================================================
+    # PREFIX RENAME
+    # ========================================================
+
+    @ticket_prefix.command(
+        name="rename"
+    )
+    @commands.has_permissions(manage_channels=True)
+    async def prefix_rename(
+        self,
+        ctx,
+        *,
+        name: str
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            ctx.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            ctx.channel.id
+        )
+
+        if not ticket:
+            await ctx.send(
+                "❌ This is not a ticket."
+            )
+            return
+
+        name = clean_channel_name(
+            name
+        )
+
+        await ctx.channel.edit(
+            name=name
+        )
+
+        await ctx.send(
+            f"✏️ Renamed to `{name}`."
+        )
+
+    # ========================================================
+    # CLOSE ENGINE
+    # ========================================================
+
+    async def close_ticket(
+        self,
+        source
+    ):
+
+        if isinstance(
+            source,
+            discord.Interaction
+        ):
+            guild = source.guild
+            channel = source.channel
+            user = source.user
+
+            send = source.response.send_message
+
+        else:
+            guild = source.guild
+            channel = source.channel
+            user = source.author
+
+            async def send(*args, **kwargs):
+                return await source.send(
+                    *args,
+                    **kwargs
+                )
+
+        if guild is None:
+            return
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            channel.id
+        )
+
+        if not ticket:
+            await send(
+                "❌ This is not a ticket channel."
+            )
+            return
+
+        if ticket.get("closed"):
+            await send(
+                "🔒 This ticket is already closed."
+            )
+            return
+
+        if not is_admin(user):
+
+            owner_id = int(
+                ticket.get("user_id")
+            )
+
+            support_role_id = guild_data["config"].get(
+                "support_role_id"
+            )
+
+            is_support = False
+
+            if support_role_id:
+                is_support = any(
+                    role.id == int(support_role_id)
+                    for role in user.roles
+                )
+
+            if user.id != owner_id and not is_support:
+                await send(
+                    "❌ Only the ticket creator or support team can close this ticket."
+                )
+                return
+
+        ticket["closed"] = True
+
+        save_data(data)
+
+        transcript_file = None
+
+        if guild_data["config"].get(
+            "transcript",
+            True
+        ):
+
+            transcript = await self.create_transcript(
+                channel
+            )
+
+            transcript_file = discord.File(
+                fp=__import__(
+                    "io"
+                ).BytesIO(
+                    transcript.encode(
+                        "utf-8",
+                        errors="replace"
+                    )
+                ),
+                filename=f"{channel.name}-transcript.txt"
+            )
+
+        embed = discord.Embed(
+            title="🔒 Ticket Closed",
+            description=(
+                f"This ticket has been closed by {user.mention}.\n\n"
+                "Staff can reopen it if needed."
+            ),
+            color=0xED4245,
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        if isinstance(
+            source,
+            discord.Interaction
+        ):
+            await source.response.send_message(
+                embed=embed,
+                file=transcript_file
+                if transcript_file
+                else discord.utils.MISSING
+            )
+
+        else:
+            await source.send(
+                embed=embed,
+                file=transcript_file
+                if transcript_file
+                else discord.utils.MISSING
+            )
+
+        # Remove normal member access
+        owner = guild.get_member(
+            int(ticket["user_id"])
+        )
+
+        if owner:
+            try:
+                await channel.set_permissions(
+                    owner,
+                    view_channel=False,
+                    send_messages=False
+                )
+            except Exception:
+                pass
+
+        await self.log_event(
+            guild,
+            guild_data,
+            "🔒 Ticket Closed",
+            (
+                f"Channel: {channel.mention}\n"
+                f"Closed by: {user.mention}"
+            )
+        )
+
+    # ========================================================
+    # PREFIX ERROR HANDLER
+    # ========================================================
+
+    @ticket_prefix.error
+    async def ticket_prefix_error(
+        self,
+        ctx,
+        error
+    ):
+
+        if isinstance(
+            error,
+            commands.MissingPermissions
+        ):
+            await ctx.send(
+                "❌ You don't have permission to use this command."
+            )
+
+
+# ============================================================
+# TICKET BUTTON VIEW
+# ============================================================
+
+class TicketControlView(discord.ui.View):
+
+    def __init__(self, cog):
+        super().__init__(
+            timeout=None
+        )
+
+        self.cog = cog
+
+    @discord.ui.button(
+        label="Close Ticket",
+        emoji="🔒",
+        style=discord.ButtonStyle.danger,
+        custom_id="aircommander:ticket_close"
+    )
+    async def close_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await self.cog.close_ticket(
+            interaction
+        )
+
+    @discord.ui.button(
+        label="Claim",
+        emoji="🙋",
+        style=discord.ButtonStyle.primary,
+        custom_id="aircommander:ticket_claim"
+    )
+    async def claim_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        ticket_id, ticket = find_ticket(
+            guild_data,
+            interaction.channel.id
+        )
+
+        if not ticket:
+            await interaction.response.send_message(
+                "❌ This is not a ticket."
+            )
+            return
+
+        if not is_admin(interaction.user):
+
+            role_id = guild_data["config"].get(
+                "support_role_id"
+            )
+
+            if not role_id or not any(
+                role.id == int(role_id)
+                for role in interaction.user.roles
+            ):
+                await interaction.response.send_message(
+                    "❌ You are not support staff."
+                )
+                return
+
+        ticket["claimed_by"] = interaction.user.id
+
+        save_data(data)
+
+        await interaction.response.send_message(
+            f"🙋 Ticket claimed by {interaction.user.mention}."
+        )
+
+    @discord.ui.button(
+        label="Add User",
+        emoji="👥",
+        style=discord.ButtonStyle.secondary,
+        custom_id="aircommander:ticket_add"
+    )
+    async def add_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        await interaction.response.send_message(
+            "👥 Use `/ticket add @user` to add someone."
+        )
+
+
+# ============================================================
+# PREFIX PANEL COMMAND GROUP
+# ============================================================
 
 async def setup(bot):
-    cog = TicketSystem(bot)
-    await bot.add_cog(cog)
-    return cog
 
+    await bot.add_cog(
+        TicketSystem(bot)
+    )
 
-async def restore_panels(bot, cog):
-    data = load_all()
-    for guild in bot.guilds:
-        config = data.get(str(guild.id))
-        if not config:
-            continue
-        for panel in config.get("panels", {}).values():
-            channel_id, message_id = panel.get("channel_id"), panel.get("message_id")
-            if not channel_id or not message_id:
-                continue
-            channel = guild.get_channel(int(channel_id))
-            if not isinstance(channel, discord.TextChannel):
-                continue
-            try:
-                message = await channel.fetch_message(int(message_id))
-                await message.edit(view=TicketPanel(cog, guild.id, int(panel["id"])))
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                continue
-            except Exception as exc:
-                print(f"[Ticket] Panel restore error in {guild.id}: {type(exc).__name__}: {exc}")
+    print(
+        "✅ Air Commander Ticket System loaded."
+    )
