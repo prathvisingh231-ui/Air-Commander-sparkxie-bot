@@ -1,4 +1,3 @@
-````python
 # ============================================================
 # AIR COMMANDER — ADVANCED LEVELING SYSTEM
 # PREFIX + SLASH VERSION
@@ -1655,4 +1654,4 @@ async def setup(bot):
     await bot.add_cog(
         Leveling(bot)
     )
-````
+
