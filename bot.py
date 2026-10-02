@@ -2643,7 +2643,7 @@ async def _air_startup_loader(bot):
     print("✅ AIR COMMANDER STARTUP COMPLETE")
     print("=" * 60)
     
-  # =========================
+ # =========================
 # TICKET
 # =========================
 if not getattr(bot, "_air_ticket_initialized", False):
@@ -2662,8 +2662,6 @@ if not getattr(bot, "_air_ticket_initialized", False):
             f"⚠️ Ticket initialization error: "
             f"{type(exc).__name__}: {exc}"
         )
-
-
 
 # =========================================================
 # setup_hook is implemented by AirCommanderBot above.
