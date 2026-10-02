@@ -27,14 +27,20 @@ async def send_snipe(target):
         msg = "❌ No recently deleted message found in this channel."
 
         if isinstance(target, discord.Interaction):
-            return await target.response.send_message(
+            if not target.response.is_done():
+                return await target.response.send_message(
+                    msg,
+                    ephemeral=True
+                )
+
+            return await target.followup.send(
                 msg,
                 ephemeral=True
             )
 
         return await target.send(msg)
 
-    content = data["content"] or "[attachment/embed/no text]"
+    content = data.get("content") or "[attachment/embed/no text]"
 
     embed = discord.Embed(
         title="🕵️ Snipe",
@@ -66,7 +72,12 @@ async def send_snipe(target):
     )
 
     if isinstance(target, discord.Interaction):
-        return await target.response.send_message(
+        if not target.response.is_done():
+            return await target.response.send_message(
+                embed=embed
+            )
+
+        return await target.followup.send(
             embed=embed
         )
 
@@ -118,7 +129,7 @@ async def snipe_slash(interaction: discord.Interaction):
 
 
 # ============================================================
-# TICKET SYSTEM
+# TICKET SYSTEM DATA
 # ============================================================
 
 DATA_DIR = Path("data")
@@ -168,10 +179,13 @@ DEFAULT_GUILD_DATA = {
 
 def load_data():
     if not DATA_FILE.exists():
-        DATA_FILE.write_text(
-            json.dumps({}, indent=4),
-            encoding="utf-8"
-        )
+        try:
+            DATA_FILE.write_text(
+                json.dumps({}, indent=4),
+                encoding="utf-8"
+            )
+        except Exception:
+            pass
 
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -182,17 +196,33 @@ def load_data():
 
         return data
 
-    except Exception:
+    except Exception as e:
+        print(
+            f"[Ticket] Data load error: "
+            f"{type(e).__name__}: {e}"
+        )
         return {}
 
 
 def save_data(data):
     temp_file = DATA_FILE.with_suffix(".tmp")
 
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(
+                data,
+                f,
+                indent=4,
+                ensure_ascii=False
+            )
 
-    temp_file.replace(DATA_FILE)
+        temp_file.replace(DATA_FILE)
+
+    except Exception as e:
+        print(
+            f"[Ticket] Data save error: "
+            f"{type(e).__name__}: {e}"
+        )
 
 
 def ensure_guild(data, guild_id):
@@ -200,22 +230,75 @@ def ensure_guild(data, guild_id):
 
     if gid not in data:
         data[gid] = json.loads(
-            json.dumps(DEFAULT_GUILD_DATA)
+            json.dumps(
+                DEFAULT_GUILD_DATA,
+                ensure_ascii=False
+            )
         )
-        save_data(data)
 
     guild_data = data[gid]
 
-    guild_data.setdefault("categories", {})
-    guild_data.setdefault("panel", {})
-    guild_data.setdefault("config", {})
-    guild_data.setdefault("tickets", {})
+    guild_data.setdefault(
+        "categories",
+        {}
+    )
+
+    guild_data.setdefault(
+        "panel",
+        {}
+    )
+
+    guild_data.setdefault(
+        "config",
+        {}
+    )
+
+    guild_data.setdefault(
+        "tickets",
+        {}
+    )
+
+    # --------------------------------------------------------
+    # Repair missing panel values
+    # --------------------------------------------------------
+
+    default_panel = DEFAULT_GUILD_DATA["panel"]
+
+    for key, value in default_panel.items():
+        guild_data["panel"].setdefault(
+            key,
+            value
+        )
+
+    # --------------------------------------------------------
+    # Repair missing config values
+    # --------------------------------------------------------
+
+    default_config = DEFAULT_GUILD_DATA["config"]
+
+    for key, value in default_config.items():
+        guild_data["config"].setdefault(
+            key,
+            value
+        )
+
+    # --------------------------------------------------------
+    # Ensure General category exists
+    # --------------------------------------------------------
+
+    if not guild_data["categories"]:
+        guild_data["categories"] = json.loads(
+            json.dumps(
+                DEFAULT_GUILD_DATA["categories"],
+                ensure_ascii=False
+            )
+        )
 
     return guild_data
 
 
 # ============================================================
-# HELPERS
+# GENERAL HELPERS
 # ============================================================
 
 def is_admin(member: discord.Member):
@@ -226,9 +309,24 @@ def is_admin(member: discord.Member):
 
 
 def clean_channel_name(name):
-    name = name.lower().strip()
-    name = re.sub(r"[^a-z0-9\-_ ]+", "", name)
-    name = name.replace(" ", "-")
+    name = str(name or "").lower().strip()
+
+    name = re.sub(
+        r"[^a-z0-9\-_ ]+",
+        "",
+        name
+    )
+
+    name = name.replace(
+        " ",
+        "-"
+    )
+
+    name = re.sub(
+        r"-+",
+        "-",
+        name
+    )
 
     if not name:
         name = "ticket"
@@ -236,45 +334,147 @@ def clean_channel_name(name):
     return name[:80]
 
 
+def make_category_key(name):
+    key = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        str(name).lower()
+    ).strip("-")
+
+    return key[:50]
+
+
 def category_name_from_key(key, category_data):
-    emoji = category_data.get("emoji", "🎫")
-    name = category_data.get("name", "General Support")
+    emoji = category_data.get(
+        "emoji",
+        "🎫"
+    )
+
+    name = category_data.get(
+        "name",
+        "General Support"
+    )
 
     return f"{emoji} {name}"
 
 
-def make_ticket_name(template, member, category_key):
-    username = clean_channel_name(member.name)
+def find_category(guild_data, value):
+    """
+    Find category using:
+    - exact key
+    - case-insensitive key
+    - display name
+    """
+
+    if not value:
+        return None, None
+
+    value = str(value).strip()
+
+    categories = guild_data.get(
+        "categories",
+        {}
+    )
+
+    # Exact key
+    if value in categories:
+        return value, categories[value]
+
+    # Case-insensitive key
+    lowered = value.lower()
+
+    for key, category_data in categories.items():
+        if key.lower() == lowered:
+            return key, category_data
+
+    # Display name
+    for key, category_data in categories.items():
+
+        category_name = str(
+            category_data.get(
+                "name",
+                ""
+            )
+        )
+
+        if category_name.lower() == lowered:
+            return key, category_data
+
+    return None, None
+
+
+def make_unique_category_key(guild_data, name):
+    base_key = make_category_key(name)
+
+    if not base_key:
+        return None
+
+    key = base_key
+    counter = 2
+
+    while key in guild_data["categories"]:
+        key = f"{base_key}-{counter}"
+        counter += 1
+
+    return key
+
+
+def make_ticket_name(
+    template,
+    member,
+    category_key
+):
+    username = clean_channel_name(
+        member.name
+    )
 
     replacements = {
         "{username}": username,
         "{user}": username,
-        "{category}": clean_channel_name(category_key),
+        "{category}": clean_channel_name(
+            category_key
+        ),
         "{userid}": str(member.id)
     }
 
     result = template or "ticket-{username}"
 
     for key, value in replacements.items():
-        result = result.replace(key, value)
+        result = result.replace(
+            key,
+            value
+        )
 
-    return clean_channel_name(result)
+    return clean_channel_name(
+        result
+    )
 
 
-def find_ticket(guild_data, channel_id):
+def find_ticket(
+    guild_data,
+    channel_id
+):
     channel_id = str(channel_id)
 
     for ticket_id, ticket in guild_data["tickets"].items():
-        if str(ticket.get("channel_id")) == channel_id:
+
+        if str(
+            ticket.get("channel_id")
+        ) == channel_id:
+
             return ticket_id, ticket
 
     return None, None
 
 
-def get_ticket_by_user(guild_data, user_id):
+def get_ticket_by_user(
+    guild_data,
+    user_id
+):
     user_id = str(user_id)
 
     for ticket_id, ticket in guild_data["tickets"].items():
+
         if (
             str(ticket.get("user_id")) == user_id
             and ticket.get("closed") is False
@@ -285,46 +485,124 @@ def get_ticket_by_user(guild_data, user_id):
 
 
 # ============================================================
-# TICKET PANEL
+# TICKET PANEL VIEW
 # ============================================================
 
 class TicketPanelView(discord.ui.View):
 
-    def __init__(self, cog):
-        super().__init__(timeout=None)
+    def __init__(
+        self,
+        cog,
+        guild_id=None
+    ):
+        super().__init__(
+            timeout=None
+        )
+
         self.cog = cog
+        self.guild_id = guild_id
 
         self.add_item(
-            TicketCategorySelect(cog)
+            TicketCategorySelect(
+                cog,
+                guild_id
+            )
         )
 
 
 class TicketCategorySelect(discord.ui.Select):
 
-    def __init__(self, cog):
+    def __init__(
+        self,
+        cog,
+        guild_id=None
+    ):
         self.cog = cog
+        self.guild_id = guild_id
 
-        # Use categories from saved data instead of hardcoding only
-        # General Support.
         options = []
 
+        # ----------------------------------------------------
+        # Load guild categories
+        # ----------------------------------------------------
+
         try:
+
             data = load_data()
 
-            # Select options need a guild, but the persistent view
-            # can be registered before interaction. Therefore start
-            # with the default category and dynamically rebuild
-            # panels when sending them.
-            options.append(
-                discord.SelectOption(
-                    label="General Support",
-                    description="Get general support.",
-                    emoji="🎫",
-                    value="general"
+            if guild_id is not None:
+
+                guild_data = ensure_guild(
+                    data,
+                    guild_id
                 )
+
+                categories = guild_data.get(
+                    "categories",
+                    {}
+                )
+
+            else:
+                categories = (
+                    DEFAULT_GUILD_DATA[
+                        "categories"
+                    ]
+                )
+
+            # Discord select menu max = 25
+            for key, category_data in list(
+                categories.items()
+            )[:25]:
+
+                label = str(
+                    category_data.get(
+                        "name",
+                        key
+                    )
+                )[:100]
+
+                description = str(
+                    category_data.get(
+                        "description",
+                        "Open a support ticket."
+                    )
+                )[:100]
+
+                emoji = category_data.get(
+                    "emoji",
+                    "🎫"
+                )
+
+                try:
+                    option = discord.SelectOption(
+                        label=label,
+                        description=description,
+                        emoji=emoji[:10],
+                        value=key[:100]
+                    )
+
+                except Exception:
+                    option = discord.SelectOption(
+                        label=label,
+                        description=description,
+                        value=key[:100]
+                    )
+
+                options.append(option)
+
+        except Exception as e:
+
+            print(
+                f"[Ticket] Category select error: "
+                f"{type(e).__name__}: {e}"
             )
 
-        except Exception:
+        # ----------------------------------------------------
+        # Fallback
+        # ----------------------------------------------------
+
+        if not options:
+
             options.append(
                 discord.SelectOption(
                     label="General Support",
@@ -342,7 +620,10 @@ class TicketCategorySelect(discord.ui.Select):
             custom_id="aircommander:ticket_category"
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(
+        self,
+        interaction: discord.Interaction
+    ):
         await self.cog.handle_category_select(
             interaction,
             self.values[0]
@@ -354,6 +635,10 @@ class TicketCategorySelect(discord.ui.Select):
 # ============================================================
 
 class TicketSystem(commands.Cog):
+
+    # ========================================================
+    # SLASH GROUPS
+    # ========================================================
 
     ticket = app_commands.Group(
         name="ticket",
@@ -372,6 +657,26 @@ class TicketSystem(commands.Cog):
         parent=ticket
     )
 
+    # --------------------------------------------------------
+    # NEW CATEGORY ADD GROUP
+    # --------------------------------------------------------
+
+    category_add_group = app_commands.Group(
+        name="add",
+        description="Add a ticket category.",
+        parent=category
+    )
+
+    # --------------------------------------------------------
+    # NEW CATEGORY DELETE GROUP
+    # --------------------------------------------------------
+
+    category_del_group = app_commands.Group(
+        name="del",
+        description="Delete a ticket category.",
+        parent=category
+    )
+
     def __init__(self, bot):
         self.bot = bot
         self.data = load_data()
@@ -383,26 +688,36 @@ class TicketSystem(commands.Cog):
     # ========================================================
 
     def _register_persistent_view(self):
+
         try:
+
             self.bot.add_view(
-                TicketPanelView(self)
+                TicketPanelView(
+                    self
+                )
             )
 
             self.bot.add_view(
-                TicketControlView(self)
+                TicketControlView(
+                    self
+                )
             )
 
         except Exception as e:
+
             print(
                 f"[Ticket] Persistent view error: "
                 f"{type(e).__name__}: {e}"
             )
 
     # ========================================================
-    # EMBED
+    # PANEL EMBED
     # ========================================================
 
-    def panel_embed(self, guild_data):
+    def panel_embed(
+        self,
+        guild_data
+    ):
 
         panel = guild_data["panel"]
 
@@ -419,7 +734,9 @@ class TicketSystem(commands.Cog):
                 "color",
                 0x5865F2
             ),
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(
+                timezone.utc
+            )
         )
 
         embed.set_footer(
@@ -430,6 +747,76 @@ class TicketSystem(commands.Cog):
         )
 
         return embed
+
+    # ========================================================
+    # REFRESH SAVED PANEL
+    # ========================================================
+
+    async def refresh_panel(
+        self,
+        guild: discord.Guild
+    ):
+        """
+        Refresh the saved panel so newly added/removed
+        categories appear immediately.
+        """
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            guild.id
+        )
+
+        panel = guild_data.get(
+            "panel",
+            {}
+        )
+
+        channel_id = panel.get(
+            "channel_id"
+        )
+
+        message_id = panel.get(
+            "message_id"
+        )
+
+        if not channel_id or not message_id:
+            return False
+
+        channel = guild.get_channel(
+            int(channel_id)
+        )
+
+        if not channel:
+            return False
+
+        try:
+
+            message = await channel.fetch_message(
+                int(message_id)
+            )
+
+            await message.edit(
+                embed=self.panel_embed(
+                    guild_data
+                ),
+                view=TicketPanelView(
+                    self,
+                    guild.id
+                )
+            )
+
+            return True
+
+        except Exception as e:
+
+            print(
+                f"[Ticket] Panel refresh failed: "
+                f"{type(e).__name__}: {e}"
+            )
+
+            return False
 
     # ========================================================
     # CATEGORY SELECT
@@ -456,10 +843,12 @@ class TicketSystem(commands.Cog):
         categories = guild_data["categories"]
 
         if category_key not in categories:
+
             await interaction.response.send_message(
                 "❌ This ticket category no longer exists.",
                 ephemeral=False
             )
+
             return
 
         _, existing_ticket = get_ticket_by_user(
@@ -468,23 +857,32 @@ class TicketSystem(commands.Cog):
         )
 
         if existing_ticket:
+
             channel = guild.get_channel(
-                int(existing_ticket["channel_id"])
+                int(
+                    existing_ticket[
+                        "channel_id"
+                    ]
+                )
             )
 
             if channel:
+
                 await interaction.response.send_message(
                     f"❌ You already have an open ticket: "
                     f"{channel.mention}",
                     ephemeral=False
                 )
+
                 return
 
         await interaction.response.defer(
             ephemeral=False
         )
 
-        category_data = categories[category_key]
+        category_data = categories[
+            category_key
+        ]
 
         channel = await self.create_ticket(
             guild,
@@ -495,11 +893,13 @@ class TicketSystem(commands.Cog):
         )
 
         if channel is None:
+
             await interaction.followup.send(
                 "❌ I couldn't create the ticket. "
                 "Check my permissions.",
                 ephemeral=False
             )
+
             return
 
         await interaction.followup.send(
@@ -530,26 +930,36 @@ class TicketSystem(commands.Cog):
         )
 
         if support_role_id:
-            support_role = guild.get_role(
-                int(support_role_id)
-            )
+
+            try:
+                support_role = guild.get_role(
+                    int(support_role_id)
+                )
+
+            except Exception:
+                support_role = None
 
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                view_channel=False
-            ),
+            guild.default_role:
+                discord.PermissionOverwrite(
+                    view_channel=False
+                ),
 
-            member: discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                read_message_history=True,
-                attach_files=True,
-                embed_links=True
-            )
+            member:
+                discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True
+                )
         }
 
         if support_role:
-            overwrites[support_role] = discord.PermissionOverwrite(
+
+            overwrites[
+                support_role
+            ] = discord.PermissionOverwrite(
                 view_channel=True,
                 send_messages=True,
                 read_message_history=True,
@@ -559,7 +969,10 @@ class TicketSystem(commands.Cog):
             )
 
         if guild.me:
-            overwrites[guild.me] = discord.PermissionOverwrite(
+
+            overwrites[
+                guild.me
+            ] = discord.PermissionOverwrite(
                 view_channel=True,
                 send_messages=True,
                 read_message_history=True,
@@ -576,9 +989,15 @@ class TicketSystem(commands.Cog):
         )
 
         if parent_id:
-            parent = guild.get_channel(
-                int(parent_id)
-            )
+
+            try:
+
+                parent = guild.get_channel(
+                    int(parent_id)
+                )
+
+            except Exception:
+                parent = None
 
         channel_name = make_ticket_name(
             config.get(
@@ -590,6 +1009,7 @@ class TicketSystem(commands.Cog):
         )
 
         try:
+
             channel = await guild.create_text_channel(
                 channel_name,
                 category=parent,
@@ -598,10 +1018,12 @@ class TicketSystem(commands.Cog):
             )
 
         except Exception as e:
+
             print(
                 f"[Ticket] Channel creation failed: "
                 f"{type(e).__name__}: {e}"
             )
+
             return None
 
         data = load_data()
@@ -611,9 +1033,13 @@ class TicketSystem(commands.Cog):
             guild.id
         )
 
-        ticket_id = str(channel.id)
+        ticket_id = str(
+            channel.id
+        )
 
-        guild_data["tickets"][ticket_id] = {
+        guild_data["tickets"][
+            ticket_id
+        ] = {
             "channel_id": channel.id,
             "user_id": member.id,
             "category": category_key,
@@ -639,7 +1065,9 @@ class TicketSystem(commands.Cog):
                 "a member of the support team will assist you."
             ),
             color=0x5865F2,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(
+                timezone.utc
+            )
         )
 
         embed.add_field(
@@ -661,18 +1089,31 @@ class TicketSystem(commands.Cog):
             text="Air Commander • Ticket System"
         )
 
-        view = TicketControlView(self)
+        view = TicketControlView(
+            self
+        )
 
         content = member.mention
 
         if support_role:
-            content += f" {support_role.mention}"
+            content += (
+                f" {support_role.mention}"
+            )
 
-        await channel.send(
-            content=content,
-            embed=embed,
-            view=view
-        )
+        try:
+
+            await channel.send(
+                content=content,
+                embed=embed,
+                view=view
+            )
+
+        except Exception as e:
+
+            print(
+                f"[Ticket] Initial ticket message failed: "
+                f"{type(e).__name__}: {e}"
+            )
 
         await self.log_event(
             guild,
@@ -700,16 +1141,23 @@ class TicketSystem(commands.Cog):
         description
     ):
 
-        channel_id = guild_data["config"].get(
+        channel_id = guild_data[
+            "config"
+        ].get(
             "log_channel_id"
         )
 
         if not channel_id:
             return
 
-        channel = guild.get_channel(
-            int(channel_id)
-        )
+        try:
+
+            channel = guild.get_channel(
+                int(channel_id)
+            )
+
+        except Exception:
+            channel = None
 
         if not channel:
             return
@@ -718,7 +1166,9 @@ class TicketSystem(commands.Cog):
             title=title,
             description=description,
             color=0x5865F2,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(
+                timezone.utc
+            )
         )
 
         embed.set_footer(
@@ -726,9 +1176,11 @@ class TicketSystem(commands.Cog):
         )
 
         try:
+
             await channel.send(
                 embed=embed
             )
+
         except Exception:
             pass
 
@@ -736,23 +1188,32 @@ class TicketSystem(commands.Cog):
     # TRANSCRIPT
     # ========================================================
 
-    async def create_transcript(self, channel):
+    async def create_transcript(
+        self,
+        channel
+    ):
 
         lines = []
 
         try:
+
             async for message in channel.history(
                 limit=None,
                 oldest_first=True
             ):
 
-                timestamp = message.created_at.strftime(
-                    "%Y-%m-%d %H:%M:%S"
+                timestamp = (
+                    message.created_at.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                 )
 
-                content = message.content or ""
+                content = (
+                    message.content or ""
+                )
 
                 if message.attachments:
+
                     attachments = " ".join(
                         a.url
                         for a in message.attachments
@@ -770,11 +1231,14 @@ class TicketSystem(commands.Cog):
                 )
 
         except Exception as e:
+
             lines.append(
                 f"Transcript error: {e}"
             )
 
-        return "\n".join(lines)
+        return "\n".join(
+            lines
+        )
 
     # ========================================================
     # /ticket setup
@@ -791,6 +1255,12 @@ class TicketSystem(commands.Cog):
         self,
         interaction: discord.Interaction
     ):
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command can only be used in a server."
+            )
+            return
 
         data = load_data()
 
@@ -893,25 +1363,45 @@ class TicketSystem(commands.Cog):
         panel = guild_data["panel"]
 
         if title:
-            panel["title"] = title
+            panel["title"] = title[:256]
 
         if description:
-            panel["description"] = description
+            panel["description"] = description[:4000]
 
         if color:
+
             try:
-                color = color.replace("#", "")
+
+                color_value = color.replace(
+                    "#",
+                    ""
+                ).strip()
+
+                if len(color_value) not in (
+                    6,
+                    8
+                ):
+                    raise ValueError
+
                 panel["color"] = int(
-                    color,
+                    color_value,
                     16
                 )
+
             except ValueError:
+
                 await interaction.response.send_message(
                     "❌ Invalid color. Example: `#5865F2`"
                 )
+
                 return
 
         save_data(data)
+
+        # Refresh live panel too
+        await self.refresh_panel(
+            interaction.guild
+        )
 
         await interaction.response.send_message(
             "✅ Ticket panel updated."
@@ -948,29 +1438,40 @@ class TicketSystem(commands.Cog):
             guild_data
         )
 
+        # Guild-aware dynamic dropdown
         view = TicketPanelView(
-            self
+            self,
+            interaction.guild.id
         )
 
         try:
+
             message = await channel.send(
                 embed=embed,
                 view=view
             )
 
         except Exception as e:
+
             await interaction.response.send_message(
                 f"❌ Failed to send panel: `{e}`"
             )
+
             return
 
-        guild_data["panel"]["channel_id"] = channel.id
-        guild_data["panel"]["message_id"] = message.id
+        guild_data["panel"][
+            "channel_id"
+        ] = channel.id
+
+        guild_data["panel"][
+            "message_id"
+        ] = message.id
 
         save_data(data)
 
         await interaction.response.send_message(
-            f"✅ Ticket panel sent to {channel.mention}."
+            f"✅ Ticket panel sent to "
+            f"{channel.mention}."
         )
 
     # ========================================================
@@ -996,18 +1497,24 @@ class TicketSystem(commands.Cog):
             interaction.guild.id
         )
 
-        channel_id = guild_data["panel"].get(
+        channel_id = guild_data[
+            "panel"
+        ].get(
             "channel_id"
         )
 
-        message_id = guild_data["panel"].get(
+        message_id = guild_data[
+            "panel"
+        ].get(
             "message_id"
         )
 
         if not channel_id or not message_id:
+
             await interaction.response.send_message(
                 "❌ No saved ticket panel found."
             )
+
             return
 
         channel = interaction.guild.get_channel(
@@ -1015,7 +1522,9 @@ class TicketSystem(commands.Cog):
         )
 
         if channel:
+
             try:
+
                 message = await channel.fetch_message(
                     int(message_id)
                 )
@@ -1025,8 +1534,13 @@ class TicketSystem(commands.Cog):
             except Exception:
                 pass
 
-        guild_data["panel"]["channel_id"] = None
-        guild_data["panel"]["message_id"] = None
+        guild_data["panel"][
+            "channel_id"
+        ] = None
+
+        guild_data["panel"][
+            "message_id"
+        ] = None
 
         save_data(data)
 
@@ -1035,12 +1549,14 @@ class TicketSystem(commands.Cog):
         )
 
     # ========================================================
-    # CATEGORY ADD
+    # CATEGORY ADD PANEL
+    #
+    # /ticket category add panel
     # ========================================================
 
-    @category.command(
-        name="add",
-        description="Add a ticket dropdown category."
+    @category_add_group.command(
+        name="panel",
+        description="Add a category to the ticket panel dropdown."
     )
     @app_commands.describe(
         name="Category name",
@@ -1051,7 +1567,7 @@ class TicketSystem(commands.Cog):
     @app_commands.checks.has_permissions(
         administrator=True
     )
-    async def category_add(
+    async def category_add_panel(
         self,
         interaction: discord.Interaction,
         name: str,
@@ -1067,39 +1583,216 @@ class TicketSystem(commands.Cog):
             interaction.guild.id
         )
 
-        key = re.sub(
-            r"[^a-z0-9]+",
-            "-",
-            name.lower()
-        ).strip("-")
+        name = name.strip()
+
+        if not name:
+
+            await interaction.response.send_message(
+                "❌ Category name cannot be empty."
+            )
+
+            return
+
+        key = make_category_key(
+            name
+        )
 
         if not key:
+
             await interaction.response.send_message(
                 "❌ Invalid category name."
             )
+
             return
 
+        # ----------------------------------------------------
+        # Prevent duplicate key
+        # ----------------------------------------------------
+
         if key in guild_data["categories"]:
+
             await interaction.response.send_message(
-                "❌ A category with this name already exists."
+                f"❌ Category `{name}` already exists."
             )
+
             return
+
+        # ----------------------------------------------------
+        # Prevent duplicate display name
+        # ----------------------------------------------------
+
+        for existing_key, existing_data in (
+            guild_data["categories"].items()
+        ):
+
+            if (
+                str(
+                    existing_data.get(
+                        "name",
+                        ""
+                    )
+                ).lower()
+                == name.lower()
+            ):
+
+                await interaction.response.send_message(
+                    f"❌ A category named `{name}` already exists."
+                )
+
+                return
+
+        # ----------------------------------------------------
+        # Save category
+        # ----------------------------------------------------
 
         guild_data["categories"][key] = {
             "name": name[:100],
-            "emoji": emoji[:10],
-            "description": description[:300],
-            "prefix": clean_channel_name(prefix)
+            "emoji": (
+                emoji.strip()[:10]
+                if emoji
+                else "🎫"
+            ),
+            "description": (
+                description[:300]
+                if description
+                else "Get help from our support team."
+            ),
+            "prefix": clean_channel_name(
+                prefix
+            )
         }
 
         save_data(data)
 
+        # ----------------------------------------------------
+        # Refresh existing panel
+        # ----------------------------------------------------
+
+        panel_refreshed = await self.refresh_panel(
+            interaction.guild
+        )
+
+        embed = discord.Embed(
+            title="✅ Ticket Category Added",
+            description=(
+                f"**Category:** {emoji} {name}\n"
+                f"**Key:** `{key}`\n"
+                f"**Prefix:** `{clean_channel_name(prefix)}`\n\n"
+                "The category has been added to the ticket system."
+            ),
+            color=0x57F287
+        )
+
+        if panel_refreshed:
+            embed.set_footer(
+                text="Existing ticket panel refreshed automatically."
+            )
+        else:
+            embed.set_footer(
+                text="Send a ticket panel to display this category."
+            )
+
         await interaction.response.send_message(
-            f"✅ Added `{name}` to the ticket dropdown."
+            embed=embed
+        )
+
+    # ========================================================
+    # CATEGORY DELETE PANEL
+    #
+    # /ticket category del panel
+    # ========================================================
+
+    @category_del_group.command(
+        name="panel",
+        description="Delete a category from the ticket panel."
+    )
+    @app_commands.describe(
+        category="Category key or category name"
+    )
+    @app_commands.checks.has_permissions(
+        administrator=True
+    )
+    async def category_del_panel(
+        self,
+        interaction: discord.Interaction,
+        category: str
+    ):
+
+        data = load_data()
+
+        guild_data = ensure_guild(
+            data,
+            interaction.guild.id
+        )
+
+        category_key, category_data = find_category(
+            guild_data,
+            category
+        )
+
+        if not category_key:
+
+            await interaction.response.send_message(
+                "❌ Category not found.\n"
+                "Use `/ticket category list` to see available categories."
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # Protect default General Support
+        # ----------------------------------------------------
+
+        if category_key == "general":
+
+            await interaction.response.send_message(
+                "❌ The default `General Support` category "
+                "cannot be deleted."
+            )
+
+            return
+
+        category_display_name = category_data.get(
+            "name",
+            category_key
+        )
+
+        del guild_data[
+            "categories"
+        ][
+            category_key
+        ]
+
+        save_data(data)
+
+        # Refresh existing panel
+        panel_refreshed = await self.refresh_panel(
+            interaction.guild
+        )
+
+        embed = discord.Embed(
+            title="🗑️ Ticket Category Deleted",
+            description=(
+                f"Removed **{category_display_name}** "
+                f"(`{category_key}`) from the ticket system."
+            ),
+            color=0xED4245
+        )
+
+        if panel_refreshed:
+            embed.set_footer(
+                text="Existing ticket panel refreshed automatically."
+            )
+
+        await interaction.response.send_message(
+            embed=embed
         )
 
     # ========================================================
     # CATEGORY EDIT
+    #
+    # Existing command preserved:
+    # /ticket category edit
     # ========================================================
 
     @category.command(
@@ -1107,7 +1800,7 @@ class TicketSystem(commands.Cog):
         description="Edit a ticket dropdown category."
     )
     @app_commands.describe(
-        category_key="Existing category key",
+        category_key="Existing category key or category name",
         name="New category name",
         emoji="New emoji",
         description="New description",
@@ -1133,20 +1826,56 @@ class TicketSystem(commands.Cog):
             interaction.guild.id
         )
 
-        category_key = category_key.lower()
+        real_key, category_data = find_category(
+            guild_data,
+            category_key
+        )
 
-        if category_key not in guild_data["categories"]:
+        if not real_key:
+
             await interaction.response.send_message(
                 "❌ Category not found."
             )
+
             return
 
-        category_data = guild_data["categories"][
-            category_key
-        ]
-
         if name:
-            category_data["name"] = name[:100]
+
+            new_name = name.strip()
+
+            if not new_name:
+
+                await interaction.response.send_message(
+                    "❌ Category name cannot be empty."
+                )
+
+                return
+
+            # Check duplicate display name
+            for key, value in guild_data[
+                "categories"
+            ].items():
+
+                if key == real_key:
+                    continue
+
+                if (
+                    str(
+                        value.get(
+                            "name",
+                            ""
+                        )
+                    ).lower()
+                    == new_name.lower()
+                ):
+
+                    await interaction.response.send_message(
+                        "❌ Another category already uses that name."
+                    )
+
+                    return
+
+            category_data["name"] = new_name[:100]
 
         if emoji:
             category_data["emoji"] = emoji[:10]
@@ -1161,12 +1890,36 @@ class TicketSystem(commands.Cog):
 
         save_data(data)
 
+        panel_refreshed = await self.refresh_panel(
+            interaction.guild
+        )
+
+        embed = discord.Embed(
+            title="✏️ Ticket Category Updated",
+            description=(
+                f"**Category:** "
+                f"{category_data.get('emoji', '🎫')} "
+                f"{category_data.get('name', real_key)}\n"
+                f"**Key:** `{real_key}`\n"
+                f"**Prefix:** `{category_data.get('prefix', 'ticket')}`"
+            ),
+            color=0x5865F2
+        )
+
+        if panel_refreshed:
+            embed.set_footer(
+                text="Existing ticket panel refreshed automatically."
+            )
+
         await interaction.response.send_message(
-            "✅ Ticket category updated."
+            embed=embed
         )
 
     # ========================================================
     # CATEGORY REMOVE
+    #
+    # Existing command preserved:
+    # /ticket category remove
     # ========================================================
 
     @category.command(
@@ -1174,7 +1927,7 @@ class TicketSystem(commands.Cog):
         description="Remove a ticket dropdown category."
     )
     @app_commands.describe(
-        category_key="Category key to remove."
+        category_key="Category key or category name to remove."
     )
     @app_commands.checks.has_permissions(
         administrator=True
@@ -1192,22 +1945,48 @@ class TicketSystem(commands.Cog):
             interaction.guild.id
         )
 
-        category_key = category_key.lower()
+        real_key, category_data = find_category(
+            guild_data,
+            category_key
+        )
 
-        if category_key not in guild_data["categories"]:
+        if not real_key:
+
             await interaction.response.send_message(
                 "❌ Category not found."
             )
+
             return
 
-        del guild_data["categories"][
-            category_key
+        if real_key == "general":
+
+            await interaction.response.send_message(
+                "❌ The default `General Support` category "
+                "cannot be removed."
+            )
+
+            return
+
+        category_name = category_data.get(
+            "name",
+            real_key
+        )
+
+        del guild_data[
+            "categories"
+        ][
+            real_key
         ]
 
         save_data(data)
 
+        await self.refresh_panel(
+            interaction.guild
+        )
+
         await interaction.response.send_message(
-            f"🗑️ Removed `{category_key}` from the dropdown."
+            f"🗑️ Removed `{category_name}` "
+            f"(`{real_key}`) from the dropdown."
         )
 
     # ========================================================
@@ -1238,27 +2017,53 @@ class TicketSystem(commands.Cog):
             color=0x5865F2
         )
 
-        categories = guild_data["categories"]
+        categories = guild_data[
+            "categories"
+        ]
 
         if not categories:
+
             embed.description = (
                 "No ticket categories configured."
             )
 
         else:
+
             lines = []
 
-            for key, value in categories.items():
+            for index, (
+                key,
+                value
+            ) in enumerate(
+                categories.items()
+            ):
+
+                if index >= 25:
+                    break
+
                 lines.append(
                     f"{value.get('emoji', '🎫')} "
                     f"**{value.get('name', key)}**\n"
-                    f"`{key}` • "
+                    f"Key: `{key}`\n"
+                    f"Prefix: `{value.get('prefix', 'ticket')}`\n"
                     f"{value.get('description', '')}"
                 )
 
-            embed.description = "\n\n".join(
-                lines
+            embed.description = (
+                "\n\n".join(
+                    lines
+                )
             )
+
+            if len(categories) > 25:
+
+                embed.set_footer(
+                    text=(
+                        f"Showing first 25 of "
+                        f"{len(categories)} categories. "
+                        "Discord dropdowns support max 25 options."
+                    )
+                )
 
         await interaction.response.send_message(
             embed=embed
@@ -1326,8 +2131,13 @@ class TicketSystem(commands.Cog):
         role_text = "Not set"
 
         if config.get("support_role_id"):
+
             role = interaction.guild.get_role(
-                int(config["support_role_id"])
+                int(
+                    config[
+                        "support_role_id"
+                    ]
+                )
             )
 
             if role:
@@ -1336,8 +2146,13 @@ class TicketSystem(commands.Cog):
         log_text = "Not set"
 
         if config.get("log_channel_id"):
+
             channel = interaction.guild.get_channel(
-                int(config["log_channel_id"])
+                int(
+                    config[
+                        "log_channel_id"
+                    ]
+                )
             )
 
             if channel:
@@ -1346,8 +2161,13 @@ class TicketSystem(commands.Cog):
         category_text = "Not set"
 
         if config.get("ticket_category_id"):
+
             category = interaction.guild.get_channel(
-                int(config["ticket_category_id"])
+                int(
+                    config[
+                        "ticket_category_id"
+                    ]
+                )
             )
 
             if category:
@@ -1374,14 +2194,19 @@ class TicketSystem(commands.Cog):
         embed.add_field(
             name="📄 Transcript",
             value=str(
-                config.get("transcript", True)
+                config.get(
+                    "transcript",
+                    True
+                )
             ),
             inline=True
         )
 
         embed.add_field(
             name="🏷️ Naming",
-            value=f"`{config.get('naming')}`",
+            value=(
+                f"`{config.get('naming')}`"
+            ),
             inline=True
         )
 
@@ -1401,7 +2226,9 @@ class TicketSystem(commands.Cog):
         self,
         interaction: discord.Interaction
     ):
-        await self.close_ticket(interaction)
+        await self.close_ticket(
+            interaction
+        )
 
     # ========================================================
     # REOPEN
@@ -1432,16 +2259,21 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket channel."
             )
+
             return
 
         member = interaction.guild.get_member(
-            int(ticket["user_id"])
+            int(
+                ticket["user_id"]
+            )
         )
 
         if member:
+
             await interaction.channel.set_permissions(
                 member,
                 view_channel=True,
@@ -1483,27 +2315,42 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket channel."
             )
+
             return
 
-        if not is_admin(interaction.user):
+        if not is_admin(
+            interaction.user
+        ):
 
-            support_role_id = guild_data["config"].get(
+            support_role_id = guild_data[
+                "config"
+            ].get(
                 "support_role_id"
             )
 
-            if not support_role_id or not any(
-                role.id == int(support_role_id)
-                for role in interaction.user.roles
+            if (
+                not support_role_id
+                or not any(
+                    role.id == int(
+                        support_role_id
+                    )
+                    for role in interaction.user.roles
+                )
             ):
+
                 await interaction.response.send_message(
                     "❌ You are not part of the support team."
                 )
+
                 return
 
-        ticket["claimed_by"] = interaction.user.id
+        ticket[
+            "claimed_by"
+        ] = interaction.user.id
 
         save_data(data)
 
@@ -1513,7 +2360,7 @@ class TicketSystem(commands.Cog):
         )
 
     # ========================================================
-    # ADD
+    # ADD USER
     # ========================================================
 
     @ticket.command(
@@ -1529,10 +2376,14 @@ class TicketSystem(commands.Cog):
         user: discord.Member
     ):
 
-        if not is_admin(interaction.user):
+        if not is_admin(
+            interaction.user
+        ):
+
             await interaction.response.send_message(
                 "❌ You need administrator permissions."
             )
+
             return
 
         data = load_data()
@@ -1548,9 +2399,11 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket channel."
             )
+
             return
 
         await interaction.channel.set_permissions(
@@ -1567,8 +2420,13 @@ class TicketSystem(commands.Cog):
             []
         )
 
-        if user.id not in ticket["added_users"]:
-            ticket["added_users"].append(
+        if user.id not in ticket[
+            "added_users"
+        ]:
+
+            ticket[
+                "added_users"
+            ].append(
                 user.id
             )
 
@@ -1579,7 +2437,7 @@ class TicketSystem(commands.Cog):
         )
 
     # ========================================================
-    # REMOVE
+    # REMOVE USER
     # ========================================================
 
     @ticket.command(
@@ -1595,10 +2453,14 @@ class TicketSystem(commands.Cog):
         user: discord.Member
     ):
 
-        if not is_admin(interaction.user):
+        if not is_admin(
+            interaction.user
+        ):
+
             await interaction.response.send_message(
                 "❌ You need administrator permissions."
             )
+
             return
 
         data = load_data()
@@ -1614,15 +2476,21 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket channel."
             )
+
             return
 
-        if user.id == ticket.get("user_id"):
+        if user.id == ticket.get(
+            "user_id"
+        ):
+
             await interaction.response.send_message(
                 "❌ You cannot remove the ticket creator."
             )
+
             return
 
         await interaction.channel.set_permissions(
@@ -1634,7 +2502,10 @@ class TicketSystem(commands.Cog):
             "added_users",
             []
         ):
-            ticket["added_users"].remove(
+
+            ticket[
+                "added_users"
+            ].remove(
                 user.id
             )
 
@@ -1661,10 +2532,14 @@ class TicketSystem(commands.Cog):
         name: str
     ):
 
-        if not is_admin(interaction.user):
+        if not is_admin(
+            interaction.user
+        ):
+
             await interaction.response.send_message(
                 "❌ You need administrator permissions."
             )
+
             return
 
         data = load_data()
@@ -1680,12 +2555,16 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket channel."
             )
+
             return
 
-        name = clean_channel_name(name)
+        name = clean_channel_name(
+            name
+        )
 
         await interaction.channel.edit(
             name=name,
@@ -1704,7 +2583,10 @@ class TicketSystem(commands.Cog):
         name="ticket",
         invoke_without_command=True
     )
-    async def ticket_prefix(self, ctx):
+    async def ticket_prefix(
+        self,
+        ctx
+    ):
 
         embed = discord.Embed(
             title="🎫 Air Commander Ticket System",
@@ -1715,10 +2597,9 @@ class TicketSystem(commands.Cog):
                 "`,ticket panel send #channel`\n"
                 "`,ticket panel delete`\n\n"
 
-                "`,ticket category add`\n"
-                "`,ticket category edit`\n"
-                "`,ticket category remove`\n"
-                "`,ticket category list`\n\n"
+                "`,ticket category add <name> <emoji>`\n"
+                "`,ticket category list`\n"
+                "`,ticket category remove <key>`\n\n"
 
                 "`,ticket config`\n"
                 "`,ticket close`\n"
@@ -1731,7 +2612,9 @@ class TicketSystem(commands.Cog):
             color=0x5865F2
         )
 
-        await ctx.send(embed=embed)
+        await ctx.send(
+            embed=embed
+        )
 
     # ========================================================
     # PREFIX SETUP
@@ -1743,7 +2626,10 @@ class TicketSystem(commands.Cog):
     @commands.has_permissions(
         administrator=True
     )
-    async def prefix_setup(self, ctx):
+    async def prefix_setup(
+        self,
+        ctx
+    ):
 
         data = load_data()
 
@@ -1759,7 +2645,7 @@ class TicketSystem(commands.Cog):
         )
 
     # ========================================================
-    # PREFIX CATEGORY
+    # PREFIX CATEGORY GROUP
     # ========================================================
 
     @ticket_prefix.group(
@@ -1769,12 +2655,21 @@ class TicketSystem(commands.Cog):
     @commands.has_permissions(
         administrator=True
     )
-    async def prefix_category(self, ctx):
+    async def prefix_category(
+        self,
+        ctx
+    ):
 
         await ctx.send(
             "🎫 Use `,ticket category "
             "add/edit/remove/list`."
         )
+
+    # ========================================================
+    # PREFIX CATEGORY ADD
+    #
+    # Old prefix command preserved
+    # ========================================================
 
     @prefix_category.command(
         name="add"
@@ -1795,19 +2690,33 @@ class TicketSystem(commands.Cog):
             ctx.guild.id
         )
 
-        key = re.sub(
-            r"[^a-z0-9]+",
-            "-",
-            name.lower()
-        ).strip("-")
+        name = name.strip()
 
-        if key in guild_data["categories"]:
+        key = make_category_key(
+            name
+        )
+
+        if not key:
+
+            await ctx.send(
+                "❌ Invalid category name."
+            )
+
+            return
+
+        if key in guild_data[
+            "categories"
+        ]:
+
             await ctx.send(
                 "❌ Category already exists."
             )
+
             return
 
-        guild_data["categories"][key] = {
+        guild_data[
+            "categories"
+        ][key] = {
             "name": name[:100],
             "emoji": emoji[:10],
             "description": description[:300],
@@ -1816,14 +2725,25 @@ class TicketSystem(commands.Cog):
 
         save_data(data)
 
+        await self.refresh_panel(
+            ctx.guild
+        )
+
         await ctx.send(
             f"✅ Added `{name}` to the dropdown."
         )
 
+    # ========================================================
+    # PREFIX CATEGORY LIST
+    # ========================================================
+
     @prefix_category.command(
         name="list"
     )
-    async def prefix_category_list(self, ctx):
+    async def prefix_category_list(
+        self,
+        ctx
+    ):
 
         data = load_data()
 
@@ -1839,10 +2759,22 @@ class TicketSystem(commands.Cog):
 
         lines = []
 
-        for key, value in guild_data["categories"].items():
+        for index, (
+            key,
+            value
+        ) in enumerate(
+            guild_data[
+                "categories"
+            ].items()
+        ):
+
+            if index >= 25:
+                break
+
             lines.append(
                 f"{value.get('emoji', '🎫')} "
-                f"**{value.get('name', key)}** — `{key}`"
+                f"**{value.get('name', key)}** — "
+                f"`{key}`"
             )
 
         embed.description = (
@@ -1851,7 +2783,13 @@ class TicketSystem(commands.Cog):
             else "No categories."
         )
 
-        await ctx.send(embed=embed)
+        await ctx.send(
+            embed=embed
+        )
+
+    # ========================================================
+    # PREFIX CATEGORY REMOVE
+    # ========================================================
 
     @prefix_category.command(
         name="remove"
@@ -1869,22 +2807,42 @@ class TicketSystem(commands.Cog):
             ctx.guild.id
         )
 
-        category_key = category_key.lower()
+        real_key, category_data = find_category(
+            guild_data,
+            category_key
+        )
 
-        if category_key not in guild_data["categories"]:
+        if not real_key:
+
             await ctx.send(
                 "❌ Category not found."
             )
+
             return
 
-        del guild_data["categories"][
-            category_key
+        if real_key == "general":
+
+            await ctx.send(
+                "❌ The default General Support "
+                "category cannot be removed."
+            )
+
+            return
+
+        del guild_data[
+            "categories"
+        ][
+            real_key
         ]
 
         save_data(data)
 
+        await self.refresh_panel(
+            ctx.guild
+        )
+
         await ctx.send(
-            f"🗑️ Removed `{category_key}`."
+            f"🗑️ Removed `{real_key}`."
         )
 
     # ========================================================
@@ -1894,8 +2852,14 @@ class TicketSystem(commands.Cog):
     @ticket_prefix.command(
         name="close"
     )
-    async def prefix_close(self, ctx):
-        await self.close_ticket(ctx)
+    async def prefix_close(
+        self,
+        ctx
+    ):
+
+        await self.close_ticket(
+            ctx
+        )
 
     # ========================================================
     # PREFIX CLAIM
@@ -1904,7 +2868,10 @@ class TicketSystem(commands.Cog):
     @ticket_prefix.command(
         name="claim"
     )
-    async def prefix_claim(self, ctx):
+    async def prefix_claim(
+        self,
+        ctx
+    ):
 
         data = load_data()
 
@@ -1919,27 +2886,42 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await ctx.send(
                 "❌ This is not a ticket."
             )
+
             return
 
-        if not is_admin(ctx.author):
+        if not is_admin(
+            ctx.author
+        ):
 
-            support_role_id = guild_data["config"].get(
+            support_role_id = guild_data[
+                "config"
+            ].get(
                 "support_role_id"
             )
 
-            if not support_role_id or not any(
-                role.id == int(support_role_id)
-                for role in ctx.author.roles
+            if (
+                not support_role_id
+                or not any(
+                    role.id == int(
+                        support_role_id
+                    )
+                    for role in ctx.author.roles
+                )
             ):
+
                 await ctx.send(
                     "❌ You are not support staff."
                 )
+
                 return
 
-        ticket["claimed_by"] = ctx.author.id
+        ticket[
+            "claimed_by"
+        ] = ctx.author.id
 
         save_data(data)
 
@@ -1978,12 +2960,16 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await ctx.send(
                 "❌ This is not a ticket."
             )
+
             return
 
-        name = clean_channel_name(name)
+        name = clean_channel_name(
+            name
+        )
 
         await ctx.channel.edit(
             name=name
@@ -1997,16 +2983,33 @@ class TicketSystem(commands.Cog):
     # CLOSE ENGINE
     # ========================================================
 
-    async def close_ticket(self, source):
+    async def close_ticket(
+        self,
+        source
+    ):
 
-        if isinstance(source, discord.Interaction):
+        if isinstance(
+            source,
+            discord.Interaction
+        ):
 
             guild = source.guild
             channel = source.channel
             user = source.user
 
-            async def send(*args, **kwargs):
-                return await source.response.send_message(
+            async def send(
+                *args,
+                **kwargs
+            ):
+
+                if not source.response.is_done():
+
+                    return await source.response.send_message(
+                        *args,
+                        **kwargs
+                    )
+
+                return await source.followup.send(
                     *args,
                     **kwargs
                 )
@@ -2017,7 +3020,11 @@ class TicketSystem(commands.Cog):
             channel = source.channel
             user = source.author
 
-            async def send(*args, **kwargs):
+            async def send(
+                *args,
+                **kwargs
+            ):
+
                 return await source.send(
                     *args,
                     **kwargs
@@ -2039,49 +3046,73 @@ class TicketSystem(commands.Cog):
         )
 
         if not ticket:
+
             await send(
                 "❌ This is not a ticket channel."
             )
+
             return
 
-        if ticket.get("closed"):
+        if ticket.get(
+            "closed"
+        ):
+
             await send(
                 "🔒 This ticket is already closed."
             )
+
             return
 
-        if not is_admin(user):
+        if not is_admin(
+            user
+        ):
 
             owner_id = int(
-                ticket.get("user_id")
+                ticket.get(
+                    "user_id"
+                )
             )
 
-            support_role_id = guild_data["config"].get(
+            support_role_id = guild_data[
+                "config"
+            ].get(
                 "support_role_id"
             )
 
             is_support = False
 
             if support_role_id:
+
                 is_support = any(
-                    role.id == int(support_role_id)
+                    role.id == int(
+                        support_role_id
+                    )
                     for role in user.roles
                 )
 
-            if user.id != owner_id and not is_support:
+            if (
+                user.id != owner_id
+                and not is_support
+            ):
+
                 await send(
                     "❌ Only the ticket creator or "
                     "support team can close this ticket."
                 )
+
                 return
 
-        ticket["closed"] = True
+        ticket[
+            "closed"
+        ] = True
 
         save_data(data)
 
         transcript_file = None
 
-        if guild_data["config"].get(
+        if guild_data[
+            "config"
+        ].get(
             "transcript",
             True
         ):
@@ -2091,13 +3122,17 @@ class TicketSystem(commands.Cog):
             )
 
             transcript_file = discord.File(
-                fp=__import__("io").BytesIO(
+                fp=__import__(
+                    "io"
+                ).BytesIO(
                     transcript.encode(
                         "utf-8",
                         errors="replace"
                     )
                 ),
-                filename=f"{channel.name}-transcript.txt"
+                filename=(
+                    f"{channel.name}-transcript.txt"
+                )
             )
 
         embed = discord.Embed(
@@ -2108,50 +3143,42 @@ class TicketSystem(commands.Cog):
                 "Staff can reopen it if needed."
             ),
             color=0xED4245,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(
+                timezone.utc
+            )
         )
 
         if transcript_file:
 
-            if isinstance(
-                source,
-                discord.Interaction
-            ):
-                await source.response.send_message(
-                    embed=embed,
-                    file=transcript_file
-                )
-            else:
-                await source.send(
-                    embed=embed,
-                    file=transcript_file
-                )
+            await send(
+                embed=embed,
+                file=transcript_file
+            )
 
         else:
 
-            if isinstance(
-                source,
-                discord.Interaction
-            ):
-                await source.response.send_message(
-                    embed=embed
-                )
-            else:
-                await source.send(
-                    embed=embed
-                )
+            await send(
+                embed=embed
+            )
 
         owner = guild.get_member(
-            int(ticket["user_id"])
+            int(
+                ticket[
+                    "user_id"
+                ]
+            )
         )
 
         if owner:
+
             try:
+
                 await channel.set_permissions(
                     owner,
                     view_channel=False,
                     send_messages=False
                 )
+
             except Exception:
                 pass
 
@@ -2180,6 +3207,7 @@ class TicketSystem(commands.Cog):
             error,
             commands.MissingPermissions
         ):
+
             await ctx.send(
                 "❌ You don't have permission to use "
                 "this command."
@@ -2190,14 +3218,24 @@ class TicketSystem(commands.Cog):
 # TICKET CONTROL VIEW
 # ============================================================
 
-class TicketControlView(discord.ui.View):
+class TicketControlView(
+    discord.ui.View
+):
 
-    def __init__(self, cog):
+    def __init__(
+        self,
+        cog
+    ):
+
         super().__init__(
             timeout=None
         )
 
         self.cog = cog
+
+    # ========================================================
+    # CLOSE BUTTON
+    # ========================================================
 
     @discord.ui.button(
         label="Close Ticket",
@@ -2214,6 +3252,10 @@ class TicketControlView(discord.ui.View):
         await self.cog.close_ticket(
             interaction
         )
+
+    # ========================================================
+    # CLAIM BUTTON
+    # ========================================================
 
     @discord.ui.button(
         label="Claim",
@@ -2240,27 +3282,42 @@ class TicketControlView(discord.ui.View):
         )
 
         if not ticket:
+
             await interaction.response.send_message(
                 "❌ This is not a ticket."
             )
+
             return
 
-        if not is_admin(interaction.user):
+        if not is_admin(
+            interaction.user
+        ):
 
-            role_id = guild_data["config"].get(
+            role_id = guild_data[
+                "config"
+            ].get(
                 "support_role_id"
             )
 
-            if not role_id or not any(
-                role.id == int(role_id)
-                for role in interaction.user.roles
+            if (
+                not role_id
+                or not any(
+                    role.id == int(
+                        role_id
+                    )
+                    for role in interaction.user.roles
+                )
             ):
+
                 await interaction.response.send_message(
                     "❌ You are not support staff."
                 )
+
                 return
 
-        ticket["claimed_by"] = interaction.user.id
+        ticket[
+            "claimed_by"
+        ] = interaction.user.id
 
         save_data(data)
 
@@ -2268,6 +3325,10 @@ class TicketControlView(discord.ui.View):
             f"🙋 Ticket claimed by "
             f"{interaction.user.mention}."
         )
+
+    # ========================================================
+    # ADD USER BUTTON
+    # ========================================================
 
     @discord.ui.button(
         label="Add User",
@@ -2293,16 +3354,22 @@ class TicketControlView(discord.ui.View):
 
 async def setup(bot):
 
-    # -------------------------
+    # ========================================================
     # SNIPE
-    # -------------------------
+    # ========================================================
 
-    if bot.get_command("snipe") is None:
+    if bot.get_command(
+        "snipe"
+    ) is None:
+
         bot.add_command(
             snipe_prefix
         )
 
-    if bot.tree.get_command("snipe") is None:
+    if bot.tree.get_command(
+        "snipe"
+    ) is None:
+
         bot.tree.add_command(
             app_commands.Command(
                 name="snipe",
@@ -2314,20 +3381,33 @@ async def setup(bot):
             )
         )
 
-    # IMPORTANT:
-    # add_listener instead of @bot.event.
-    # This prevents Snipe from replacing another
-    # module's on_message_delete listener.
-    bot.add_listener(
-        snipe_message_delete,
-        "on_message_delete"
+    # --------------------------------------------------------
+    # Prevent duplicate listener registration
+    # --------------------------------------------------------
+
+    existing_listeners = getattr(
+        bot,
+        "_air_snipe_listener_loaded",
+        False
     )
 
-    # -------------------------
-    # TICKET
-    # -------------------------
+    if not existing_listeners:
 
-    if bot.get_cog("TicketSystem") is None:
+        bot.add_listener(
+            snipe_message_delete,
+            "on_message_delete"
+        )
+
+        bot._air_snipe_listener_loaded = True
+
+    # ========================================================
+    # TICKET
+    # ========================================================
+
+    if bot.get_cog(
+        "TicketSystem"
+    ) is None:
+
         await bot.add_cog(
             TicketSystem(bot)
         )
