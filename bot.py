@@ -40,8 +40,6 @@ import command_permissions
 import custom_commands
 import interactive_help
 import diagnostics
-import antinuke
-
 
 # =========================================================
 # CONFIGURATION
@@ -899,8 +897,7 @@ import server_config
 import command_permissions
 import custom_commands
 import interactive_help
-import diagnostics
-import antinuke    
+import diagnostics   
 
 HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -1327,7 +1324,6 @@ import custom_commands
 import interactive_help
 import diagnostics
 import db
-import antinuke
 
 def clean_embed(title, description="", color=None):
     e = discord.Embed(title=f"✈️ {title}", description=description, color=color or discord.Color.blurple(), timestamp=discord.utils.utcnow())
@@ -1406,8 +1402,8 @@ import server_config
 import command_permissions
 import custom_commands
 import interactive_help
-import diagnostics
-import antinuke
+import diagnostics 
+
 OWNER_ID = 1504354088538869892
 DB_URL = os.getenv("DATABASE_URL")
 _pool = None
@@ -1766,7 +1762,6 @@ import command_permissions
 import custom_commands
 import interactive_help
 import diagnostics
-import antinuke
 # security is embedded above
 
 
