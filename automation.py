@@ -4783,192 +4783,91 @@ async def antinuke_error(
         )
 
 
-# ============================================================
-# ============================================================
-#                     COMBINED SETUP
-# ============================================================
-# ============================================================
+async def setup(bot):
+    """
+    Air Commander Automation
+    Loads BOTH:
+    - AutoMode / Silent Protect
+    - Anti-Nuke
+    """
 
-async def setup(
-    bot
-):
-
-    # ========================================================
-    # PREVENT DUPLICATE COG
-    # ========================================================
-
-    if getattr(
-        bot,
-        "_air_security_combined_setup",
-        False
-    ):
-
-        print(
-            "⚠️ Air Commander Security already loaded."
-        )
-
+    # Prevent duplicate setup
+    if getattr(bot, "_air_automation_setup", False):
         return
 
-    bot._air_security_combined_setup = True
+    bot._air_automation_setup = True
 
-    # ========================================================
-    # ADD AUTOMODE COG
-    # ========================================================
-
+    # =========================================================
+    # AUTOMODE
+    # =========================================================
     try:
-
-        if bot.get_cog(
-            "AutoMode"
-        ) is None:
-
-            await bot.add_cog(
-                AutoMode(bot)
-            )
-
-            print(
-                "🛡️ AutoMode loaded."
-            )
-
-        else:
-
-            print(
-                "⚠️ AutoMode Cog already exists."
-            )
-
+        await bot.add_cog(
+            AutoMode(bot)
+        )
+        print("🛡️ Air Commander AutoMode loaded.")
     except Exception as e:
+        print(f"❌ AutoMode setup error: {e}")
 
-        print(
-            f"❌ AutoMode setup error: {e}"
-        )
-
-    # ========================================================
-    # ADD ANTI-NUKE SLASH GROUP
-    # ========================================================
-
+    # =========================================================
+    # ANTI-NUKE SLASH GROUP
+    # =========================================================
     try:
-
-        existing = bot.tree.get_command(
-            "antinuke"
-        )
-
-        if existing is None:
-
-            antinuke_group = (
+        if not bot.tree.get_command("antinuke"):
+            bot.tree.add_command(
                 AntiNukeGroup()
             )
-
-            bot.tree.add_command(
-                antinuke_group
-            )
-
-            # Register error handlers
-            for command in (
-                antinuke_group.walk_commands()
-            ):
-
-                try:
-
-                    command.on_error = (
-                        antinuke_error
-                    )
-
-                except Exception:
-                    pass
-
-            print(
-                "🛡️ Anti-Nuke slash group loaded."
-            )
-
+            print("🛡️ Air Commander Anti-Nuke slash group loaded.")
         else:
-
-            print(
-                "⚠️ /antinuke already registered."
-            )
-
+            print("⚠️ Anti-Nuke slash group already registered.")
     except discord.app_commands.errors.CommandAlreadyRegistered:
-
-        print(
-            "⚠️ /antinuke was already registered."
-        )
-
+        print("⚠️ Anti-Nuke slash group already registered.")
     except Exception as e:
+        print(f"❌ Anti-Nuke slash setup error: {e}")
 
-        print(
-            f"❌ Anti-Nuke slash setup error: {e}"
+    # =========================================================
+    # ANTI-NUKE PREFIX COMMAND
+    # =========================================================
+    if not bot.get_command("antinuke"):
+
+        @bot.command(
+            name="antinuke"
         )
+        @commands.guild_only()
+        async def antinuke_prefix(ctx):
+            await prefix_antinuke(ctx)
 
-    # ========================================================
-    # PREFIX ANTINUKE
-    # ========================================================
-
-    try:
-
-        if bot.get_command(
-            "antinuke"
-        ) is None:
-
-            bot.add_command(
-                antinuke_prefix_command
-            )
-
-            print(
-                "🛡️ ,antinuke prefix loaded."
-            )
-
-        else:
-
-            print(
-                "⚠️ ,antinuke already registered."
-            )
-
-    except commands.CommandRegistrationError:
-
-        print(
-            "⚠️ ,antinuke was already registered."
-        )
-
-    except Exception as e:
-
-        print(
-            f"❌ Anti-Nuke prefix setup error: {e}"
-        )
-
-    # ========================================================
-    # AUDIT LOG EVENT
-    # ========================================================
-
+    # =========================================================
+    # ANTI-NUKE AUDIT LOG EVENT
+    # =========================================================
     if not getattr(
         bot,
-        "_air_security_audit_registered",
+        "_air_antinuke_audit_registered",
         False
     ):
 
-        @bot.event
-        async def on_audit_log_entry_create(
-            entry
-        ):
-
+        async def _air_antinuke_audit_handler(entry):
             try:
-
                 await process_audit_entry(
                     bot,
                     entry
                 )
-
             except Exception as e:
-
                 print(
                     f"[AntiNuke] Audit error: {e}"
                 )
 
-        bot._air_security_audit_registered = True
+        bot.add_listener(
+            _air_antinuke_audit_handler,
+            "on_audit_log_entry_create"
+        )
+
+        bot._air_antinuke_audit_registered = True
+
+        print(
+            "🛡️ Air Commander Anti-Nuke audit listener loaded."
+        )
 
     print(
-        "🛡️ Air Commander Security System loaded."
-    )
-    print(
-        "   ├─ AutoMode / Silent Protect"
-    )
-    print(
-        "   └─ Advanced Anti-Nuke"
+        "🚀 Air Commander Automation loaded "
+        "(AutoMode + Anti-Nuke)."
     )
