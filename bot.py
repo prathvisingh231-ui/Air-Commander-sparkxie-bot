@@ -19,7 +19,6 @@ from discord.ext import commands
 # =========================================================
 # AIR COMMANDER FEATURE MODULES
 # =========================================================
-import security
 import snipe
 import youtube_alerts
 import mention_response
@@ -877,7 +876,6 @@ from discord.ext import commands
 # =========================================================
 # AIR COMMANDER FEATURE MODULES
 # =========================================================
-import security
 import snipe
 import youtube_alerts
 import mention_response
@@ -1032,7 +1030,6 @@ from discord.ext import commands
 # =========================================================
 # AIR COMMANDER FEATURE MODULES
 # =========================================================
-import security
 import snipe
 import youtube_alerts
 import mention_response
@@ -1381,7 +1378,6 @@ from discord.ext import commands
 # =========================================================
 # AIR COMMANDER FEATURE MODULES
 # =========================================================
-import security
 import snipe
 import youtube_alerts
 import mention_response
@@ -1740,7 +1736,6 @@ from discord.ext import commands
 # =========================================================
 # AIR COMMANDER FEATURE MODULES
 # =========================================================
-import security
 import snipe
 import youtube_alerts
 import mention_response
