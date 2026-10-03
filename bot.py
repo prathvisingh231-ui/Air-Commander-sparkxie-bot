@@ -1053,7 +1053,6 @@ import command_permissions
 import custom_commands
 import interactive_help
 import diagnostics
-import antinuke
 
 def _embed(title, description, color):
     e = discord.Embed(
