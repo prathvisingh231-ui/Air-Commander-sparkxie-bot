@@ -1,40 +1,6 @@
 # ============================================================
-# AIR COMMANDER
-# AUTOMODE + ADVANCED ANTI-NUKE
-# ============================================================
-#
-# Prefix:
-# ,automode enable
-# ,automode disable
-# ,automode status
-# ,automode config
-# ,automode spam 5 7
-# ,automode warn 3
-# ,automode timeout 5 10
-# ,automode links on
-# ,automode mentions on
-# ,automode duplicates on
-# ,automode whitelist user @User
-# ,automode whitelist role @Role
-# ,automode badword add word1, word2
-# ,automode badword remove word1, word2
-#
-# ,antinuke
-#
-# Slash:
-# /automode enable
-# /automode disable
-# /automode status
-# /automode config
-# /automode whitelist user
-# /automode whitelist role
-# /automode badword add
-# /automode badword remove
-#
-# /antinuke config
-# /antinuke whitelist
-# /antinuke unwhitelist
-#
+# AIR COMMANDER - AUTOMATION
+# AutoMode / Silent Protect + Anti-Nuke
 # ============================================================
 
 import os
@@ -62,180 +28,225 @@ ANTINUKE_CONFIG_FILE = "antinuke_config.json"
 
 
 # ============================================================
-# ============================================================
-#                         AUTOMODE
-# ============================================================
+# DEFAULT AUTOMODE CONFIG
 # ============================================================
 
-
-AUTOMODE_DEFAULT_CONFIG = {
+AUTOMODE_DEFAULT = {
     "enabled": False,
-
-    # Logs
     "log_channel_id": None,
 
-    # Spam
     "spam_messages": 5,
     "spam_window": 7,
 
-    # Warnings
     "warn_enabled": True,
     "warn_after": 3,
 
-    # Timeout
     "timeout_enabled": True,
     "timeout_after": 5,
     "timeout_minutes": 10,
 
-    # Link protection
     "link_protection": True,
 
-    # Mention protection
     "mention_protection": True,
     "mention_limit": 5,
 
-    # Duplicate protection
     "duplicate_protection": True,
     "duplicate_limit": 3,
 
-    # Bad words
     "badword_protection": True,
     "badwords": [],
 
-    # Whitelist
     "whitelist_users": [],
     "whitelist_roles": [],
 
-    # Warnings
     "warnings": {}
 }
+
+
+# ============================================================
+# DEFAULT ANTINUKE CONFIG
+# ============================================================
+
+ANTINUKE_DEFAULT = {
+    "enabled": False,
+
+    "action": "ban",
+
+    "log_channel_id": None,
+
+    "whitelist_users": [],
+    "whitelist_roles": [],
+
+    "window": 10,
+
+    "thresholds": {
+        "ban": 3,
+        "kick": 3,
+        "channel_delete": 3,
+        "channel_create": 5,
+        "role_delete": 3,
+        "role_create": 5,
+        "webhook_delete": 3,
+        "bot_add": 2,
+        "guild_update": 2,
+        "emoji_delete": 3,
+        "emoji_create": 5,
+        "sticker_delete": 3,
+        "sticker_create": 5,
+        "overwrite_update": 3
+    },
+
+    "modules": {
+        "ban": True,
+        "kick": True,
+        "channel_delete": True,
+        "channel_create": True,
+        "role_delete": True,
+        "role_create": True,
+        "webhook_delete": True,
+        "bot_add": True,
+        "guild_update": True,
+        "emoji_delete": True,
+        "emoji_create": True,
+        "sticker_delete": True,
+        "sticker_create": True,
+        "overwrite_update": True
+    }
+}
+
+
+# ============================================================
+# GENERIC JSON HELPERS
+# ============================================================
+
+def load_json_file(filename, default):
+    path = Path(filename)
+
+    try:
+        if not path.exists():
+            path.write_text(
+                json.dumps(default, indent=4),
+                encoding="utf-8"
+            )
+            return copy.deepcopy(default)
+
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            return copy.deepcopy(default)
+
+        return data
+
+    except Exception as e:
+        print(f"⚠️ Failed loading {filename}: {e}")
+        return copy.deepcopy(default)
+
+
+def save_json_file(filename, data):
+    path = Path(filename)
+
+    try:
+        path.write_text(
+            json.dumps(data, indent=4),
+            encoding="utf-8"
+        )
+        return True
+    except Exception as e:
+        print(f"❌ Failed saving {filename}: {e}")
+        return False
 
 
 # ============================================================
 # AUTOMODE STORAGE
 # ============================================================
 
-def automode_load_all():
-    if not os.path.exists(AUTOMODE_CONFIG_FILE):
-        return {}
-
-    try:
-        with open(
-            AUTOMODE_CONFIG_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-            data = json.load(f)
-
-        if not isinstance(data, dict):
-            return {}
-
-        return data
-
-    except Exception:
-        return {}
+AUTOMODE_CONFIGS = load_json_file(
+    AUTOMODE_CONFIG_FILE,
+    {}
+)
 
 
-def automode_save_all(data):
-    try:
-        with open(
-            AUTOMODE_CONFIG_FILE,
-            "w",
-            encoding="utf-8"
-        ) as f:
-            json.dump(
-                data,
-                f,
-                indent=4,
-                ensure_ascii=False
-            )
-
-    except Exception as e:
-        print(f"[AutoMode] Config save error: {e}")
+def automode_save_all():
+    return save_json_file(
+        AUTOMODE_CONFIG_FILE,
+        AUTOMODE_CONFIGS
+    )
 
 
-def get_automode_config(guild_id: int):
-
-    data = automode_load_all()
+def get_automode_config(guild_id):
     gid = str(guild_id)
 
-    if gid not in data:
-        data[gid] = copy.deepcopy(
-            AUTOMODE_DEFAULT_CONFIG
-        )
+    if gid not in AUTOMODE_CONFIGS:
+        AUTOMODE_CONFIGS[gid] = copy.deepcopy(AUTOMODE_DEFAULT)
+        automode_save_all()
 
-        automode_save_all(data)
-        return data[gid]
+    config = AUTOMODE_CONFIGS[gid]
 
-    config = data[gid]
-
-    if not isinstance(config, dict):
-        config = copy.deepcopy(
-            AUTOMODE_DEFAULT_CONFIG
-        )
-
-    changed = False
-
-    # Add new settings
-    for key, value in AUTOMODE_DEFAULT_CONFIG.items():
-
+    # Keep old config files compatible
+    for key, value in AUTOMODE_DEFAULT.items():
         if key not in config:
             config[key] = copy.deepcopy(value)
-            changed = True
-
-    # Validate containers
-    if not isinstance(
-        config.get("badwords"),
-        list
-    ):
-        config["badwords"] = []
-        changed = True
-
-    if not isinstance(
-        config.get("whitelist_users"),
-        list
-    ):
-        config["whitelist_users"] = []
-        changed = True
-
-    if not isinstance(
-        config.get("whitelist_roles"),
-        list
-    ):
-        config["whitelist_roles"] = []
-        changed = True
-
-    if not isinstance(
-        config.get("warnings"),
-        dict
-    ):
-        config["warnings"] = {}
-        changed = True
-
-    if changed:
-        data[gid] = config
-        automode_save_all(data)
 
     return config
 
 
-def update_automode_config(
-    guild_id: int,
-    config
-):
-    data = automode_load_all()
-    data[str(guild_id)] = config
-    automode_save_all(data)
+# ============================================================
+# ANTINUKE STORAGE
+# ============================================================
+
+ANTINUKE_CONFIGS = load_json_file(
+    ANTINUKE_CONFIG_FILE,
+    {}
+)
+
+
+def antinuke_save_all():
+    return save_json_file(
+        ANTINUKE_CONFIG_FILE,
+        ANTINUKE_CONFIGS
+    )
+
+
+def get_antinuke_config(guild_id):
+    gid = str(guild_id)
+
+    if gid not in ANTINUKE_CONFIGS:
+        ANTINUKE_CONFIGS[gid] = copy.deepcopy(
+            ANTINUKE_DEFAULT
+        )
+        antinuke_save_all()
+
+    config = ANTINUKE_CONFIGS[gid]
+
+    for key, value in ANTINUKE_DEFAULT.items():
+        if key not in config:
+            config[key] = copy.deepcopy(value)
+
+    for key, value in ANTINUKE_DEFAULT["thresholds"].items():
+        config.setdefault("thresholds", {})
+        config["thresholds"].setdefault(
+            key,
+            value
+        )
+
+    for key, value in ANTINUKE_DEFAULT["modules"].items():
+        config.setdefault("modules", {})
+        config["modules"].setdefault(
+            key,
+            value
+        )
+
+    return config
 
 
 # ============================================================
 # AUTOMODE HELPERS
 # ============================================================
 
-def automode_is_whitelisted(
-    member: discord.Member,
-    config
-):
+def automode_is_whitelisted(member, config):
+    if member is None:
+        return False
 
     if member.id in config.get(
         "whitelist_users",
@@ -245,585 +256,1645 @@ def automode_is_whitelisted(
 
     role_ids = {
         role.id
-        for role in member.roles
+        for role in getattr(member, "roles", [])
     }
-
-    whitelist_roles = set(
-        config.get(
-            "whitelist_roles",
-            []
-        )
-    )
 
     return bool(
         role_ids.intersection(
-            whitelist_roles
+            set(
+                config.get(
+                    "whitelist_roles",
+                    []
+                )
+            )
         )
     )
 
 
-def contains_link(content: str):
+def contains_link(content):
+    if not content:
+        return False
 
     pattern = (
-        r"(https?://"
-        r"|www\."
-        r"|discord\.gg/"
-        r"|discord\.com/invite/)"
+        r"(https?://\S+)"
+        r"|www\.\S+"
+        r"|discord\.gg/\S+"
+        r"|discord\.com/invite/\S+"
     )
 
-    return (
+    return bool(
         re.search(
             pattern,
-            content.lower()
+            content,
+            re.IGNORECASE
         )
-        is not None
     )
 
 
-def find_badword(
-    content: str,
-    badwords
-):
-
-    if not content or not badwords:
+def find_badword(content, badwords):
+    if not content:
         return None
 
-    text = content.casefold()
-
-    cleaned = []
+    lowered = content.lower()
 
     for word in badwords:
+        if not word:
+            continue
 
-        word = str(
-            word
-        ).strip().casefold()
-
-        if word:
-            cleaned.append(word)
-
-    cleaned = sorted(
-        set(cleaned),
-        key=len,
-        reverse=True
-    )
-
-    for word in cleaned:
-
-        pattern = (
-            rf"(?<!\w)"
-            rf"{re.escape(word)}"
-            rf"(?!\w)"
-        )
-
-        if re.search(
-            pattern,
-            text,
-            flags=re.IGNORECASE
-        ):
+        if word.lower() in lowered:
             return word
 
     return None
 
 
-def parse_word_list(value: str):
-
+def parse_word_list(value):
     if not value:
         return []
 
-    parts = re.split(
-        r"[\n,]+",
-        value
-    )
-
-    result = []
-
-    for item in parts:
-
-        item = (
-            item
-            .strip()
-            .casefold()
-        )
-
-        if item and item not in result:
-            result.append(item)
-
-    return result
+    return [
+        x.strip()
+        for x in value.split(",")
+        if x.strip()
+    ]
 
 
 # ============================================================
-# ============================================================
-#                    ANTI-NUKE CONFIG
-# ============================================================
+# ANTINUKE HELPERS
 # ============================================================
 
+def status_text(value):
+    return "🟢 ENABLED" if value else "🔴 DISABLED"
 
-ANTINUKE_DEFAULT_CONFIG = {
 
-    "enabled": False,
-
-    # Default punishment
-    "action": "ban",
-
-    # Logs
-    "log_channel_id": None,
-
-    # Trusted users/roles
-    "whitelist_users": [],
-    "whitelist_roles": [],
-
-    # Detection thresholds
-    "thresholds": {
-
-        "ban": 3,
-        "kick": 3,
-
-        "channel_delete": 2,
-        "channel_create": 5,
-
-        "role_delete": 2,
-        "role_create": 5,
-
-        "webhook_delete": 3,
-
-        "bot_add": 2,
-
-        "guild_update": 2,
-
-        "emoji_delete": 5,
-        "emoji_create": 5,
-
-        "sticker_delete": 5,
-        "sticker_create": 5,
-
-        "overwrite_update": 3,
-    },
-
-    # Detection window
-    "window": 10,
-
-    # Protection modules
-    "modules": {
-
-        "ban": True,
-        "kick": True,
-
-        "channel_delete": True,
-        "channel_create": True,
-
-        "role_delete": True,
-        "role_create": True,
-
-        "webhook_delete": True,
-
-        "bot_add": True,
-
-        "guild_update": True,
-
-        "emoji_delete": True,
-        "emoji_create": True,
-
-        "sticker_delete": True,
-        "sticker_create": True,
-
-        "overwrite_update": True,
-    }
-}
-
-
-# ============================================================
-# ANTI-NUKE STORAGE
-# ============================================================
-
-def antinuke_load_all():
-
-    if not os.path.exists(
-        ANTINUKE_CONFIG_FILE
-    ):
-        return {}
-
-    try:
-
-        with open(
-            ANTINUKE_CONFIG_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            data = json.load(f)
-
-        if not isinstance(data, dict):
-            return {}
-
-        return data
-
-    except Exception:
-        return {}
-
-
-ANTINUKE_CONFIGS = antinuke_load_all()
-
-
-def antinuke_save_all():
-
-    temp = (
-        Path(ANTINUKE_CONFIG_FILE)
-        .with_suffix(".tmp")
-    )
-
-    try:
-
-        with open(
-            temp,
-            "w",
-            encoding="utf-8"
-        ) as f:
-
-            json.dump(
-                ANTINUKE_CONFIGS,
-                f,
-                indent=4,
-                ensure_ascii=False
-            )
-
-        temp.replace(
-            ANTINUKE_CONFIG_FILE
-        )
-
-    except Exception as e:
-
-        print(
-            f"[AntiNuke] Config save error: {e}"
-        )
-
-
-def get_antinuke_config(
-    guild_id: int
-):
-
-    gid = str(guild_id)
-
-    if gid not in ANTINUKE_CONFIGS:
-
-        ANTINUKE_CONFIGS[gid] = (
-            json.loads(
-                json.dumps(
-                    ANTINUKE_DEFAULT_CONFIG
-                )
-            )
-        )
-
-        antinuke_save_all()
-
-    cfg = ANTINUKE_CONFIGS[gid]
-
-    if not isinstance(cfg, dict):
-        cfg = json.loads(
-            json.dumps(
-                ANTINUKE_DEFAULT_CONFIG
-            )
-        )
-
-    cfg.setdefault(
-        "enabled",
-        False
-    )
-
-    cfg.setdefault(
-        "action",
-        "ban"
-    )
-
-    cfg.setdefault(
-        "log_channel_id",
-        None
-    )
-
-    cfg.setdefault(
-        "whitelist_users",
-        []
-    )
-
-    cfg.setdefault(
-        "whitelist_roles",
-        []
-    )
-
-    cfg.setdefault(
-        "thresholds",
-        {}
-    )
-
-    cfg.setdefault(
-        "window",
-        10
-    )
-
-    cfg.setdefault(
-        "modules",
-        {}
-    )
-
-    for key, value in (
-        ANTINUKE_DEFAULT_CONFIG[
-            "thresholds"
-        ].items()
-    ):
-
-        cfg["thresholds"].setdefault(
-            key,
-            value
-        )
-
-    for key, value in (
-        ANTINUKE_DEFAULT_CONFIG[
-            "modules"
-        ].items()
-    ):
-
-        cfg["modules"].setdefault(
-            key,
-            value
-        )
-
-    ANTINUKE_CONFIGS[gid] = cfg
-
-    return cfg
-
-
-# ============================================================
-# ANTI-NUKE HELPERS
-# ============================================================
-
-def status_text(value: bool):
-
-    return (
-        "🟢 Enabled"
-        if value
-        else "🔴 Disabled"
-    )
-
-
-def action_text(action: str):
-
-    return {
-
+def action_text(action):
+    mapping = {
         "ban": "🔨 Ban",
         "kick": "👢 Kick",
         "timeout": "⏱️ Timeout",
         "strip": "🧹 Strip Roles"
+    }
 
-    }.get(
+    return mapping.get(
         action,
-        str(action).title()
+        action.title()
     )
 
 
 def make_embed(
     title,
-    description="",
-    success=True
+    description=None,
+    color=discord.Color.blurple()
 ):
-
     embed = discord.Embed(
         title=title,
-        description=description,
-        colour=(
-            discord.Colour.orange()
-            if success
-            else discord.Colour.red()
-        ),
+        description=description or "",
+        color=color,
         timestamp=discord.utils.utcnow()
     )
 
     embed.set_footer(
-        text="Air Commander • Security System"
+        text="✈️ Air Commander • Automation"
     )
 
     return embed
 
 
 async def public_send(
-    interaction: discord.Interaction,
+    interaction,
     *,
+    content=None,
     embed=None,
-    view=None
+    view=None,
+    ephemeral=False
 ):
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                content=content,
+                embed=embed,
+                view=view,
+                ephemeral=ephemeral
+            )
+        else:
+            await interaction.response.send_message(
+                content=content,
+                embed=embed,
+                view=view,
+                ephemeral=ephemeral
+            )
+    except Exception as e:
+        print(f"[Automation] Interaction send error: {e}")
 
-    if interaction.response.is_done():
 
-        await interaction.followup.send(
-            embed=embed,
-            view=view
-        )
-
-    else:
-
-        await interaction.response.send_message(
-            embed=embed,
-            view=view
-        )
-
-
-def is_admin(
-    member: discord.Member
-):
-
-    return (
-        member.guild_permissions.administrator
-        or member.guild_permissions.manage_guild
+def is_admin(member):
+    return bool(
+        member
+        and hasattr(member, "guild_permissions")
+        and member.guild_permissions.administrator
     )
 
 
-def is_owner(
-    member: discord.Member
-):
+def is_owner(member):
+    if member is None:
+        return False
 
     try:
-        return (
-            member.guild.owner_id
-            == member.id
-        )
-
+        return member.guild.owner_id == member.id
     except Exception:
         return False
 
 
-def antinuke_is_whitelisted(
-    member: discord.Member,
-    cfg
-):
+def antinuke_is_whitelisted(member, config):
+    if member is None:
+        return False
 
-    if member.id in cfg.get(
+    if member.id == getattr(
+        member.guild,
+        "owner_id",
+        None
+    ):
+        return True
+
+    if member.id in config.get(
         "whitelist_users",
         []
     ):
         return True
 
-    if member.guild.owner_id == member.id:
-        return True
-
-    if (
-        member.guild.me
-        and member.id
-        == member.guild.me.id
-    ):
-        return True
-
     role_ids = {
         role.id
-        for role in member.roles
-    }
-
-    whitelist_roles = set(
-        cfg.get(
-            "whitelist_roles",
+        for role in getattr(
+            member,
+            "roles",
             []
         )
-    )
+    }
 
     return bool(
         role_ids.intersection(
-            whitelist_roles
+            set(
+                config.get(
+                    "whitelist_roles",
+                    []
+                )
+            )
         )
     )
 
 
 # ============================================================
-# SHARED SECURITY LOG
+# AUTOMODE LOGGING
+# ============================================================
+
+class AutoMode(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+        self.message_history = defaultdict(
+            lambda: defaultdict(deque)
+        )
+
+        self.duplicate_history = defaultdict(
+            lambda: defaultdict(deque)
+        )
+
+        self.mention_history = defaultdict(
+            lambda: defaultdict(deque)
+        )
+
+    # ========================================================
+    # AUTOMODE LOG CHANNEL
+    # ========================================================
+
+    async def get_log_channel(self, guild):
+        config = get_automode_config(guild.id)
+
+        channel_id = config.get(
+            "log_channel_id"
+        )
+
+        if channel_id:
+            channel = guild.get_channel(
+                int(channel_id)
+            )
+
+            if channel:
+                return channel
+
+        return None
+
+    async def send_log(
+        self,
+        guild,
+        title,
+        description,
+        color=discord.Color.orange()
+    ):
+        channel = await self.get_log_channel(
+            guild
+        )
+
+        if not channel:
+            return
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=color,
+            timestamp=discord.utils.utcnow()
+        )
+
+        embed.set_footer(
+            text="✈️ Air Commander • AutoMode"
+        )
+
+        try:
+            await channel.send(
+                embed=embed
+            )
+        except Exception as e:
+            print(
+                f"[AutoMode] Log error: {e}"
+            )
+
+    async def send_dm(
+        self,
+        member,
+        reason
+    ):
+        try:
+            embed = discord.Embed(
+                title="🛡️ AutoMode Action",
+                description=(
+                    f"An automated protection action "
+                    f"was triggered in **{member.guild.name}**.\n\n"
+                    f"**Reason:** {reason}"
+                ),
+                color=discord.Color.orange()
+            )
+
+            await member.send(
+                embed=embed
+            )
+
+        except Exception:
+            pass
+
+    # ========================================================
+    # AUTOMODE ENABLE / DISABLE
+    # ========================================================
+
+    async def enable_automode(self, guild):
+        config = get_automode_config(
+            guild.id
+        )
+
+        config["enabled"] = True
+
+        # Create log channel automatically
+        channel = guild.get_channel(
+            config.get("log_channel_id")
+        ) if config.get("log_channel_id") else None
+
+        if channel is None:
+            try:
+                channel = await guild.create_text_channel(
+                    "commander-logs",
+                    reason="Air Commander AutoMode"
+                )
+
+                config["log_channel_id"] = channel.id
+
+            except Exception as e:
+                print(
+                    f"[AutoMode] Could not create log channel: {e}"
+                )
+
+        automode_save_all()
+
+        return config
+
+    async def disable_automode(self, guild):
+        config = get_automode_config(
+            guild.id
+        )
+
+        config["enabled"] = False
+
+        automode_save_all()
+
+        return config
+
+    # ========================================================
+    # WARN
+    # ========================================================
+
+    async def warn_member(
+        self,
+        member,
+        reason
+    ):
+        config = get_automode_config(
+            member.guild.id
+        )
+
+        warnings = config.setdefault(
+            "warnings",
+            {}
+        )
+
+        user_id = str(member.id)
+
+        warnings[user_id] = (
+            warnings.get(user_id, 0) + 1
+        )
+
+        count = warnings[user_id]
+
+        automode_save_all()
+
+        try:
+            await self.send_dm(
+                member,
+                reason
+            )
+        except Exception:
+            pass
+
+        await self.send_log(
+            member.guild,
+            "⚠️ AutoMode Warning",
+            (
+                f"**Member:** {member.mention}\n"
+                f"**Reason:** {reason}\n"
+                f"**Warnings:** `{count}`"
+            ),
+            discord.Color.yellow()
+        )
+
+        return count
+
+    # ========================================================
+    # TIMEOUT
+    # ========================================================
+
+    async def timeout_member(
+        self,
+        member,
+        reason,
+        minutes
+    ):
+        try:
+            await member.timeout(
+                timedelta(
+                    minutes=minutes
+                ),
+                reason=reason
+            )
+
+            await self.send_dm(
+                member,
+                reason
+            )
+
+            await self.send_log(
+                member.guild,
+                "⏱️ AutoMode Timeout",
+                (
+                    f"**Member:** {member.mention}\n"
+                    f"**Reason:** {reason}\n"
+                    f"**Duration:** `{minutes} minutes`"
+                ),
+                discord.Color.red()
+            )
+
+            return True
+
+        except Exception as e:
+            print(
+                f"[AutoMode] Timeout error: {e}"
+            )
+            return False
+
+    # ========================================================
+    # ESCALATION
+    # ========================================================
+
+    async def handle_escalation(
+        self,
+        member,
+        reason
+    ):
+        config = get_automode_config(
+            member.guild.id
+        )
+
+        count = await self.warn_member(
+            member,
+            reason
+        )
+
+        if (
+            config.get("timeout_enabled", True)
+            and count >= config.get(
+                "timeout_after",
+                5
+            )
+        ):
+            await self.timeout_member(
+                member,
+                reason,
+                config.get(
+                    "timeout_minutes",
+                    10
+                )
+            )
+
+            # Reset after timeout
+            config.setdefault(
+                "warnings",
+                {}
+            )[str(member.id)] = 0
+
+            automode_save_all()
+
+    # ========================================================
+    # MESSAGE PROTECTION
+    # ========================================================
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+
+        if message.author.bot:
+            return
+
+        if not message.guild:
+            return
+
+        config = get_automode_config(
+            message.guild.id
+        )
+
+        if not config.get(
+            "enabled",
+            False
+        ):
+            return
+
+        member = message.author
+
+        if automode_is_whitelisted(
+            member,
+            config
+        ):
+            return
+
+        if is_admin(member):
+            return
+
+        content = (
+            message.content or ""
+        ).strip()
+
+        # ----------------------------------------------------
+        # BAD WORD
+        # ----------------------------------------------------
+
+        if config.get(
+            "badword_protection",
+            True
+        ):
+            badword = find_badword(
+                content,
+                config.get(
+                    "badwords",
+                    []
+                )
+            )
+
+            if badword:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+
+                await self.handle_escalation(
+                    member,
+                    f"Bad word detected: `{badword}`"
+                )
+
+                return
+
+        # ----------------------------------------------------
+        # LINK PROTECTION
+        # ----------------------------------------------------
+
+        if (
+            config.get(
+                "link_protection",
+                True
+            )
+            and contains_link(content)
+        ):
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            await self.handle_escalation(
+                member,
+                "Unauthorized link detected."
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # MENTION PROTECTION
+        # ----------------------------------------------------
+
+        if config.get(
+            "mention_protection",
+            True
+        ):
+            mention_count = (
+                len(message.mentions)
+                + len(message.role_mentions)
+            )
+
+            limit = config.get(
+                "mention_limit",
+                5
+            )
+
+            if mention_count >= limit:
+
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+
+                await self.handle_escalation(
+                    member,
+                    f"Mass mention detected ({mention_count} mentions)."
+                )
+
+                return
+
+        # ----------------------------------------------------
+        # DUPLICATE PROTECTION
+        # ----------------------------------------------------
+
+        if (
+            config.get(
+                "duplicate_protection",
+                True
+            )
+            and content
+        ):
+            now = time.time()
+
+            key = (
+                message.guild.id,
+                member.id
+            )
+
+            history = self.duplicate_history[
+                message.guild.id
+            ][member.id]
+
+            history.append(
+                (
+                    now,
+                    content.lower()
+                )
+            )
+
+            while history and (
+                now - history[0][0] > 10
+            ):
+                history.popleft()
+
+            same_count = sum(
+                1
+                for _, msg in history
+                if msg == content.lower()
+            )
+
+            limit = config.get(
+                "duplicate_limit",
+                3
+            )
+
+            if same_count >= limit:
+
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+
+                await self.handle_escalation(
+                    member,
+                    "Duplicate message spam detected."
+                )
+
+                history.clear()
+
+                return
+
+        # ----------------------------------------------------
+        # SPAM PROTECTION
+        # ----------------------------------------------------
+
+        now = time.time()
+
+        history = self.message_history[
+            message.guild.id
+        ][member.id]
+
+        history.append(now)
+
+        window = config.get(
+            "spam_window",
+            7
+        )
+
+        while history and (
+            now - history[0] > window
+        ):
+            history.popleft()
+
+        spam_limit = config.get(
+            "spam_messages",
+            5
+        )
+
+        if len(history) >= spam_limit:
+
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            await self.handle_escalation(
+                member,
+                (
+                    f"Message spam detected: "
+                    f"{len(history)} messages "
+                    f"in {window} seconds."
+                )
+            )
+
+            history.clear()
+
+
+# ============================================================
+# AUTOMODE SLASH GROUP
+# ============================================================
+
+automode_group = app_commands.Group(
+    name="automode",
+    description="AutoMode / Silent Protect controls"
+)
+
+
+@automode_group.command(
+    name="enable",
+    description="Enable AutoMode"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_enable(
+    interaction: discord.Interaction
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    config["enabled"] = True
+
+    automode_save_all()
+
+    embed = make_embed(
+        "🛡️ AutoMode Enabled",
+        (
+            "Air Commander AutoMode is now **enabled**.\n\n"
+            "Protection systems are active."
+        ),
+        discord.Color.green()
+    )
+
+    await public_send(
+        interaction,
+        embed=embed
+    )
+
+
+@automode_group.command(
+    name="disable",
+    description="Disable AutoMode"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_disable(
+    interaction: discord.Interaction
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    config["enabled"] = False
+
+    automode_save_all()
+
+    embed = make_embed(
+        "🛡️ AutoMode Disabled",
+        "AutoMode protection has been disabled.",
+        discord.Color.red()
+    )
+
+    await public_send(
+        interaction,
+        embed=embed
+    )
+
+
+@automode_group.command(
+    name="status",
+    description="View AutoMode status"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_status(
+    interaction: discord.Interaction
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    embed = make_embed(
+        "🛡️ AutoMode Status"
+    )
+
+    embed.add_field(
+        name="Status",
+        value=status_text(
+            config.get("enabled")
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Spam",
+        value=(
+            f"`{config.get('spam_messages')}` "
+            f"messages / "
+            f"`{config.get('spam_window')}` sec"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Links",
+        value=status_text(
+            config.get("link_protection")
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Mentions",
+        value=(
+            f"{status_text(config.get('mention_protection'))}\n"
+            f"Limit: `{config.get('mention_limit')}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Duplicates",
+        value=(
+            f"{status_text(config.get('duplicate_protection'))}\n"
+            f"Limit: `{config.get('duplicate_limit')}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Bad Words",
+        value=status_text(
+            config.get("badword_protection")
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Timeout",
+        value=(
+            f"{status_text(config.get('timeout_enabled'))}\n"
+            f"After `{config.get('timeout_after')}` warnings"
+        ),
+        inline=True
+    )
+
+    await public_send(
+        interaction,
+        embed=embed
+    )
+
+
+@automode_group.command(
+    name="config",
+    description="View AutoMode configuration"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_config(
+    interaction: discord.Interaction
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    embed = make_embed(
+        "⚙️ AutoMode Configuration"
+    )
+
+    embed.add_field(
+        name="Spam",
+        value=(
+            f"Messages: `{config['spam_messages']}`\n"
+            f"Window: `{config['spam_window']}s`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Warning",
+        value=(
+            f"Enabled: {status_text(config['warn_enabled'])}\n"
+            f"After: `{config['warn_after']}`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Timeout",
+        value=(
+            f"Enabled: {status_text(config['timeout_enabled'])}\n"
+            f"After: `{config['timeout_after']}`\n"
+            f"Duration: `{config['timeout_minutes']}m`"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Protection",
+        value=(
+            f"Links: {status_text(config['link_protection'])}\n"
+            f"Mentions: {status_text(config['mention_protection'])}\n"
+            f"Duplicates: {status_text(config['duplicate_protection'])}\n"
+            f"Bad Words: {status_text(config['badword_protection'])}"
+        ),
+        inline=False
+    )
+
+    await public_send(
+        interaction,
+        embed=embed
+    )
+
+
+# ============================================================
+# AUTOMODE WHITELIST SLASH
+# ============================================================
+
+automode_whitelist_group = app_commands.Group(
+    name="whitelist",
+    description="Manage AutoMode whitelist",
+    parent=automode_group
+)
+
+
+@automode_whitelist_group.command(
+    name="user",
+    description="Whitelist a user"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_whitelist_user(
+    interaction: discord.Interaction,
+    user: discord.Member
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    if user.id not in config["whitelist_users"]:
+        config["whitelist_users"].append(
+            user.id
+        )
+
+    automode_save_all()
+
+    await public_send(
+        interaction,
+        content=f"✅ {user.mention} added to AutoMode whitelist."
+    )
+
+
+@automode_whitelist_group.command(
+    name="role",
+    description="Whitelist a role"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_whitelist_role(
+    interaction: discord.Interaction,
+    role: discord.Role
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    if role.id not in config["whitelist_roles"]:
+        config["whitelist_roles"].append(
+            role.id
+        )
+
+    automode_save_all()
+
+    await public_send(
+        interaction,
+        content=f"✅ {role.mention} added to AutoMode whitelist."
+    )
+
+
+# ============================================================
+# AUTOMODE BADWORD SLASH
+# ============================================================
+
+automode_badword_group = app_commands.Group(
+    name="badword",
+    description="Manage AutoMode bad words",
+    parent=automode_group
+)
+
+
+@automode_badword_group.command(
+    name="add",
+    description="Add a bad word"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_badword_add(
+    interaction: discord.Interaction,
+    word: str
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    word = word.strip()
+
+    if not word:
+        await public_send(
+            interaction,
+            content="❌ Word cannot be empty.",
+            ephemeral=True
+        )
+        return
+
+    if word.lower() not in [
+        x.lower()
+        for x in config["badwords"]
+    ]:
+        config["badwords"].append(word)
+
+    automode_save_all()
+
+    await public_send(
+        interaction,
+        content=f"✅ Added `{word}` to bad-word protection."
+    )
+
+
+@automode_badword_group.command(
+    name="remove",
+    description="Remove a bad word"
+)
+@app_commands.checks.has_permissions(
+    administrator=True
+)
+async def automode_badword_remove(
+    interaction: discord.Interaction,
+    word: str
+):
+    config = get_automode_config(
+        interaction.guild.id
+    )
+
+    before = len(
+        config["badwords"]
+    )
+
+    config["badwords"] = [
+        x for x in config["badwords"]
+        if x.lower() != word.lower()
+    ]
+
+    automode_save_all()
+
+    if len(config["badwords"]) == before:
+        await public_send(
+            interaction,
+            content=f"⚠️ `{word}` was not found.",
+            ephemeral=True
+        )
+        return
+
+    await public_send(
+        interaction,
+        content=f"✅ Removed `{word}`."
+    )
+
+
+# ============================================================
+# AUTOMODE PREFIX
+# ============================================================
+
+@commands.group(
+    name="automode",
+    invoke_without_command=True
+)
+@commands.guild_only()
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix(
+    ctx
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    embed = make_embed(
+        "🛡️ AutoMode",
+        (
+            f"Status: {status_text(config['enabled'])}\n\n"
+            "Use:\n"
+            "`,automode enable`\n"
+            "`,automode disable`\n"
+            "`,automode status`\n"
+            "`,automode config`\n"
+            "`,automode spam <messages> <seconds>`\n"
+            "`,automode warn <number>`\n"
+            "`,automode timeout <number> <minutes>`\n"
+            "`,automode links on/off`\n"
+            "`,automode mentions on/off`\n"
+            "`,automode duplicates on/off`"
+        )
+    )
+
+    await ctx.send(
+        embed=embed
+    )
+
+
+@automode_prefix.command(
+    name="enable"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_enable(ctx):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    config["enabled"] = True
+    automode_save_all()
+
+    await ctx.send(
+        "🟢 **AutoMode enabled.**"
+    )
+
+
+@automode_prefix.command(
+    name="disable"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_disable(ctx):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    config["enabled"] = False
+    automode_save_all()
+
+    await ctx.send(
+        "🔴 **AutoMode disabled.**"
+    )
+
+
+@automode_prefix.command(
+    name="status"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_status(ctx):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    await ctx.send(
+        embed=make_embed(
+            "🛡️ AutoMode Status",
+            f"Status: {status_text(config['enabled'])}"
+        )
+    )
+
+
+@automode_prefix.command(
+    name="config"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_config(ctx):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    embed = make_embed(
+        "⚙️ AutoMode Configuration"
+    )
+
+    embed.add_field(
+        name="Spam",
+        value=(
+            f"{config['spam_messages']} msgs / "
+            f"{config['spam_window']}s"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Warnings",
+        value=(
+            f"{status_text(config['warn_enabled'])}\n"
+            f"After: {config['warn_after']}"
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Timeout",
+        value=(
+            f"{status_text(config['timeout_enabled'])}\n"
+            f"After: {config['timeout_after']}"
+        ),
+        inline=True
+    )
+
+    await ctx.send(
+        embed=embed
+    )
+
+
+@automode_prefix.command(
+    name="spam"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_spam(
+    ctx,
+    messages: int,
+    seconds: int
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    messages = max(
+        2,
+        min(messages, 50)
+    )
+
+    seconds = max(
+        1,
+        min(seconds, 60)
+    )
+
+    config["spam_messages"] = messages
+    config["spam_window"] = seconds
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ Spam protection set to `{messages}` messages / `{seconds}` seconds."
+    )
+
+
+@automode_prefix.command(
+    name="warn"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_warn(
+    ctx,
+    number: int
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    config["warn_after"] = max(
+        1,
+        min(number, 20)
+    )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ Warning threshold set to `{config['warn_after']}`."
+    )
+
+
+@automode_prefix.command(
+    name="timeout"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_timeout(
+    ctx,
+    number: int,
+    minutes: int
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    config["timeout_after"] = max(
+        1,
+        min(number, 20)
+    )
+
+    config["timeout_minutes"] = max(
+        1,
+        min(minutes, 40320)
+    )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ Timeout set to `{number}` warnings / `{minutes}` minutes."
+    )
+
+
+@automode_prefix.command(
+    name="links"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_links(
+    ctx,
+    state: str
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    state = state.lower()
+
+    if state not in (
+        "on",
+        "off"
+    ):
+        await ctx.send(
+            "❌ Use `on` or `off`."
+        )
+        return
+
+    config["link_protection"] = (
+        state == "on"
+    )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"🔗 Link protection `{state}`."
+    )
+
+
+@automode_prefix.command(
+    name="mentions"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_mentions(
+    ctx,
+    state: str
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    state = state.lower()
+
+    if state not in (
+        "on",
+        "off"
+    ):
+        await ctx.send(
+            "❌ Use `on` or `off`."
+        )
+        return
+
+    config["mention_protection"] = (
+        state == "on"
+    )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"📢 Mention protection `{state}`."
+    )
+
+
+@automode_prefix.command(
+    name="duplicates"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_duplicates(
+    ctx,
+    state: str
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    state = state.lower()
+
+    if state not in (
+        "on",
+        "off"
+    ):
+        await ctx.send(
+            "❌ Use `on` or `off`."
+        )
+        return
+
+    config["duplicate_protection"] = (
+        state == "on"
+    )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"🔁 Duplicate protection `{state}`."
+    )
+
+
+# ============================================================
+# AUTOMODE WHITELIST PREFIX
+# ============================================================
+
+@automode_prefix.group(
+    name="whitelist",
+    invoke_without_command=True
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_whitelist(
+    ctx
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    users = config.get(
+        "whitelist_users",
+        []
+    )
+
+    roles = config.get(
+        "whitelist_roles",
+        []
+    )
+
+    await ctx.send(
+        embed=make_embed(
+            "🛡️ AutoMode Whitelist",
+            (
+                f"Users: `{len(users)}`\n"
+                f"Roles: `{len(roles)}`"
+            )
+        )
+    )
+
+
+@automode_prefix_whitelist.command(
+    name="user"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_whitelist_user(
+    ctx,
+    member: discord.Member
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    if member.id not in config["whitelist_users"]:
+        config["whitelist_users"].append(
+            member.id
+        )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ {member.mention} added to AutoMode whitelist."
+    )
+
+
+@automode_prefix_whitelist.command(
+    name="role"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_whitelist_role(
+    ctx,
+    role: discord.Role
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    if role.id not in config["whitelist_roles"]:
+        config["whitelist_roles"].append(
+            role.id
+        )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ {role.mention} added to AutoMode whitelist."
+    )
+
+
+# ============================================================
+# AUTOMODE BADWORD PREFIX
+# ============================================================
+
+@automode_prefix.group(
+    name="badword",
+    invoke_without_command=True
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_badword(
+    ctx
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    words = config.get(
+        "badwords",
+        []
+    )
+
+    await ctx.send(
+        embed=make_embed(
+            "🚫 AutoMode Bad Words",
+            (
+                "\n".join(
+                    f"• `{word}`"
+                    for word in words
+                )
+                if words
+                else "No bad words configured."
+            )
+        )
+    )
+
+
+@automode_prefix_badword.command(
+    name="add"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_badword_add(
+    ctx,
+    *,
+    word: str
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    word = word.strip()
+
+    if word.lower() not in [
+        x.lower()
+        for x in config["badwords"]
+    ]:
+        config["badwords"].append(
+            word
+        )
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ Added `{word}`."
+    )
+
+
+@automode_prefix_badword.command(
+    name="remove"
+)
+@commands.has_permissions(
+    administrator=True
+)
+async def automode_prefix_badword_remove(
+    ctx,
+    *,
+    word: str
+):
+    config = get_automode_config(
+        ctx.guild.id
+    )
+
+    config["badwords"] = [
+        x for x in config["badwords"]
+        if x.lower() != word.lower()
+    ]
+
+    automode_save_all()
+
+    await ctx.send(
+        f"✅ Removed `{word}`."
+    )
+
+
+# ============================================================
+# ANTINUKE LOGGING
 # ============================================================
 
 async def ensure_antinuke_log_channel(
-    guild: discord.Guild
+    guild,
+    config
 ):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    existing_id = cfg.get(
+    channel_id = config.get(
         "log_channel_id"
     )
 
-    if existing_id:
-
+    if channel_id:
         channel = guild.get_channel(
-            existing_id
+            int(channel_id)
         )
 
         if channel:
             return channel
 
-    # Existing channel
-    for channel in guild.text_channels:
-
-        if channel.name.lower() in (
-            "commander-antinuke-logs",
-            "commander-security-logs"
-        ):
-
-            cfg["log_channel_id"] = (
-                channel.id
-            )
-
-            antinuke_save_all()
-
-            return channel
-
-    me = guild.me
-
-    overwrites = {
-
-        guild.default_role:
-        discord.PermissionOverwrite(
-            view_channel=False
-        )
-
-    }
-
-    if me:
-
-        overwrites[me] = (
-            discord.PermissionOverwrite(
-                view_channel=True,
-                send_messages=True,
-                embed_links=True,
-                read_message_history=True
-            )
-        )
-
     try:
-
         channel = await guild.create_text_channel(
-
             "commander-antinuke-logs",
-
-            topic=(
-                "Air Commander "
-                "Anti-Nuke Security Logs"
-            ),
-
-            overwrites=overwrites,
-
-            reason=(
-                "Air Commander "
-                "Anti-Nuke enabled"
-            )
+            reason="Air Commander Anti-Nuke"
         )
 
-        cfg["log_channel_id"] = (
-            channel.id
-        )
-
+        config["log_channel_id"] = channel.id
         antinuke_save_all()
 
         return channel
 
-    except (
-        discord.Forbidden,
-        discord.HTTPException
-    ):
-
+    except Exception as e:
+        print(
+            f"[AntiNuke] Log channel error: {e}"
+        )
         return None
 
 
@@ -831,56 +1902,38 @@ async def send_antinuke_log(
     guild,
     title,
     description,
-    colour=None
+    color=discord.Color.red()
 ):
-
-    if colour is None:
-        colour = discord.Colour.orange()
-
-    cfg = get_antinuke_config(
+    config = get_antinuke_config(
         guild.id
     )
 
-    channel_id = cfg.get(
-        "log_channel_id"
-    )
-
-    if not channel_id:
-        return
-
-    channel = guild.get_channel(
-        channel_id
+    channel = await ensure_antinuke_log_channel(
+        guild,
+        config
     )
 
     if not channel:
         return
 
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        colour=colour,
-        timestamp=discord.utils.utcnow()
-    )
-
-    embed.set_footer(
-        text="Air Commander • Anti-Nuke"
+    embed = make_embed(
+        title,
+        description,
+        color
     )
 
     try:
-
         await channel.send(
             embed=embed
         )
-
-    except (
-        discord.Forbidden,
-        discord.HTTPException
-    ):
-        pass
+    except Exception as e:
+        print(
+            f"[AntiNuke] Send log error: {e}"
+        )
 
 
 # ============================================================
-# ANTI-NUKE ACTION HISTORY
+# ANTINUKE ACTION HISTORY
 # ============================================================
 
 ANTI_NUKE_HISTORY = defaultdict(
@@ -892,169 +1945,124 @@ ANTI_NUKE_HISTORY = defaultdict(
 
 def register_antinuke_action(
     guild_id,
-    actor_id,
-    action
-):
-
-    history = (
-        ANTI_NUKE_HISTORY[
-            guild_id
-        ][actor_id][action]
-    )
-
-    now = time.monotonic()
-
-    history.append(now)
-
-    return history
-
-
-def cleanup_antinuke_history(
-    guild_id,
-    actor_id,
+    user_id,
     action,
     window
 ):
+    now = time.time()
 
-    history = (
-        ANTI_NUKE_HISTORY[
-            guild_id
-        ][actor_id][action]
-    )
+    history = ANTI_NUKE_HISTORY[
+        guild_id
+    ][user_id][action]
 
-    now = time.monotonic()
+    history.append(now)
 
-    while (
-        history
-        and now - history[0] > window
+    while history and (
+        now - history[0] > window
     ):
-
         history.popleft()
 
     return len(history)
 
 
-# ============================================================
-# ANTI-NUKE PUNISHMENT
-# ============================================================
-
-async def punish_member(
-    guild: discord.Guild,
-    member: discord.Member,
-    cfg
+def clear_antinuke_history(
+    guild_id,
+    user_id,
+    action
 ):
+    try:
+        ANTI_NUKE_HISTORY[
+            guild_id
+        ][user_id][action].clear()
+    except Exception:
+        pass
 
-    action = cfg.get(
+
+# ============================================================
+# ANTINUKE PUNISHMENT
+# ============================================================
+
+async def punish_antinuke_actor(
+    guild,
+    member,
+    config,
+    reason
+):
+    action = config.get(
         "action",
         "ban"
     )
 
     try:
 
-        if action == "ban":
+        if member.id == guild.owner_id:
+            return False
 
+        if action == "ban":
             await guild.ban(
                 member,
-                reason=(
-                    "Air Commander "
-                    "Anti-Nuke protection"
-                )
+                reason=reason,
+                delete_message_seconds=0
             )
 
-            return "Banned"
-
-        if action == "kick":
-
+        elif action == "kick":
             await guild.kick(
                 member,
-                reason=(
-                    "Air Commander "
-                    "Anti-Nuke protection"
-                )
+                reason=reason
             )
 
-            return "Kicked"
-
-        if action == "timeout":
-
+        elif action == "timeout":
             await member.timeout(
-
                 timedelta(
-                    minutes=30
+                    minutes=10
                 ),
-
-                reason=(
-                    "Air Commander "
-                    "Anti-Nuke protection"
-                )
+                reason=reason
             )
 
-            return "Timed out"
-
-        if action == "strip":
-
-            removable = []
-
-            if not guild.me:
-                return "Failed: bot member unavailable"
+        elif action == "strip":
+            removable_roles = []
 
             for role in member.roles:
-
-                if role.is_default():
+                if (
+                    role.is_default()
+                    or role.managed
+                ):
                     continue
 
-                if role >= guild.me.top_role:
-                    continue
-
-                removable.append(role)
-
-            if removable:
-
-                await member.remove_roles(
-                    *removable,
-                    reason=(
-                        "Air Commander "
-                        "Anti-Nuke protection"
-                    )
+                removable_roles.append(
+                    role
                 )
 
-            return "Roles removed"
+            if removable_roles:
+                await member.remove_roles(
+                    *removable_roles,
+                    reason=reason
+                )
 
-    except discord.Forbidden:
+        else:
+            await guild.ban(
+                member,
+                reason=reason,
+                delete_message_seconds=0
+            )
 
-        return (
-            "Failed: missing permissions "
-            "or role hierarchy"
-        )
-
-    except discord.HTTPException:
-
-        return (
-            "Failed: Discord API error"
-        )
+        return True
 
     except Exception as e:
-
         print(
             f"[AntiNuke] Punishment error: {e}"
         )
 
-        return "Failed: internal error"
-
-    return "No action"
+        return False
 
 
 # ============================================================
-# AUDIT LOG MAP
+# AUDIT ACTION MAP
 # ============================================================
 
 AUDIT_ACTION_MAP = {
-
-    discord.AuditLogAction.ban:
-        "ban",
-
-    discord.AuditLogAction.kick:
-        "kick",
+    discord.AuditLogAction.ban: "ban",
+    discord.AuditLogAction.kick: "kick",
 
     discord.AuditLogAction.channel_delete:
         "channel_delete",
@@ -1090,2409 +2098,408 @@ AUDIT_ACTION_MAP = {
         "sticker_create",
 
     discord.AuditLogAction.overwrite_update:
-        "overwrite_update",
+        "overwrite_update"
 }
 
 
 # ============================================================
-# ANTI-NUKE AUDIT PROCESSOR
+# PROCESS AUDIT ENTRY
 # ============================================================
 
 async def process_audit_entry(
     bot,
     entry
 ):
-
-    guild = entry.guild
-
-    if guild is None:
-        return
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    if not cfg.get("enabled"):
-        return
-
-    action_type = AUDIT_ACTION_MAP.get(
-        entry.action
-    )
-
-    if not action_type:
-        return
-
-    if not cfg["modules"].get(
-        action_type,
-        True
-    ):
-        return
-
-    actor = entry.user
-
-    if actor is None:
-        return
-
-    if not isinstance(
-        actor,
-        discord.Member
-    ):
-
-        actor = guild.get_member(
-            actor.id
+    try:
+        guild = bot.get_guild(
+            entry.guild.id
         )
 
-    if actor is None:
-        return
+        if guild is None:
+            return
 
-    # Trusted users are ignored
-    if antinuke_is_whitelisted(
-        actor,
-        cfg
-    ):
-        return
+        config = get_antinuke_config(
+            guild.id
+        )
 
-    # Register action for THIS actor
-    register_antinuke_action(
-        guild.id,
-        actor.id,
-        action_type
-    )
+        if not config.get(
+            "enabled",
+            False
+        ):
+            return
 
-    count = cleanup_antinuke_history(
-        guild.id,
-        actor.id,
-        action_type,
-        int(
-            cfg.get(
+        action_name = AUDIT_ACTION_MAP.get(
+            entry.action
+        )
+
+        if not action_name:
+            return
+
+        if not config.get(
+            "modules",
+            {}
+        ).get(
+            action_name,
+            True
+        ):
+            return
+
+        actor = entry.user
+
+        if actor is None:
+            return
+
+        if actor.bot:
+            return
+
+        if antinuke_is_whitelisted(
+            actor,
+            config
+        ):
+            return
+
+        window = int(
+            config.get(
                 "window",
                 10
             )
         )
-    )
 
-    threshold = int(
-        cfg["thresholds"].get(
-            action_type,
-            3
-        )
-    )
-
-    # Detection log
-    await send_antinuke_log(
-
-        guild,
-
-        "🚨 Anti-Nuke Detection",
-
-        (
-            f"**Executor:** {actor.mention}\n"
-            f"**Action:** `{action_type}`\n"
-            f"**Count:** `{count}/{threshold}`\n"
-            f"**Window:** "
-            f"`{cfg.get('window', 10)} seconds`"
-        ),
-
-        discord.Colour.red()
-    )
-
-    if count < threshold:
-        return
-
-    # Reset this actor/action
-    ANTI_NUKE_HISTORY[
-        guild.id
-    ][actor.id][action_type].clear()
-
-    result = await punish_member(
-        guild,
-        actor,
-        cfg
-    )
-
-    await send_antinuke_log(
-
-        guild,
-
-        "🛡️ Anti-Nuke Punishment",
-
-        (
-            f"**User:** {actor.mention}\n"
-            f"**Detected:** `{action_type}`\n"
-            f"**Threshold:** `{threshold}`\n"
-            f"**Punishment:** `{result}`"
-        ),
-
-        discord.Colour.dark_red()
-    )
-
-
-# ============================================================
-# ============================================================
-#                    AUTOMODE COG
-# ============================================================
-# ============================================================
-
-
-class AutoMode(commands.Cog):
-
-    def __init__(
-        self,
-        bot
-    ):
-
-        self.bot = bot
-
-        # guild -> user -> timestamps
-        self.message_tracker = defaultdict(
-            lambda: defaultdict(deque)
-        )
-
-        # guild -> user -> messages
-        self.duplicate_tracker = defaultdict(
-            lambda: defaultdict(deque)
-        )
-
-    # ========================================================
-    # AUTOMODE LOG CHANNEL
-    # ========================================================
-
-    async def get_log_channel(
-        self,
-        guild
-    ):
-
-        config = get_automode_config(
-            guild.id
-        )
-
-        channel_id = config.get(
-            "log_channel_id"
-        )
-
-        if not channel_id:
-            return None
-
-        return guild.get_channel(
-            channel_id
-        )
-
-    # ========================================================
-    # AUTOMODE LOG
-    # ========================================================
-
-    async def send_log(
-        self,
-        guild,
-        title,
-        description,
-        user=None,
-        action=None
-    ):
-
-        channel = await self.get_log_channel(
-            guild
-        )
-
-        if not channel:
-            return False
-
-        embed = discord.Embed(
-            title=f"🛡️ {title}",
-            description=description,
-            timestamp=discord.utils.utcnow()
-        )
-
-        if user:
-
-            embed.add_field(
-                name="User",
-                value=(
-                    f"{user.mention}\n"
-                    f"`{user}`\n"
-                    f"ID: `{user.id}`"
-                ),
-                inline=False
-            )
-
-        if action:
-
-            embed.add_field(
-                name="Action",
-                value=f"`{action}`",
-                inline=False
-            )
-
-        try:
-
-            await channel.send(
-                embed=embed
-            )
-
-            return True
-
-        except (
-            discord.Forbidden,
-            discord.HTTPException
-        ):
-
-            return False
-
-    # ========================================================
-    # AUTOMODE DM
-    # ========================================================
-
-    async def send_dm(
-        self,
-        member,
-        title,
-        description
-    ):
-
-        embed = discord.Embed(
-            title=f"🛡️ {title}",
-            description=description,
-            timestamp=discord.utils.utcnow()
-        )
-
-        embed.set_footer(
-            text=(
-                f"Air Commander • "
-                f"{member.guild.name}"
-            )
-        )
-
-        try:
-
-            await member.send(
-                embed=embed
-            )
-
-            return True
-
-        except (
-            discord.Forbidden,
-            discord.HTTPException,
-            discord.NotFound
-        ):
-
-            return False
-
-    # ========================================================
-    # AUTOMODE ENABLE
-    # ========================================================
-
-    async def enable_automode(
-        self,
-        guild
-    ):
-
-        config = get_automode_config(
-            guild.id
-        )
-
-        if config.get("enabled"):
-
-            return (
-                None,
-                "⚠️ **AutoMode is already enabled.**"
-            )
-
-        channel = discord.utils.get(
-            guild.text_channels,
-            name="commander-logs"
-        )
-
-        if channel is None:
-
-            try:
-
-                channel = (
-                    await guild.create_text_channel(
-                        "commander-logs",
-                        reason=(
-                            "Air Commander "
-                            "AutoMode enabled"
-                        )
-                    )
-                )
-
-            except discord.Forbidden:
-
-                return (
-                    None,
-                    "❌ I don't have permission "
-                    "to create channels."
-                )
-
-            except discord.HTTPException:
-
-                return (
-                    None,
-                    "❌ Discord rejected the "
-                    "channel creation request."
-                )
-
-        config["enabled"] = True
-        config["log_channel_id"] = (
-            channel.id
-        )
-
-        update_automode_config(
+        count = register_antinuke_action(
             guild.id,
-            config
+            actor.id,
+            action_name,
+            window
         )
 
-        await self.send_log(
-
-            guild,
-
-            "AutoMode Enabled",
-
-            (
-                "Air Commander AutoMode "
-                "has been enabled."
-            ),
-
-            action="AUTOMODE ENABLE"
-        )
-
-        return (
-
-            channel,
-
-            (
-                "🛡️ **AutoMode enabled!**\n"
-                f"📋 Logs: {channel.mention}\n\n"
-                "Use `/automode config` "
-                "to view protection settings."
-            )
-        )
-
-    # ========================================================
-    # AUTOMODE DISABLE
-    # ========================================================
-
-    async def disable_automode(
-        self,
-        guild
-    ):
-
-        config = get_automode_config(
-            guild.id
-        )
-
-        if not config.get("enabled"):
-
-            return (
-                "⚠️ **AutoMode is already disabled.**"
-            )
-
-        config["enabled"] = False
-
-        update_automode_config(
-            guild.id,
-            config
-        )
-
-        await self.send_log(
-
-            guild,
-
-            "AutoMode Disabled",
-
-            (
-                "AutoMode protection "
-                "has been disabled."
-            ),
-
-            action="AUTOMODE DISABLE"
-        )
-
-        return (
-            "🔴 **AutoMode disabled.**"
-        )
-
-    # ========================================================
-    # WARNING
-    # ========================================================
-
-    async def warn_member(
-        self,
-        member,
-        reason
-    ):
-
-        guild = member.guild
-
-        config = get_automode_config(
-            guild.id
-        )
-
-        warnings = config.setdefault(
-            "warnings",
-            {}
-        )
-
-        uid = str(
-            member.id
-        )
-
-        warnings[uid] = (
-            int(
-                warnings.get(
-                    uid,
-                    0
-                )
-            )
-            + 1
-        )
-
-        count = warnings[uid]
-
-        update_automode_config(
-            guild.id,
-            config
-        )
-
-        await self.send_log(
-
-            guild,
-
-            "Member Warned",
-
-            (
-                f"Reason: **{reason}**\n"
-                f"Warning count: **{count}**"
-            ),
-
-            user=member,
-            action="WARN"
-        )
-
-        await self.send_dm(
-
-            member,
-
-            "You received a warning",
-
-            (
-                f"You have received a warning "
-                f"in **{guild.name}**.\n\n"
-                f"**Reason:** {reason}\n"
-                f"**Warning count:** `{count}`"
-            )
-        )
-
-        return count
-
-    # ========================================================
-    # TIMEOUT
-    # ========================================================
-
-    async def timeout_member(
-        self,
-        member,
-        reason
-    ):
-
-        config = get_automode_config(
-            member.guild.id
-        )
-
-        minutes = int(
+        threshold = int(
             config.get(
-                "timeout_minutes",
-                10
-            )
-        )
-
-        try:
-
-            await member.timeout(
-
-                timedelta(
-                    minutes=minutes
-                ),
-
-                reason=(
-                    f"AutoMode: {reason}"
-                )
-            )
-
-            await self.send_dm(
-
-                member,
-
-                "You have been timed out",
-
-                (
-                    f"You have been timed out "
-                    f"in **{member.guild.name}**.\n\n"
-                    f"**Reason:** {reason}\n"
-                    f"**Duration:** "
-                    f"`{minutes} minutes`"
-                )
-            )
-
-            await self.send_log(
-
-                member.guild,
-
-                "Member Timed Out",
-
-                (
-                    f"Reason: **{reason}**\n"
-                    f"Duration: "
-                    f"**{minutes} minutes**"
-                ),
-
-                user=member,
-                action="TIMEOUT"
-            )
-
-            return True
-
-        except discord.Forbidden:
-
-            await self.send_log(
-
-                member.guild,
-
-                "Moderation Failed",
-
-                (
-                    "I could not timeout this "
-                    "member because of permissions "
-                    "or role hierarchy."
-                ),
-
-                user=member,
-                action="TIMEOUT FAILED"
-            )
-
-            return False
-
-        except discord.HTTPException:
-
-            return False
-
-    # ========================================================
-    # ESCALATION
-    # ========================================================
-
-    async def handle_escalation(
-        self,
-        member,
-        warning_count,
-        reason
-    ):
-
-        config = get_automode_config(
-            member.guild.id
-        )
-
-        warn_after = int(
-            config.get(
-                "warn_after",
+                "thresholds",
+                {}
+            ).get(
+                action_name,
                 3
             )
         )
 
-        timeout_after = int(
-            config.get(
-                "timeout_after",
-                5
-            )
-        )
-
-        # Timeout first
-        if (
-            config.get(
-                "timeout_enabled",
-                True
-            )
-            and warning_count
-            >= timeout_after
-        ):
-
-            await self.timeout_member(
-                member,
+        if count < threshold:
+            await send_antinuke_log(
+                guild,
+                "⚠️ Anti-Nuke Detection",
                 (
-                    f"{reason} | "
-                    f"{warning_count} warnings"
-                )
-            )
-
-            return
-
-        if (
-            config.get(
-                "warn_enabled",
-                True
-            )
-            and warning_count
-            >= warn_after
-        ):
-
-            await self.send_log(
-
-                member.guild,
-
-                "Warning Threshold Reached",
-
-                (
-                    f"{member.mention} reached "
-                    f"**{warning_count} warnings**."
+                    f"**User:** {actor.mention}\n"
+                    f"**Action:** `{action_name}`\n"
+                    f"**Count:** `{count}/{threshold}`\n"
+                    f"**Window:** `{window}s`"
                 ),
-
-                user=member,
-
-                action="WARNING THRESHOLD"
+                discord.Color.orange()
             )
-
-    # ========================================================
-    # AUTOMODE MESSAGE PROTECTION
-    # ========================================================
-
-    @commands.Cog.listener()
-    async def on_message(
-        self,
-        message
-    ):
-
-        if message.author.bot:
             return
 
-        if not message.guild:
-            return
-
-        config = get_automode_config(
-            message.guild.id
+        reason = (
+            f"Air Commander Anti-Nuke: "
+            f"{action_name} threshold exceeded "
+            f"({count}/{threshold} in {window}s)"
         )
 
-        if not config.get("enabled"):
-            return
-
-        member = message.author
-
-        if not isinstance(
-            member,
-            discord.Member
-        ):
-            return
-
-        # Administrators bypass AutoMode
-        if member.guild_permissions.administrator:
-            return
-
-        # Whitelisted users/roles bypass
-        if automode_is_whitelisted(
-            member,
-            config
-        ):
-            return
-
-        now = time.monotonic()
-
-        # ====================================================
-        # MESSAGE TRACKER
-        # ====================================================
-
-        user_messages = (
-            self.message_tracker[
-                message.guild.id
-            ][member.id]
+        punished = await punish_antinuke_actor(
+            guild,
+            actor,
+            config,
+            reason
         )
 
-        window = int(
+        await send_antinuke_log(
+            guild,
+            "🚨 Anti-Nuke Triggered",
+            (
+                f"**User:** {actor.mention}\n"
+                f"**User ID:** `{actor.id}`\n"
+                f"**Action:** `{action_name}`\n"
+                f"**Threshold:** `{threshold}`\n"
+                f"**Detected:** `{count}`\n"
+                f"**Punishment:** {action_text(config.get('action'))}\n"
+                f"**Successful:** `{punished}`"
+            ),
+            discord.Color.red()
+        )
+
+        clear_antinuke_history(
+            guild.id,
+            actor.id,
+            action_name
+        )
+
+    except Exception as e:
+        print(
+            f"[AntiNuke] Audit processing error: {e}"
+        )
+
+
+# ============================================================
+# ANTINUKE DASHBOARD
+# ============================================================
+
+def dashboard_embed(guild):
+    config = get_antinuke_config(
+        guild.id
+    )
+
+    enabled = config.get(
+        "enabled",
+        False
+    )
+
+    embed = make_embed(
+        "🛡️ Air Commander Anti-Nuke",
+        (
+            "Advanced server protection dashboard.\n\n"
+            "Use the buttons below to configure Anti-Nuke."
+        ),
+        (
+            discord.Color.green()
+            if enabled
+            else discord.Color.red()
+        )
+    )
+
+    embed.add_field(
+        name="Status",
+        value=status_text(
+            enabled
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Action",
+        value=action_text(
             config.get(
-                "spam_window",
-                7
+                "action",
+                "ban"
             )
-        )
+        ),
+        inline=True
+    )
 
-        while (
-            user_messages
-            and now - user_messages[0]
-            > window
-        ):
+    embed.add_field(
+        name="Detection Window",
+        value=f"`{config.get('window', 10)} seconds`",
+        inline=True
+    )
 
-            user_messages.popleft()
+    modules = config.get(
+        "modules",
+        {}
+    )
 
-        user_messages.append(now)
+    active = sum(
+        1
+        for value in modules.values()
+        if value
+    )
 
-        # ====================================================
-        # BAD WORD
-        # ====================================================
+    total = len(modules)
 
-        if config.get(
-            "badword_protection",
-            True
-        ):
+    embed.add_field(
+        name="Protection Modules",
+        value=f"`{active}/{total}` active",
+        inline=True
+    )
 
-            badword = find_badword(
-
-                message.content,
-
+    embed.add_field(
+        name="Whitelisted Users",
+        value=str(
+            len(
                 config.get(
-                    "badwords",
+                    "whitelist_users",
                     []
                 )
             )
+        ),
+        inline=True
+    )
 
-            if badword:
-
-                try:
-                    await message.delete()
-
-                except (
-                    discord.Forbidden,
-                    discord.HTTPException
-                ):
-                    pass
-
-                count = await self.warn_member(
-                    member,
-                    "Blocked word detected"
-                )
-
-                await self.send_log(
-
-                    message.guild,
-
-                    "Bad Word Detected",
-
-                    (
-                        "A blocked word/phrase "
-                        "was detected and "
-                        "the message was removed."
-                    ),
-
-                    user=member,
-
-                    action="BADWORD"
-                )
-
-                await self.handle_escalation(
-                    member,
-                    count,
-                    "Blocked word detected"
-                )
-
-                return
-
-        # ====================================================
-        # LINK PROTECTION
-        # ====================================================
-
-        if config.get(
-            "link_protection",
-            True
-        ):
-
-            if contains_link(
-                message.content
-            ):
-
-                try:
-                    await message.delete()
-
-                except (
-                    discord.Forbidden,
-                    discord.HTTPException
-                ):
-                    pass
-
-                count = await self.warn_member(
-                    member,
-                    "Unauthorized link"
-                )
-
-                await self.handle_escalation(
-                    member,
-                    count,
-                    "Unauthorized link"
-                )
-
-                return
-
-        # ====================================================
-        # MENTION SPAM
-        # ====================================================
-
-        if config.get(
-            "mention_protection",
-            True
-        ):
-
-            mention_count = (
-                len(message.mentions)
-                + len(message.role_mentions)
-            )
-
-            limit = int(
+    embed.add_field(
+        name="Whitelisted Roles",
+        value=str(
+            len(
                 config.get(
-                    "mention_limit",
-                    5
+                    "whitelist_roles",
+                    []
                 )
             )
-
-            if mention_count >= limit:
-
-                try:
-                    await message.delete()
-
-                except (
-                    discord.Forbidden,
-                    discord.HTTPException
-                ):
-                    pass
-
-                count = await self.warn_member(
-
-                    member,
-
-                    (
-                        f"Mention spam "
-                        f"({mention_count} mentions)"
-                    )
-                )
-
-                await self.handle_escalation(
-                    member,
-                    count,
-                    "Mention spam"
-                )
-
-                return
-
-        # ====================================================
-        # DUPLICATE PROTECTION
-        # ====================================================
-
-        if config.get(
-            "duplicate_protection",
-            True
-        ):
-
-            recent = (
-                self.duplicate_tracker[
-                    message.guild.id
-                ][member.id]
-            )
-
-            normalized = (
-                message.content
-                .lower()
-                .strip()
-            )
-
-            recent.append(
-                normalized
-            )
-
-            while len(recent) > 5:
-                recent.popleft()
-
-            duplicate_limit = int(
-                config.get(
-                    "duplicate_limit",
-                    3
-                )
-            )
-
-            if (
-                normalized
-                and list(recent).count(
-                    normalized
-                ) >= duplicate_limit
-            ):
-
-                try:
-                    await message.delete()
-
-                except (
-                    discord.Forbidden,
-                    discord.HTTPException
-                ):
-                    pass
-
-                count = await self.warn_member(
-
-                    member,
-
-                    "Repeated duplicate messages"
-                )
-
-                await self.handle_escalation(
-                    member,
-                    count,
-                    "Duplicate spam"
-                )
-
-                return
-
-        # ====================================================
-        # GENERAL SPAM
-        # ====================================================
-
-        spam_limit = int(
-            config.get(
-                "spam_messages",
-                5
-            )
-        )
-
-        if len(user_messages) >= spam_limit:
-
-            user_messages.clear()
-
-            try:
-                await message.delete()
-
-            except (
-                discord.Forbidden,
-                discord.HTTPException
-            ):
-                pass
-
-            count = await self.warn_member(
-
-                member,
-
-                (
-                    f"Spam detected "
-                    f"({spam_limit} messages)"
-                )
-            )
-
-            await self.handle_escalation(
-                member,
-                count,
-                "Message spam"
-            )
-
-    # ========================================================
-    # AUTOMODE SLASH GROUP
-    # ========================================================
-
-    automode_group = app_commands.Group(
-
-        name="automode",
-
-        description=(
-            "Configure Air Commander AutoMode"
-        )
+        ),
+        inline=True
     )
 
-    # ========================================================
-    # SLASH ENABLE
-    # ========================================================
-
-    @automode_group.command(
-        name="enable",
-        description="Enable AutoMode"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def automode_enable(
-        self,
-        interaction
-    ):
-
-        _, result = (
-            await self.enable_automode(
-                interaction.guild
-            )
-        )
-
-        await interaction.response.send_message(
-            result,
-            ephemeral=True
-        )
-
-    # ========================================================
-    # SLASH DISABLE
-    # ========================================================
-
-    @automode_group.command(
-        name="disable",
-        description="Disable AutoMode"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def automode_disable(
-        self,
-        interaction
-    ):
-
-        result = (
-            await self.disable_automode(
-                interaction.guild
-            )
-        )
-
-        await interaction.response.send_message(
-            result,
-            ephemeral=True
-        )
-
-    # ========================================================
-    # SLASH STATUS
-    # ========================================================
-
-    @automode_group.command(
-        name="status",
-        description="View AutoMode status"
-    )
-    async def automode_status(
-        self,
-        interaction
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        log_channel = (
-            interaction.guild.get_channel(
-                config.get(
-                    "log_channel_id"
-                )
-            )
-        )
-
-        embed = discord.Embed(
-            title="🛡️ Air Commander AutoMode",
-            timestamp=discord.utils.utcnow()
-        )
-
-        embed.add_field(
-
-            name="Status",
-
-            value=(
-                "🟢 Enabled"
-                if config.get("enabled")
-                else "🔴 Disabled"
-            ),
-
-            inline=False
-        )
-
-        embed.add_field(
-
-            name="Commander Logs",
-
-            value=(
-                log_channel.mention
-                if log_channel
-                else "Not configured"
-            ),
-
-            inline=False
-        )
-
-        embed.add_field(
-
-            name="Spam",
-
-            value=(
-                f"`{config.get('spam_messages')}` "
-                f"messages / "
-                f"`{config.get('spam_window')}s`"
-            ),
-
-            inline=True
-        )
-
-        embed.add_field(
-
-            name="Warning",
-
-            value=(
-                f"`{config.get('warn_after')}` "
-                f"warnings"
-            ),
-
-            inline=True
-        )
-
-        embed.add_field(
-
-            name="Timeout",
-
-            value=(
-                f"`{config.get('timeout_after')}` "
-                f"warnings\n"
-                f"`{config.get('timeout_minutes')}` "
-                f"minutes"
-            ),
-
-            inline=True
-        )
-
-        embed.add_field(
-
-            name="Protection",
-
-            value=(
-                f"Links: "
-                f"{'ON' if config.get('link_protection') else 'OFF'}\n"
-                f"Mentions: "
-                f"{'ON' if config.get('mention_protection') else 'OFF'}\n"
-                f"Duplicates: "
-                f"{'ON' if config.get('duplicate_protection') else 'OFF'}\n"
-                f"Bad Words: "
-                f"{'ON' if config.get('badword_protection') else 'OFF'}"
-            ),
-
-            inline=False
-        )
-
-        embed.add_field(
-
-            name="Bad Words",
-
-            value=(
-                f"`{len(config.get('badwords', []))}` "
-                "blocked"
-            ),
-
-            inline=True
-        )
-
-        embed.add_field(
-
-            name="Whitelist",
-
-            value=(
-                f"Users: "
-                f"`{len(config.get('whitelist_users', []))}`\n"
-                f"Roles: "
-                f"`{len(config.get('whitelist_roles', []))}`"
-            ),
-
-            inline=True
-        )
-
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
-        )
-
-    # ========================================================
-    # SLASH CONFIG
-    # ========================================================
-
-    @automode_group.command(
-        name="config",
-        description="View AutoMode configuration"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def automode_config(
-        self,
-        interaction
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        embed = discord.Embed(
-            title="⚙️ AutoMode Configuration",
-            description=(
-                "Current AutoMode protection settings."
-            )
-        )
-
-        embed.add_field(
-            name="Spam",
-            value=(
-                f"Messages: "
-                f"`{config['spam_messages']}`\n"
-                f"Window: "
-                f"`{config['spam_window']} seconds`"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="Warnings",
-            value=(
-                f"Enabled: "
-                f"`{config['warn_enabled']}`\n"
-                f"Threshold: "
-                f"`{config['warn_after']}`"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="Timeout",
-            value=(
-                f"Enabled: "
-                f"`{config['timeout_enabled']}`\n"
-                f"Threshold: "
-                f"`{config['timeout_after']} warnings`\n"
-                f"Duration: "
-                f"`{config['timeout_minutes']} minutes`"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="Protection",
-            value=(
-                f"Links: "
-                f"`{config['link_protection']}`\n"
-                f"Mentions: "
-                f"`{config['mention_protection']}`\n"
-                f"Duplicates: "
-                f"`{config['duplicate_protection']}`\n"
-                f"Bad Words: "
-                f"`{config['badword_protection']}`"
-            ),
-            inline=False
-        )
-
-        embed.add_field(
-            name="Bad Word Database",
-            value=(
-                f"Blocked words/phrases: "
-                f"`{len(config.get('badwords', []))}`"
-            ),
-            inline=False
-        )
-
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
-        )
-
-    # ========================================================
-    # AUTOMODE SLASH WHITELIST
-    # ========================================================
-
-    whitelist_group = app_commands.Group(
-
-        name="whitelist",
-
-        description="Manage AutoMode whitelist",
-
-        parent=automode_group
-    )
-
-    @whitelist_group.command(
-        name="user",
-        description="Whitelist a user"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def whitelist_user(
-        self,
-        interaction,
-        user: discord.Member
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        users = config.setdefault(
-            "whitelist_users",
-            []
-        )
-
-        if user.id in users:
-
-            return await interaction.response.send_message(
-                f"ℹ️ {user.mention} is already whitelisted.",
-                ephemeral=True
-            )
-
-        users.append(
-            user.id
-        )
-
-        update_automode_config(
-            interaction.guild.id,
-            config
-        )
-
-        await interaction.response.send_message(
-
-            f"✅ {user.mention} has been "
-            "added to the AutoMode whitelist.",
-
-            ephemeral=True
-        )
-
-    @whitelist_group.command(
-        name="role",
-        description="Whitelist a role"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def whitelist_role(
-        self,
-        interaction,
-        role: discord.Role
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        roles = config.setdefault(
-            "whitelist_roles",
-            []
-        )
-
-        if role.id in roles:
-
-            return await interaction.response.send_message(
-                f"ℹ️ {role.mention} is already whitelisted.",
-                ephemeral=True
-            )
-
-        roles.append(
-            role.id
-        )
-
-        update_automode_config(
-            interaction.guild.id,
-            config
-        )
-
-        await interaction.response.send_message(
-
-            f"✅ {role.mention} has been "
-            "added to the AutoMode whitelist.",
-
-            ephemeral=True
-        )
-
-    # ========================================================
-    # AUTOMODE BADWORD SLASH
-    # ========================================================
-
-    badword_group = app_commands.Group(
-
-        name="badword",
-
-        description="Manage AutoMode blocked words",
-
-        parent=automode_group
-    )
-
-    @badword_group.command(
-        name="add",
-        description="Add blocked words or phrases"
-    )
-    @app_commands.describe(
-        words="Words separated by commas"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def badword_add(
-        self,
-        interaction,
-        words: str
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        new_words = parse_word_list(
-            words
-        )
-
-        if not new_words:
-
-            return await interaction.response.send_message(
-
-                "❌ Please provide at least "
-                "one word or phrase.",
-
-                ephemeral=True
-            )
-
-        if len(new_words) > 100:
-
-            return await interaction.response.send_message(
-
-                "❌ Maximum 100 words/phrases at once.",
-
-                ephemeral=True
-            )
-
-        badwords = config.setdefault(
-            "badwords",
-            []
-        )
-
-        added = 0
-        existing = 0
-
-        for word in new_words:
-
-            if word in badwords:
-                existing += 1
-
-            else:
-                badwords.append(word)
-                added += 1
-
-        update_automode_config(
-            interaction.guild.id,
-            config
-        )
-
-        await interaction.response.send_message(
-
-            "✅ **Bad Words Updated**\n\n"
-            f"Added: **{added}**\n"
-            f"Already existed: **{existing}**\n"
-            f"Total blocked: **{len(badwords)}**",
-
-            ephemeral=True
-        )
-
-    @badword_group.command(
-        name="remove",
-        description="Remove blocked words or phrases"
-    )
-    @app_commands.describe(
-        words="Words separated by commas"
-    )
-    @app_commands.checks.has_permissions(
-        manage_guild=True
-    )
-    async def badword_remove(
-        self,
-        interaction,
-        words: str
-    ):
-
-        config = get_automode_config(
-            interaction.guild.id
-        )
-
-        remove_words = parse_word_list(
-            words
-        )
-
-        if not remove_words:
-
-            return await interaction.response.send_message(
-
-                "❌ Please provide at least "
-                "one word or phrase.",
-
-                ephemeral=True
-            )
-
-        badwords = config.setdefault(
-            "badwords",
-            []
-        )
-
-        removed = 0
-        not_found = 0
-
-        for word in remove_words:
-
-            if word in badwords:
-
-                badwords.remove(
-                    word
-                )
-
-                removed += 1
-
-            else:
-
-                not_found += 1
-
-        update_automode_config(
-            interaction.guild.id,
-            config
-        )
-
-        await interaction.response.send_message(
-
-            "✅ **Bad Words Updated**\n\n"
-            f"Removed: **{removed}**\n"
-            f"Not found: **{not_found}**\n"
-            f"Total blocked: **{len(badwords)}**",
-
-            ephemeral=True
-        )
-
-    # ========================================================
-    # AUTOMODE PREFIX GROUP
-    # ========================================================
-
-    @commands.group(
-        name="automode",
-        invoke_without_command=True
-    )
-    @commands.has_guild_permissions(
-        manage_guild=True
-    )
-    async def automode_prefix(
-        self,
-        ctx
-    ):
-
-        await ctx.send(
-
-            "🛡️ **Air Commander AutoMode**\n\n"
-
-            "`,automode enable`\n"
-            "`,automode disable`\n"
-            "`,automode status`\n"
-            "`,automode config`\n"
-            "`,automode spam <messages> <seconds>`\n"
-            "`,automode warn <warnings>`\n"
-            "`,automode timeout <warnings> <minutes>`\n"
-            "`,automode links on/off`\n"
-            "`,automode mentions on/off`\n"
-            "`,automode duplicates on/off`\n"
-            "`,automode whitelist user @User`\n"
-            "`,automode whitelist role @Role`\n"
-            "`,automode badword add <words>`\n"
-            "`,automode badword remove <words>`"
-        )
-
-    @automode_prefix.command(
-        name="enable"
-    )
-    async def automode_prefix_enable(
-        self,
-        ctx
-    ):
-
-        _, result = await self.enable_automode(
-            ctx.guild
-        )
-
-        await ctx.send(
-            result
-        )
-
-    @automode_prefix.command(
-        name="disable"
-    )
-    async def automode_prefix_disable(
-        self,
-        ctx
-    ):
-
-        result = await self.disable_automode(
-            ctx.guild
-        )
-
-        await ctx.send(
-            result
-        )
-
-    @automode_prefix.command(
-        name="status"
-    )
-    async def automode_prefix_status(
-        self,
-        ctx
-    ):
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        log_channel = (
-            ctx.guild.get_channel(
-                config.get(
-                    "log_channel_id"
-                )
-            )
-        )
-
-        await ctx.send(
-
-            "🛡️ **AutoMode Status**\n\n"
-
-            f"Status: "
-            f"{'🟢 Enabled' if config['enabled'] else '🔴 Disabled'}\n"
-
-            f"Logs: "
-            f"{log_channel.mention if log_channel else 'Not configured'}\n"
-
-            f"Spam: "
-            f"`{config['spam_messages']}` messages / "
-            f"`{config['spam_window']}s`\n"
-
-            f"Warn after: "
-            f"`{config['warn_after']}`\n"
-
-            f"Timeout after: "
-            f"`{config['timeout_after']}` warnings\n"
-
-            f"Timeout duration: "
-            f"`{config['timeout_minutes']} min`\n"
-
-            f"Links: "
-            f"`{config['link_protection']}`\n"
-
-            f"Mentions: "
-            f"`{config['mention_protection']}`\n"
-
-            f"Duplicates: "
-            f"`{config['duplicate_protection']}`\n"
-
-            f"Bad Words: "
-            f"`{config['badword_protection']}`\n"
-
-            f"Blocked Words: "
-            f"`{len(config.get('badwords', []))}`"
-        )
-
-    @automode_prefix.command(
-        name="config"
-    )
-    async def automode_prefix_config(
-        self,
-        ctx
-    ):
-
-        await ctx.send(
-
-            "⚙️ **AutoMode Config**\n\n"
-
-            "`,automode spam <messages> <seconds>`\n"
-            "`,automode warn <warnings>`\n"
-            "`,automode timeout <warnings> <minutes>`\n"
-            "`,automode links on/off`\n"
-            "`,automode mentions on/off`\n"
-            "`,automode duplicates on/off`"
-        )
-
-    @automode_prefix.command(
-        name="spam"
-    )
-    async def automode_spam(
-        self,
-        ctx,
-        messages: int,
-        seconds: int
-    ):
-
-        if messages < 2:
-
-            return await ctx.send(
-                "❌ Spam message count must be at least `2`."
-            )
-
-        if seconds < 1:
-
-            return await ctx.send(
-                "❌ Spam window must be at least `1` second."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["spam_messages"] = messages
-        config["spam_window"] = seconds
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-
-            f"✅ Spam protection set to "
-            f"**{messages} messages / "
-            f"{seconds} seconds**."
-        )
-
-    @automode_prefix.command(
-        name="warn"
-    )
-    async def automode_warn(
-        self,
-        ctx,
-        warnings: int
-    ):
-
-        if warnings < 1:
-
-            return await ctx.send(
-                "❌ Warning threshold must be at least `1`."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["warn_after"] = warnings
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"✅ Warning threshold set to **{warnings}**."
-        )
-
-    @automode_prefix.command(
-        name="timeout"
-    )
-    async def automode_timeout(
-        self,
-        ctx,
-        warnings: int,
-        minutes: int
-    ):
-
-        if warnings < 1:
-
-            return await ctx.send(
-                "❌ Timeout warning threshold must be at least `1`."
-            )
-
-        if minutes < 1:
-
-            return await ctx.send(
-                "❌ Timeout duration must be at least `1` minute."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["timeout_after"] = warnings
-        config["timeout_minutes"] = minutes
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-
-            f"✅ Timeout will trigger at "
-            f"**{warnings} warnings** "
-            f"for **{minutes} minutes**."
-        )
-
-    @automode_prefix.command(
-        name="links"
-    )
-    async def automode_links(
-        self,
-        ctx,
-        state: str
-    ):
-
-        state = state.lower()
-
-        if state not in (
-            "on",
-            "off"
-        ):
-
-            return await ctx.send(
-                "Use `on` or `off`."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["link_protection"] = (
-            state == "on"
-        )
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"🔗 Link protection: **{state.upper()}**"
-        )
-
-    @automode_prefix.command(
-        name="mentions"
-    )
-    async def automode_mentions(
-        self,
-        ctx,
-        state: str
-    ):
-
-        state = state.lower()
-
-        if state not in (
-            "on",
-            "off"
-        ):
-
-            return await ctx.send(
-                "Use `on` or `off`."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["mention_protection"] = (
-            state == "on"
-        )
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"📢 Mention protection: **{state.upper()}**"
-        )
-
-    @automode_prefix.command(
-        name="duplicates"
-    )
-    async def automode_duplicates(
-        self,
-        ctx,
-        state: str
-    ):
-
-        state = state.lower()
-
-        if state not in (
-            "on",
-            "off"
-        ):
-
-            return await ctx.send(
-                "Use `on` or `off`."
-            )
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        config["duplicate_protection"] = (
-            state == "on"
-        )
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"♻️ Duplicate protection: **{state.upper()}**"
-        )
-
-    # ========================================================
-    # PREFIX WHITELIST
-    # ========================================================
-
-    @automode_prefix.group(
-        name="whitelist",
-        invoke_without_command=True
-    )
-    async def whitelist_prefix(
-        self,
-        ctx
-    ):
-
-        await ctx.send(
-
-            "🛡️ **AutoMode Whitelist**\n\n"
-
-            "`,automode whitelist user @User`\n"
-            "`,automode whitelist role @Role`"
-        )
-
-    @whitelist_prefix.command(
-        name="user"
-    )
-    async def whitelist_prefix_user(
-        self,
-        ctx,
-        member: discord.Member
-    ):
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        users = config.setdefault(
-            "whitelist_users",
-            []
-        )
-
-        if member.id in users:
-
-            return await ctx.send(
-                f"ℹ️ {member.mention} is already whitelisted."
-            )
-
-        users.append(
-            member.id
-        )
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"✅ {member.mention} is now whitelisted."
-        )
-
-    @whitelist_prefix.command(
-        name="role"
-    )
-    async def whitelist_prefix_role(
-        self,
-        ctx,
-        role: discord.Role
-    ):
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        roles = config.setdefault(
-            "whitelist_roles",
-            []
-        )
-
-        if role.id in roles:
-
-            return await ctx.send(
-                f"ℹ️ {role.mention} is already whitelisted."
-            )
-
-        roles.append(
-            role.id
-        )
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-            f"✅ {role.mention} is now whitelisted."
-        )
-
-    # ========================================================
-    # PREFIX BADWORD
-    # ========================================================
-
-    @automode_prefix.group(
-        name="badword",
-        invoke_without_command=True
-    )
-    async def badword_prefix(
-        self,
-        ctx
-    ):
-
-        await ctx.send(
-
-            "🚫 **Bad Word Protection**\n\n"
-
-            "`,automode badword add word1, word2`\n"
-            "`,automode badword remove word1, word2`"
-        )
-
-    @badword_prefix.command(
-        name="add"
-    )
-    async def badword_prefix_add(
-        self,
-        ctx,
-        *,
-        words: str
-    ):
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        new_words = parse_word_list(
-            words
-        )
-
-        if not new_words:
-
-            return await ctx.send(
-                "❌ Please provide at least one word or phrase."
-            )
-
-        if len(new_words) > 100:
-
-            return await ctx.send(
-                "❌ You can add a maximum of 100 words/phrases at once."
-            )
-
-        badwords = config.setdefault(
-            "badwords",
-            []
-        )
-
-        added = 0
-        existing = 0
-
-        for word in new_words:
-
-            if word in badwords:
-                existing += 1
-
-            else:
-                badwords.append(
-                    word
-                )
-                added += 1
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-
-            "✅ **Bad Words Updated**\n\n"
-
-            f"Added: **{added}**\n"
-            f"Already existed: **{existing}**\n"
-            f"Total blocked: **{len(badwords)}**"
-        )
-
-    @badword_prefix.command(
-        name="remove"
-    )
-    async def badword_prefix_remove(
-        self,
-        ctx,
-        *,
-        words: str
-    ):
-
-        config = get_automode_config(
-            ctx.guild.id
-        )
-
-        remove_words = parse_word_list(
-            words
-        )
-
-        if not remove_words:
-
-            return await ctx.send(
-                "❌ Please provide at least one word or phrase."
-            )
-
-        badwords = config.setdefault(
-            "badwords",
-            []
-        )
-
-        removed = 0
-        not_found = 0
-
-        for word in remove_words:
-
-            if word in badwords:
-
-                badwords.remove(
-                    word
-                )
-
-                removed += 1
-
-            else:
-
-                not_found += 1
-
-        update_automode_config(
-            ctx.guild.id,
-            config
-        )
-
-        await ctx.send(
-
-            "✅ **Bad Words Updated**\n\n"
-
-            f"Removed: **{removed}**\n"
-            f"Not found: **{not_found}**\n"
-            f"Total blocked: **{len(badwords)}**"
-        )
+    return embed
 
 
 # ============================================================
+# ANTINUKE MAIN VIEW
 # ============================================================
-#                    ANTI-NUKE UI
-# ============================================================
-# ============================================================
-
 
 class AntiNukeMainView(
     discord.ui.View
 ):
-
-    def __init__(self, bot):
-
+    def __init__(
+        self,
+        bot
+    ):
         super().__init__(
-            timeout=None
+            timeout=300
         )
-
         self.bot = bot
 
+    async def interaction_check(
+        self,
+        interaction
+    ):
+        if not is_admin(
+            interaction.user
+        ):
+            await public_send(
+                interaction,
+                content="❌ Administrator permission required.",
+                ephemeral=True
+            )
+            return False
+
+        return True
+
     @discord.ui.select(
-
-        placeholder=(
-            "Choose an Anti-Nuke option..."
-        ),
-
-        min_values=1,
-        max_values=1,
-
+        placeholder="Select Anti-Nuke option...",
         options=[
-
             discord.SelectOption(
                 label="Enable / Disable",
-                description="Enable or disable Anti-Nuke",
-                emoji="⚡",
-                value="toggle"
+                value="toggle",
+                emoji="🛡️"
             ),
-
             discord.SelectOption(
-                label="Modify",
-                description="Modify Anti-Nuke settings",
-                emoji="⚙️",
-                value="modify"
+                label="Modify Protection",
+                value="modify",
+                emoji="⚙️"
             ),
-
             discord.SelectOption(
-                label="View",
-                description="View current Anti-Nuke settings",
-                emoji="👁️",
-                value="view"
+                label="View Configuration",
+                value="view",
+                emoji="📋"
             ),
-
             discord.SelectOption(
                 label="Whitelist",
-                description="Manage trusted users and roles",
-                emoji="👤",
-                value="whitelist"
+                value="whitelist",
+                emoji="👤"
             ),
-
             discord.SelectOption(
                 label="Thresholds",
-                description="Configure action thresholds",
-                emoji="📊",
-                value="thresholds"
+                value="thresholds",
+                emoji="📊"
             ),
-
             discord.SelectOption(
                 label="Logs",
-                description="Configure Anti-Nuke logs",
-                emoji="📋",
-                value="logs"
+                value="logs",
+                emoji="📜"
             )
         ]
     )
-    async def select(
+    async def menu(
         self,
         interaction,
         select
     ):
+        choice = select.values[0]
 
-        if not interaction.guild:
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "❌ Server Only",
-
-                    "This configuration can only be used inside a server.",
-
-                    False
+        if choice == "toggle":
+            await interaction.response.edit_message(
+                embed=dashboard_embed(
+                    interaction.guild
+                ),
+                view=AntiNukeToggleView(
+                    self.bot
                 )
             )
 
-            return
-
-        if not isinstance(
-            interaction.user,
-            discord.Member
-        ):
-            return
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
+        elif choice == "modify":
+            await interaction.response.edit_message(
                 embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Only server administrators can configure Anti-Nuke.",
-
-                    False
+                    "⚙️ Modify Protection",
+                    "Select the protection module you want to configure."
+                ),
+                view=AntiNukeModifyView(
+                    self.bot
                 )
             )
 
-            return
-
-        value = select.values[0]
-
-        if value == "toggle":
-
-            await public_send(
-
-                interaction,
-
-                embed=toggle_embed(
-                    interaction.guild
-                ),
-
-                view=ToggleView()
-            )
-
-        elif value == "modify":
-
-            await public_send(
-
-                interaction,
-
-                embed=modify_embed(
-                    interaction.guild
-                ),
-
-                view=ModifyView()
-            )
-
-        elif value == "view":
-
-            await public_send(
-
-                interaction,
-
+        elif choice == "view":
+            await interaction.response.edit_message(
                 embed=view_config_embed(
                     interaction.guild
+                ),
+                view=AntiNukeBackView(
+                    self.bot
                 )
             )
 
-        elif value == "whitelist":
-
-            await public_send(
-
-                interaction,
-
+        elif choice == "whitelist":
+            await interaction.response.edit_message(
                 embed=make_embed(
-
-                    "👤 Anti-Nuke | Whitelist",
-
-                    (
-                        "Manage users and roles "
-                        "that Anti-Nuke will trust automatically."
-                    )
+                    "👤 Anti-Nuke Whitelist",
+                    "Manage trusted users and roles."
                 ),
-
-                view=WhitelistView()
+                view=AntiNukeWhitelistView(
+                    self.bot
+                )
             )
 
-        elif value == "thresholds":
-
-            await public_send(
-
-                interaction,
-
-                embed=threshold_embed(
-                    interaction.guild
+        elif choice == "thresholds":
+            await interaction.response.edit_message(
+                embed=make_embed(
+                    "📊 Anti-Nuke Thresholds",
+                    "Choose the detection window."
                 ),
-
-                view=ThresholdView()
+                view=AntiNukeThresholdView(
+                    self.bot
+                )
             )
 
-        elif value == "logs":
-
-            await public_send(
-
-                interaction,
-
-                embed=logs_embed(
-                    interaction.guild
+        elif choice == "logs":
+            await interaction.response.edit_message(
+                embed=make_embed(
+                    "📜 Anti-Nuke Logs",
+                    "Anti-Nuke logs are automatically sent to the configured log channel."
                 ),
-
-                view=LogsView()
+                view=AntiNukeLogsView(
+                    self.bot
+                )
             )
 
 
 # ============================================================
-# TOGGLE
+# TOGGLE VIEW
 # ============================================================
 
-def toggle_embed(
-    guild
-):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    return make_embed(
-
-        "⚡ Anti-Nuke | Enable / Disable",
-
-        (
-            f"**Current Status:** "
-            f"{status_text(cfg['enabled'])}\n\n"
-            "Choose an option below."
-        )
-    )
-
-
-class ToggleView(
+class AntiNukeToggleView(
     discord.ui.View
 ):
-
-    def __init__(self):
-
+    def __init__(
+        self,
+        bot
+    ):
         super().__init__(
-            timeout=180
+            timeout=300
+        )
+        self.bot = bot
+
+    async def interaction_check(
+        self,
+        interaction
+    ):
+        return is_admin(
+            interaction.user
         )
 
     @discord.ui.button(
-
         label="Enable",
         emoji="🟢",
         style=discord.ButtonStyle.success
@@ -3502,100 +2509,24 @@ class ToggleView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Only administrators can enable Anti-Nuke.",
-
-                    False
-                )
-            )
-
-            return
-
-        guild = interaction.guild
-
-        cfg = get_antinuke_config(
-            guild.id
+        config = get_antinuke_config(
+            interaction.guild.id
         )
 
-        cfg["enabled"] = True
-
-        # Trust owner
-        if (
-            guild.owner_id
-            not in cfg["whitelist_users"]
-        ):
-
-            cfg["whitelist_users"].append(
-                guild.owner_id
-            )
-
-        # Trust bot
-        if (
-            guild.me
-            and guild.me.id
-            not in cfg["whitelist_users"]
-        ):
-
-            cfg["whitelist_users"].append(
-                guild.me.id
-            )
+        config["enabled"] = True
 
         antinuke_save_all()
 
-        channel = (
-            await ensure_antinuke_log_channel(
-                guild
-            )
-        )
-
-        description = (
-
-            "🛡️ **Anti-Nuke has been enabled.**\n\n"
-
-            "Server owner and bot have been "
-            "automatically trusted."
-        )
-
-        if channel:
-
-            description += (
-                f"\n\n📋 Logs: "
-                f"{channel.mention}"
-            )
-
-        else:
-
-            description += (
-                "\n\n⚠️ I could not create "
-                "the security log channel."
-            )
-
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "🟢 Anti-Nuke Enabled",
-
-                description
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
             )
         )
 
     @discord.ui.button(
-
         label="Disable",
         emoji="🔴",
         style=discord.ButtonStyle.danger
@@ -3605,291 +2536,192 @@ class ToggleView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Only administrators can disable Anti-Nuke.",
-
-                    False
-                )
-            )
-
-            return
-
-        guild = interaction.guild
-
-        cfg = get_antinuke_config(
-            guild.id
+        config = get_antinuke_config(
+            interaction.guild.id
         )
 
-        cfg["enabled"] = False
+        config["enabled"] = False
 
         antinuke_save_all()
 
-        await public_send(
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
+            )
+        )
 
-            interaction,
-
-            embed=make_embed(
-
-                "🔴 Anti-Nuke Disabled",
-
-                "Anti-Nuke protection is now disabled."
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
             )
         )
 
 
 # ============================================================
-# MODIFY
+# MODIFY VIEW
 # ============================================================
 
-def modify_embed(
-    guild
-):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    enabled_count = sum(
-        1
-        for value in cfg["modules"].values()
-        if value
-    )
-
-    return make_embed(
-
-        "⚙️ Anti-Nuke | Modify",
-
-        (
-            f"**Protection:** "
-            f"{status_text(cfg['enabled'])}\n"
-
-            f"**Active Modules:** "
-            f"`{enabled_count}`\n"
-
-            f"**Punishment:** "
-            f"{action_text(cfg['action'])}\n"
-
-            f"**Time Window:** "
-            f"`{cfg['window']} seconds`\n\n"
-
-            "Choose the protection you want to configure."
-        )
-    )
-
-
-class ModifyView(
+class AntiNukeModifyView(
     discord.ui.View
 ):
-
-    def __init__(self):
-
+    def __init__(
+        self,
+        bot
+    ):
         super().__init__(
-            timeout=180
+            timeout=300
         )
+        self.bot = bot
 
     @discord.ui.select(
-
-        placeholder="Select a protection...",
-
+        placeholder="Select protection module...",
         options=[
-
             discord.SelectOption(
-                label="Mass Ban",
-                emoji="🔨",
-                value="ban"
+                label="Ban Protection",
+                value="ban",
+                emoji="🔨"
             ),
-
             discord.SelectOption(
-                label="Mass Kick",
-                emoji="👢",
-                value="kick"
+                label="Kick Protection",
+                value="kick",
+                emoji="👢"
             ),
-
             discord.SelectOption(
                 label="Channel Delete",
-                emoji="🗑️",
-                value="channel_delete"
+                value="channel_delete",
+                emoji="🗑️"
             ),
-
             discord.SelectOption(
                 label="Channel Create",
-                emoji="📁",
-                value="channel_create"
+                value="channel_create",
+                emoji="📁"
             ),
-
             discord.SelectOption(
                 label="Role Delete",
-                emoji="🎭",
-                value="role_delete"
+                value="role_delete",
+                emoji="🗑️"
             ),
-
             discord.SelectOption(
                 label="Role Create",
-                emoji="➕",
-                value="role_create"
+                value="role_create",
+                emoji="🎭"
             ),
-
             discord.SelectOption(
                 label="Webhook Delete",
-                emoji="🔗",
-                value="webhook_delete"
+                value="webhook_delete",
+                emoji="🔗"
             ),
-
             discord.SelectOption(
                 label="Bot Add",
-                emoji="🤖",
-                value="bot_add"
+                value="bot_add",
+                emoji="🤖"
             ),
-
             discord.SelectOption(
-                label="Server Update",
-                emoji="🌐",
-                value="guild_update"
+                label="Guild Update",
+                value="guild_update",
+                emoji="🏠"
             ),
-
-            discord.SelectOption(
-                label="Permission Changes",
-                emoji="🔐",
-                value="overwrite_update"
-            ),
-
             discord.SelectOption(
                 label="Emoji Delete",
-                emoji="😀",
-                value="emoji_delete"
+                value="emoji_delete",
+                emoji="😀"
             ),
-
             discord.SelectOption(
                 label="Emoji Create",
-                emoji="😎",
-                value="emoji_create"
+                value="emoji_create",
+                emoji="😀"
             ),
-
             discord.SelectOption(
                 label="Sticker Delete",
-                emoji="🏷️",
-                value="sticker_delete"
+                value="sticker_delete",
+                emoji="🏷️"
             ),
-
             discord.SelectOption(
                 label="Sticker Create",
-                emoji="✨",
-                value="sticker_create"
+                value="sticker_create",
+                emoji="🏷️"
+            ),
+            discord.SelectOption(
+                label="Overwrite Update",
+                value="overwrite_update",
+                emoji="🔐"
             )
         ]
     )
-    async def modify_select(
+    async def select_module(
         self,
         interaction,
         select
     ):
+        module = select.values[0]
 
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Only administrators can modify Anti-Nuke.",
-
-                    False
-                )
-            )
-
-            return
-
-        action_type = (
-            select.values[0]
-        )
-
-        cfg = get_antinuke_config(
-            interaction.guild.id
-        )
-
-        enabled = cfg["modules"].get(
-            action_type,
-            True
-        )
-
-        threshold = cfg["thresholds"].get(
-            action_type,
-            3
-        )
-
-        embed = make_embed(
-
-            "⚙️ Anti-Nuke | "
-            + action_type.replace(
-                "_",
-                " "
-            ).title(),
-
-            (
-                f"**Status:** "
-                f"{status_text(enabled)}\n"
-
-                f"**Threshold:** "
-                f"`{threshold}` actions\n"
-
-                f"**Window:** "
-                f"`{cfg['window']} seconds`\n\n"
-
-                "Use the buttons below "
-                "to change this protection."
+        await interaction.response.edit_message(
+            embed=make_embed(
+                "⚙️ Module Control",
+                f"Configure `{module}` protection."
+            ),
+            view=AntiNukeModuleControlView(
+                self.bot,
+                module
             )
         )
-
-        await public_send(
-
-            interaction,
-
-            embed=embed,
-
-            view=ModuleControlView(
-                action_type
-            )
-        )
-
-
-# ============================================================
-# MODULE CONTROL
-# ============================================================
-
-class ModuleControlView(
-    discord.ui.View
-):
-
-    def __init__(
-        self,
-        action_type
-    ):
-
-        super().__init__(
-            timeout=180
-        )
-
-        self.action_type = action_type
 
     @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary,
+        row=1
+    )
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
+            )
+        )
 
+
+# ============================================================
+# MODULE CONTROL VIEW
+# ============================================================
+
+class AntiNukeModuleControlView(
+    discord.ui.View
+):
+    def __init__(
+        self,
+        bot,
+        module
+    ):
+        super().__init__(
+            timeout=300
+        )
+        self.bot = bot
+        self.module = module
+
+    @discord.ui.button(
         label="Enable",
         emoji="🟢",
         style=discord.ButtonStyle.success
@@ -3899,54 +2731,27 @@ class ModuleControlView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Administrator permissions are required.",
-
-                    False
-                )
-            )
-
-            return
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        cfg["modules"][
-            self.action_type
+        config["modules"][
+            self.module
         ] = True
 
         antinuke_save_all()
 
-        await public_send(
-
-            interaction,
-
+        await interaction.response.edit_message(
             embed=make_embed(
-
                 "🟢 Protection Enabled",
-
-                (
-                    f"`{self.action_type}` "
-                    "protection has been enabled."
-                )
+                f"`{self.module}` protection is enabled."
+            ),
+            view=AntiNukeModifyView(
+                self.bot
             )
         )
 
     @discord.ui.button(
-
         label="Disable",
         emoji="🔴",
         style=discord.ButtonStyle.danger
@@ -3956,133 +2761,153 @@ class ModuleControlView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Administrator permissions are required.",
-
-                    False
-                )
-            )
-
-            return
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        cfg["modules"][
-            self.action_type
+        config["modules"][
+            self.module
         ] = False
 
         antinuke_save_all()
 
-        await public_send(
-
-            interaction,
-
+        await interaction.response.edit_message(
             embed=make_embed(
-
                 "🔴 Protection Disabled",
+                f"`{self.module}` protection is disabled."
+            ),
+            view=AntiNukeModifyView(
+                self.bot
+            )
+        )
 
-                (
-                    f"`{self.action_type}` "
-                    "protection has been disabled."
-                )
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=make_embed(
+                "⚙️ Modify Protection",
+                "Select the protection module you want to configure."
+            ),
+            view=AntiNukeModifyView(
+                self.bot
             )
         )
 
 
 # ============================================================
-# VIEW CONFIG
+# CONFIG VIEW
 # ============================================================
 
-def view_config_embed(
-    guild
-):
-
-    cfg = get_antinuke_config(
+def view_config_embed(guild):
+    config = get_antinuke_config(
         guild.id
     )
 
-    lines = []
+    embed = make_embed(
+        "📋 Anti-Nuke Configuration"
+    )
 
-    for key, value in (
-        cfg["modules"].items()
+    embed.add_field(
+        name="Status",
+        value=status_text(
+            config["enabled"]
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Action",
+        value=action_text(
+            config["action"]
+        ),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Window",
+        value=f"`{config['window']} seconds`",
+        inline=True
+    )
+
+    modules_text = []
+
+    for name, enabled in config[
+        "modules"
+    ].items():
+        modules_text.append(
+            f"{'🟢' if enabled else '🔴'} `{name}`"
+        )
+
+    embed.add_field(
+        name="Modules",
+        value="\n".join(
+            modules_text
+        ),
+        inline=False
+    )
+
+    return embed
+
+
+class AntiNukeBackView(
+    discord.ui.View
+):
+    def __init__(
+        self,
+        bot
     ):
-
-        lines.append(
-
-            f"{status_text(value)} "
-            f"`{key.replace('_', ' ').title()}`"
+        super().__init__(
+            timeout=300
         )
+        self.bot = bot
 
-    log_channel = guild.get_channel(
-        cfg.get(
-            "log_channel_id"
-        )
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary
     )
-
-    return make_embed(
-
-        "👁️ Anti-Nuke | Current Configuration",
-
-        (
-            f"**Overall Status:** "
-            f"{status_text(cfg['enabled'])}\n"
-
-            f"**Punishment:** "
-            f"{action_text(cfg['action'])}\n"
-
-            f"**Window:** "
-            f"`{cfg['window']} seconds`\n"
-
-            f"**Log Channel:** "
-            f"{log_channel.mention if log_channel else 'Not configured'}\n\n"
-
-            "**Protection Modules**\n"
-
-            + "\n".join(lines)
-
-            + "\n\n"
-
-            f"**Whitelisted Users:** "
-            f"`{len(cfg['whitelist_users'])}`\n"
-
-            f"**Whitelisted Roles:** "
-            f"`{len(cfg['whitelist_roles'])}`"
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
+            )
         )
-    )
 
 
 # ============================================================
 # WHITELIST VIEW
 # ============================================================
 
-class WhitelistView(
+class AntiNukeWhitelistView(
     discord.ui.View
 ):
-
-    def __init__(self):
-
+    def __init__(
+        self,
+        bot
+    ):
         super().__init__(
-            timeout=180
+            timeout=300
         )
+        self.bot = bot
 
     @discord.ui.button(
-
         label="Add User",
-        emoji="➕",
+        emoji="👤",
         style=discord.ButtonStyle.success
     )
     async def add_user(
@@ -4090,214 +2915,90 @@ class WhitelistView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Administrator permissions are required.",
-
-                    False
-                )
-            )
-
-            return
-
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "👤 Add Whitelisted User",
-
-                (
-                    "Use:\n"
-                    "`,antinuke whitelist @user`\n\n"
-                    "The selected member will become trusted."
-                )
-            )
+        await interaction.response.send_message(
+            "Use `/antinuke whitelist @user` to add a user.",
+            ephemeral=True
         )
 
     @discord.ui.button(
-
-        label="View",
-        emoji="👁️",
-        style=discord.ButtonStyle.secondary
+        label="Add Role",
+        emoji="🎭",
+        style=discord.ButtonStyle.success
     )
-    async def view(
+    async def add_role(
         self,
         interaction,
         button
     ):
-
-        cfg = get_antinuke_config(
-            interaction.guild.id
-        )
-
-        users = []
-
-        for user_id in (
-            cfg["whitelist_users"]
-        ):
-
-            member = (
-                interaction.guild
-                .get_member(user_id)
-            )
-
-            if member:
-                users.append(
-                    member.mention
-                )
-
-        roles = []
-
-        for role_id in (
-            cfg["whitelist_roles"]
-        ):
-
-            role = (
-                interaction.guild
-                .get_role(role_id)
-            )
-
-            if role:
-                roles.append(
-                    role.mention
-                )
-
-        description = (
-
-            "**Trusted Users**\n"
-
-            + (
-                "\n".join(users)
-                if users
-                else "None"
-            )
-
-            + "\n\n"
-
-            "**Trusted Roles**\n"
-
-            + (
-                "\n".join(roles)
-                if roles
-                else "None"
-            )
-        )
-
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "👤 Anti-Nuke | Whitelist",
-
-                description
-            )
-        )
-
-
-# ============================================================
-# THRESHOLDS
-# ============================================================
-
-def threshold_embed(
-    guild
-):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    rows = []
-
-    for key, value in (
-        cfg["thresholds"].items()
-    ):
-
-        rows.append(
-
-            f"• **{key.replace('_', ' ').title()}:** "
-            f"`{value}`"
-        )
-
-    return make_embed(
-
-        "📊 Anti-Nuke | Thresholds",
-
-        (
-            "\n".join(rows)
-
-            + f"\n\n**Time Window:** "
-            f"`{cfg['window']} seconds`"
-
-            + "\n\n"
-            "Use the prefix commands to modify thresholds."
-        )
-    )
-
-
-class ThresholdView(
-    discord.ui.View
-):
-
-    def __init__(self):
-
-        super().__init__(
-            timeout=180
+        await interaction.response.send_message(
+            "Use `/antinuke whitelist` with a role.",
+            ephemeral=True
         )
 
     @discord.ui.button(
-
-        label="5 Seconds",
-        emoji="⏱️",
+        label="Back",
+        emoji="↩️",
         style=discord.ButtonStyle.secondary
+    )
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
+            )
+        )
+
+
+# ============================================================
+# THRESHOLD VIEW
+# ============================================================
+
+class AntiNukeThresholdView(
+    discord.ui.View
+):
+    def __init__(
+        self,
+        bot
+    ):
+        super().__init__(
+            timeout=300
+        )
+        self.bot = bot
+
+    @discord.ui.button(
+        label="5 Seconds",
+        emoji="⚡",
+        style=discord.ButtonStyle.primary
     )
     async def five(
         self,
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-            return
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        cfg["window"] = 5
+        config["window"] = 5
 
         antinuke_save_all()
 
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "⏱️ Threshold Window Updated",
-
-                "Anti-Nuke detection window is now **5 seconds**."
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
             )
         )
 
     @discord.ui.button(
-
         label="10 Seconds",
         emoji="⏱️",
         style=discord.ButtonStyle.primary
@@ -4307,249 +3008,127 @@ class ThresholdView(
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-            return
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        cfg["window"] = 10
+        config["window"] = 10
 
         antinuke_save_all()
 
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "⏱️ Threshold Window Updated",
-
-                "Anti-Nuke detection window is now **10 seconds**."
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
             )
         )
 
-
-# ============================================================
-# LOGS VIEW
-# ============================================================
-
-def logs_embed(
-    guild
-):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    channel = guild.get_channel(
-        cfg.get(
-            "log_channel_id"
-        )
-    )
-
-    return make_embed(
-
-        "📋 Anti-Nuke | Logs",
-
-        (
-            f"**Log Channel:** "
-            f"{channel.mention if channel else 'Not configured'}\n\n"
-
-            "Anti-Nuke detections and punishments "
-            "are sent to this channel."
-        )
-    )
-
-
-class LogsView(
-    discord.ui.View
-):
-
-    def __init__(self):
-
-        super().__init__(
-            timeout=180
-        )
-
     @discord.ui.button(
-
-        label="Create / Fix Log Channel",
-        emoji="📋",
-        style=discord.ButtonStyle.primary
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary
     )
-    async def create_logs(
+    async def back(
         self,
         interaction,
         button
     ):
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Administrator Required",
-
-                    "Administrator permissions are required.",
-
-                    False
-                )
-            )
-
-            return
-
-        channel = (
-            await ensure_antinuke_log_channel(
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
                 interaction.guild
-            )
-        )
-
-        if not channel:
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "❌ Log Channel Failed",
-
-                    (
-                        "I couldn't create/find "
-                        "the security log channel. "
-                        "Check my **Manage Channels** permission."
-                    ),
-
-                    False
-                )
-            )
-
-            return
-
-        await public_send(
-
-            interaction,
-
-            embed=make_embed(
-
-                "📋 Security Logs Ready",
-
-                (
-                    "Anti-Nuke logs will be sent to "
-                    f"{channel.mention}."
-                )
+            ),
+            view=AntiNukeMainView(
+                self.bot
             )
         )
 
 
 # ============================================================
-# ANTI-NUKE DASHBOARD
+# LOG VIEW
 # ============================================================
 
-def dashboard_embed(
-    guild
+class AntiNukeLogsView(
+    discord.ui.View
 ):
-
-    cfg = get_antinuke_config(
-        guild.id
-    )
-
-    log_channel = guild.get_channel(
-        cfg.get(
-            "log_channel_id"
+    def __init__(
+        self,
+        bot
+    ):
+        super().__init__(
+            timeout=300
         )
+        self.bot = bot
+
+    @discord.ui.button(
+        label="Create / Repair Logs",
+        emoji="📜",
+        style=discord.ButtonStyle.primary
     )
-
-    return make_embed(
-
-        "🛡️ Anti-Nuke | Configuration",
-
-        (
-            "This system protects your server against "
-            "unauthorized destructive actions.\n\n"
-
-            "**Available features:**\n"
-
-            "• Mass ban protection\n"
-            "• Mass kick protection\n"
-            "• Channel protection\n"
-            "• Role protection\n"
-            "• Webhook protection\n"
-            "• Bot-add protection\n"
-            "• Permission protection\n"
-            "• Server update protection\n"
-            "• Emoji & sticker protection\n\n"
-
-            "**Current Status:** "
-            f"{status_text(cfg['enabled'])}\n"
-
-            f"**Punishment:** "
-            f"{action_text(cfg['action'])}\n"
-
-            f"**Detection Window:** "
-            f"`{cfg['window']} seconds`\n"
-
-            f"**Logs:** "
-            f"{log_channel.mention if log_channel else 'Not configured'}\n\n"
-
-            "Use the menu below to configure "
-            "Air Commander's Anti-Nuke system."
+    async def repair(
+        self,
+        interaction,
+        button
+    ):
+        config = get_antinuke_config(
+            interaction.guild.id
         )
+
+        channel = await ensure_antinuke_log_channel(
+            interaction.guild,
+            config
+        )
+
+        if channel:
+            await interaction.response.send_message(
+                f"✅ Anti-Nuke logs channel: {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "❌ Could not create the log channel.",
+                ephemeral=True
+            )
+
+    @discord.ui.button(
+        label="Back",
+        emoji="↩️",
+        style=discord.ButtonStyle.secondary
     )
+    async def back(
+        self,
+        interaction,
+        button
+    ):
+        await interaction.response.edit_message(
+            embed=dashboard_embed(
+                interaction.guild
+            ),
+            view=AntiNukeMainView(
+                self.bot
+            )
+        )
 
 
 # ============================================================
-# PREFIX ANTINUKE
+# ANTINUKE PREFIX COMMAND
 # ============================================================
 
 @commands.command(
     name="antinuke"
 )
 @commands.guild_only()
+@commands.has_permissions(
+    administrator=True
+)
 async def antinuke_prefix_command(
     ctx
 ):
-
-    if not isinstance(
-        ctx.author,
-        discord.Member
-    ):
-        return
-
-    if not is_admin(
-        ctx.author
-    ):
-
-        await ctx.send(
-
-            embed=make_embed(
-
-                "🔒 Administrator Required",
-
-                "Only server administrators can configure Anti-Nuke.",
-
-                False
-            )
-        )
-
-        return
-
     await ctx.send(
-
         embed=dashboard_embed(
             ctx.guild
         ),
-
         view=AntiNukeMainView(
             ctx.bot
         )
@@ -4557,295 +3136,326 @@ async def antinuke_prefix_command(
 
 
 # ============================================================
-# ANTI-NUKE SLASH GROUP
+# ANTINUKE SLASH GROUP
 # ============================================================
 
 class AntiNukeGroup(
     app_commands.Group
 ):
-
     def __init__(self):
-
         super().__init__(
-
             name="antinuke",
-
-            description=(
-                "Configure Air Commander Anti-Nuke protection"
-            )
+            description="Anti-Nuke server protection"
         )
-
-    # ========================================================
-    # CONFIG
-    # ========================================================
 
     @app_commands.command(
         name="config",
-        description=(
-            "Open the public Anti-Nuke configuration panel"
-        )
+        description="Open Anti-Nuke configuration"
     )
     @app_commands.checks.has_permissions(
         administrator=True
     )
     async def config(
         self,
-        interaction
+        interaction: discord.Interaction
     ):
-
         await public_send(
-
             interaction,
-
             embed=dashboard_embed(
                 interaction.guild
             ),
-
             view=AntiNukeMainView(
                 interaction.client
             )
         )
 
-    # ========================================================
-    # WHITELIST
-    # ========================================================
-
     @app_commands.command(
         name="whitelist",
-        description="Whitelist a member from Anti-Nuke"
+        description="Whitelist a user or role"
     )
     @app_commands.describe(
-        member="Member to whitelist"
+        user="User to whitelist",
+        role="Role to whitelist"
     )
     @app_commands.checks.has_permissions(
         administrator=True
     )
     async def whitelist(
         self,
-        interaction,
-        member: discord.Member
+        interaction: discord.Interaction,
+        user: discord.Member = None,
+        role: discord.Role = None
     ):
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        if member.id not in (
-            cfg["whitelist_users"]
-        ):
-
-            cfg["whitelist_users"].append(
-                member.id
+        if user is None and role is None:
+            await public_send(
+                interaction,
+                content="❌ Mention a user or role.",
+                ephemeral=True
             )
+            return
 
-        antinuke_save_all()
+        if user:
+            if user.id not in config[
+                "whitelist_users"
+            ]:
+                config[
+                    "whitelist_users"
+                ].append(user.id)
 
-        await public_send(
+            antinuke_save_all()
 
-            interaction,
-
-            embed=make_embed(
-
-                "👤 Anti-Nuke Whitelist Updated",
-
-                f"{member.mention} is now trusted by Anti-Nuke."
+            await public_send(
+                interaction,
+                content=(
+                    f"✅ {user.mention} added "
+                    f"to Anti-Nuke whitelist."
+                )
             )
-        )
+            return
 
-    # ========================================================
-    # UNWHITELIST
-    # ========================================================
+        if role:
+            if role.id not in config[
+                "whitelist_roles"
+            ]:
+                config[
+                    "whitelist_roles"
+                ].append(role.id)
+
+            antinuke_save_all()
+
+            await public_send(
+                interaction,
+                content=(
+                    f"✅ {role.mention} added "
+                    f"to Anti-Nuke whitelist."
+                )
+            )
 
     @app_commands.command(
         name="unwhitelist",
-        description="Remove a member from Anti-Nuke whitelist"
+        description="Remove a user or role from whitelist"
     )
     @app_commands.describe(
-        member="Member to remove"
+        user="User to remove",
+        role="Role to remove"
     )
     @app_commands.checks.has_permissions(
         administrator=True
     )
     async def unwhitelist(
         self,
-        interaction,
-        member: discord.Member
+        interaction: discord.Interaction,
+        user: discord.Member = None,
+        role: discord.Role = None
     ):
-
-        if (
-            member.id
-            == interaction.guild.owner_id
-        ):
-
-            await public_send(
-
-                interaction,
-
-                embed=make_embed(
-
-                    "🔒 Protected Owner",
-
-                    "The server owner cannot be removed from trusted users.",
-
-                    False
-                )
-            )
-
-            return
-
-        cfg = get_antinuke_config(
+        config = get_antinuke_config(
             interaction.guild.id
         )
 
-        if member.id in (
-            cfg["whitelist_users"]
-        ):
-
-            cfg["whitelist_users"].remove(
-                member.id
+        if user is None and role is None:
+            await public_send(
+                interaction,
+                content="❌ Mention a user or role.",
+                ephemeral=True
             )
+            return
 
-        antinuke_save_all()
+        if user:
+            if user.id in config[
+                "whitelist_users"
+            ]:
+                config[
+                    "whitelist_users"
+                ].remove(user.id)
 
-        await public_send(
+            antinuke_save_all()
 
-            interaction,
-
-            embed=make_embed(
-
-                "👤 Whitelist Updated",
-
-                f"{member.mention} is no longer whitelisted."
+            await public_send(
+                interaction,
+                content=(
+                    f"✅ {user.mention} removed "
+                    f"from Anti-Nuke whitelist."
+                )
             )
-        )
+            return
+
+        if role:
+            if role.id in config[
+                "whitelist_roles"
+            ]:
+                config[
+                    "whitelist_roles"
+                ].remove(role.id)
+
+            antinuke_save_all()
+
+            await public_send(
+                interaction,
+                content=(
+                    f"✅ {role.mention} removed "
+                    f"from Anti-Nuke whitelist."
+                )
+            )
 
 
 # ============================================================
-# ANTI-NUKE ERROR HANDLER
+# ERROR HANDLERS
 # ============================================================
 
 async def antinuke_error(
     interaction,
     error
 ):
-
     if isinstance(
         error,
         app_commands.errors.MissingPermissions
     ):
-
         await public_send(
-
             interaction,
-
-            embed=make_embed(
-
-                "🔒 Administrator Required",
-
-                "You need administrator permission to use this command.",
-
-                False
-            )
+            content="❌ Administrator permission required.",
+            ephemeral=True
         )
-
         return
 
     print(
         f"[AntiNuke] Slash error: {error}"
     )
 
-    if interaction.response.is_done():
-
-        await interaction.followup.send(
-
-            embed=make_embed(
-
-                "❌ Anti-Nuke Error",
-
-                f"An error occurred: `{error}`",
-
-                False
-            )
+    if not interaction.response.is_done():
+        await public_send(
+            interaction,
+            content="❌ An Anti-Nuke error occurred.",
+            ephemeral=True
         )
 
-    else:
 
-        await interaction.response.send_message(
-
-            embed=make_embed(
-
-                "❌ Anti-Nuke Error",
-
-                f"An error occurred: `{error}`",
-
-                False
-            )
-        )
-
+# ============================================================
+# SETUP
+# ============================================================
 
 async def setup(bot):
-    """
-    Air Commander Automation
-    Loads BOTH:
-    - AutoMode / Silent Protect
-    - Anti-Nuke
-    """
 
-    # Prevent duplicate setup
-    if getattr(bot, "_air_automation_setup", False):
+    # --------------------------------------------------------
+    # GLOBAL DUPLICATE GUARD
+    # --------------------------------------------------------
+
+    if getattr(
+        bot,
+        "_air_automation_setup",
+        False
+    ):
+        print(
+            "⚠️ Air Commander Automation already initialized."
+        )
         return
 
     bot._air_automation_setup = True
 
-    # =========================================================
-    # AUTOMODE
-    # =========================================================
-    try:
-        await bot.add_cog(
-            AutoMode(bot)
-        )
-        print("🛡️ Air Commander AutoMode loaded.")
-    except Exception as e:
-        print(f"❌ AutoMode setup error: {e}")
+    # --------------------------------------------------------
+    # AUTOMODE COG
+    # --------------------------------------------------------
 
-    # =========================================================
-    # ANTI-NUKE SLASH GROUP
-    # =========================================================
     try:
-        if not bot.tree.get_command("antinuke"):
+        existing_automode = bot.get_cog(
+            "AutoMode"
+        )
+
+        if existing_automode is None:
+            await bot.add_cog(
+                AutoMode(bot)
+            )
+
+            print(
+                "🛡️ Air Commander AutoMode loaded."
+            )
+        else:
+            print(
+                "⚠️ AutoMode Cog already loaded."
+            )
+
+    except Exception as e:
+        print(
+            f"❌ AutoMode setup error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # ANTINUKE SLASH GROUP
+    # --------------------------------------------------------
+
+    try:
+        existing_group = bot.tree.get_command(
+            "antinuke"
+        )
+
+        if existing_group is None:
             bot.tree.add_command(
                 AntiNukeGroup()
             )
-            print("🛡️ Air Commander Anti-Nuke slash group loaded.")
+
+            print(
+                "🛡️ Air Commander Anti-Nuke slash group loaded."
+            )
+
         else:
-            print("⚠️ Anti-Nuke slash group already registered.")
-    except discord.app_commands.errors.CommandAlreadyRegistered:
-        print("⚠️ Anti-Nuke slash group already registered.")
-    except Exception as e:
-        print(f"❌ Anti-Nuke slash setup error: {e}")
+            print(
+                "⚠️ Anti-Nuke slash group already registered."
+            )
 
-    # =========================================================
-    # ANTI-NUKE PREFIX COMMAND
-    # =========================================================
-    if not bot.get_command("antinuke"):
-
-        @bot.command(
-            name="antinuke"
+    except app_commands.errors.CommandAlreadyRegistered:
+        print(
+            "⚠️ Anti-Nuke slash group already registered."
         )
-        @commands.guild_only()
-        async def antinuke_prefix(ctx):
-            await prefix_antinuke(ctx)
 
-    # =========================================================
-    # ANTI-NUKE AUDIT LOG EVENT
-    # =========================================================
+    except Exception as e:
+        print(
+            f"❌ Anti-Nuke slash setup error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # ANTINUKE PREFIX COMMAND
+    # --------------------------------------------------------
+
+    try:
+        existing_prefix = bot.get_command(
+            "antinuke"
+        )
+
+        if existing_prefix is None:
+            bot.add_command(
+                antinuke_prefix_command
+            )
+
+            print(
+                "🛡️ Air Commander Anti-Nuke prefix command loaded."
+            )
+
+        else:
+            print(
+                "⚠️ Anti-Nuke prefix command already registered."
+            )
+
+    except Exception as e:
+        print(
+            f"❌ Anti-Nuke prefix setup error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # ANTINUKE AUDIT LOG LISTENER
+    # --------------------------------------------------------
+
     if not getattr(
         bot,
         "_air_antinuke_audit_registered",
         False
     ):
 
-        async def _air_antinuke_audit_handler(entry):
+        async def _air_antinuke_audit_handler(
+            entry
+        ):
             try:
                 await process_audit_entry(
                     bot,
@@ -4856,16 +3466,86 @@ async def setup(bot):
                     f"[AntiNuke] Audit error: {e}"
                 )
 
-        bot.add_listener(
-            _air_antinuke_audit_handler,
-            "on_audit_log_entry_create"
-        )
+        try:
+            bot.add_listener(
+                _air_antinuke_audit_handler,
+                "on_audit_log_entry_create"
+            )
 
-        bot._air_antinuke_audit_registered = True
+            bot._air_antinuke_audit_registered = True
 
+            print(
+                "🛡️ Air Commander Anti-Nuke audit listener loaded."
+            )
+
+        except Exception as e:
+            print(
+                f"❌ Anti-Nuke audit listener setup error: {e}"
+            )
+
+    else:
         print(
-            "🛡️ Air Commander Anti-Nuke audit listener loaded."
+            "⚠️ Anti-Nuke audit listener already registered."
         )
+
+    # --------------------------------------------------------
+    # PREFIX COMMAND GROUPS
+    # --------------------------------------------------------
+
+    try:
+        if bot.get_command(
+            "automode"
+        ) is None:
+            bot.add_command(
+                automode_prefix
+            )
+            print(
+                "⌨️ AutoMode prefix commands loaded."
+            )
+        else:
+            print(
+                "⚠️ AutoMode prefix group already registered."
+            )
+
+    except Exception as e:
+        print(
+            f"❌ AutoMode prefix setup error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # SLASH AUTOMODE GROUP
+    # --------------------------------------------------------
+
+    try:
+        existing = bot.tree.get_command(
+            "automode"
+        )
+
+        if existing is None:
+            bot.tree.add_command(
+                automode_group
+            )
+            print(
+                "⚡ AutoMode slash group loaded."
+            )
+        else:
+            print(
+                "⚠️ AutoMode slash group already registered."
+            )
+
+    except app_commands.errors.CommandAlreadyRegistered:
+        print(
+            "⚠️ AutoMode slash group already registered."
+        )
+
+    except Exception as e:
+        print(
+            f"❌ AutoMode slash setup error: {e}"
+        )
+
+    # --------------------------------------------------------
+    # FINAL
+    # --------------------------------------------------------
 
     print(
         "🚀 Air Commander Automation loaded "
