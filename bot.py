@@ -1733,7 +1733,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
