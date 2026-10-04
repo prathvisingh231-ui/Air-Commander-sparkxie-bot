@@ -1485,112 +1485,144 @@ class HelpView(discord.ui.View):
         )
 
 
-# =========================================================
-# PREFIX ,help
-# =========================================================
+    # =========================================================
+    # PREFIX ,help
+    # =========================================================
 
-@bot.command(
-    name="help"
-)
-async def prefix_help(
-    ctx,
-    command_name: str | None = None
-):
+    @bot.command(name="help")
+    async def prefix_help(
+        ctx,
+        command_name: str | None = None
+    ):
+        # Detailed command help
+        if command_name:
 
-    # Detailed command help
-    if command_name:
+            command = bot.get_command(
+                command_name.lower()
+            )
 
-        command = bot.get_command(
-            command_name.lower()
-        )
-
-        if not command:
-
-            return await ctx.send(
-                embed=embed(
-                    "Command Not Found",
-                    (
-                        f"❌ Command "
-                        f"`,{command_name}` not found."
-                    ),
-                    discord.Color.red()
+            if not command:
+                return await ctx.send(
+                    embed=embed(
+                        "Command Not Found",
+                        (
+                            f"❌ Command "
+                            f"`,{command_name}` not found."
+                        ),
+                        discord.Color.red()
+                    )
                 )
+
+            description = (
+                getattr(
+                    command,
+                    "help",
+                    None
+                )
+                or
+                getattr(
+                    command,
+                    "brief",
+                    None
+                )
+                or
+                "No description available."
             )
 
-        description = (
-            getattr(
-                command,
-                "help",
-                None
+            e = embed(
+                f"Help • ,{command.name}",
+                description,
+                discord.Color.blurple()
             )
-            or
-            getattr(
-                command,
-                "brief",
-                None
-            )
-            or
-            "No description available."
-        )
 
-        e = embed(
-            f"Help • ,{command.name}",
-            description,
-            discord.Color.blurple()
-        )
-
-        e.add_field(
-            name="Usage",
-            value=(
+            usage = (
                 f"`,{command.qualified_name}"
                 f" {command.signature}`"
-            ).strip(),
-            inline=False
-        )
-
-        if command.aliases:
+            ).strip()
 
             e.add_field(
-                name="Aliases",
-                value=" ".join(
-                    f"`,{alias}`"
-                    for alias in command.aliases
-                ),
+                name="Usage",
+                value=usage,
                 inline=False
             )
 
-        return await ctx.send(
-            embed=e
-        )
+            if command.aliases:
+                e.add_field(
+                    name="Aliases",
+                    value=" ".join(
+                        f"`,{alias}`"
+                        for alias in command.aliases
+                    ),
+                    inline=False
+                )
 
-    await ctx.send(
-        embed=_help_home_embed(
-            bot,
-            "prefix"
-        ),
-        view=HelpView(
-            bot,
-            "prefix"
+            return await ctx.send(embed=e)
+
+        await ctx.send(
+            embed=_help_home_embed(
+                bot,
+                "prefix"
+            ),
+            view=HelpView(
+                bot,
+                "prefix"
+            )
         )
-    )
 
     # =========================================================
     # SLASH COMMAND ERROR HANDLER
     # =========================================================
 
     @bot.tree.error
-    async def on_app_command_error(i: discord.Interaction, error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.MissingPermissions):
-            msg = "❌ You don't have the required permission for this command."
-        elif isinstance(error, app_commands.BotMissingPermissions):
-            msg = "❌ I don't have the required Discord permission to do that."
-        elif isinstance(error, app_commands.CommandOnCooldown):
-            msg = "⏳ Please wait before using that command again."
+    async def on_app_command_error(
+        i: discord.Interaction,
+        error: app_commands.AppCommandError
+    ):
+        if isinstance(
+            error,
+            app_commands.MissingPermissions
+        ):
+            msg = (
+                "❌ You don't have the required "
+                "permission for this command."
+            )
+
+        elif isinstance(
+            error,
+            app_commands.BotMissingPermissions
+        ):
+            msg = (
+                "❌ I don't have the required Discord "
+                "permission to do that."
+            )
+
+        elif isinstance(
+            error,
+            app_commands.CommandOnCooldown
+        ):
+            msg = (
+                "⏳ Please wait before using "
+                "that command again."
+            )
+
         else:
-            print(f"Basic command error: {type(error).__name__}: {error}")
-            msg = "❌ Something went wrong while running that command."
+            print(
+                f"Basic command error: "
+                f"{type(error).__name__}: {error}"
+            )
+
+            msg = (
+                "❌ Something went wrong while "
+                "running that command."
+            )
 
         if i.response.is_done():
-            await i.followup.send(msg, ephemeral=True)
+            await i.followup.send(
+                msg,
+                ephemeral=True
+            )
         else:
-            await i.response.send_message(msg, ephemeral=True)
+            await i.response.send_message(
+                msg,
+                ephemeral=True
+            )
