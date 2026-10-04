@@ -1,6 +1,9 @@
-import os, asyncpg, json, asyncio
+import os, asyncpg, json, asyncio, time
 from urllib.parse import urlparse
 from datetime import datetime
+from functools import wraps
+import discord
+from discord.ext import commands
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 _pool = None
@@ -138,12 +141,12 @@ async def init_db():
                     success BOOLEAN DEFAULT TRUE,
                     error_message TEXT,
                     execution_time_ms FLOAT DEFAULT 0,
-                    created_at TIMESTAMPTZ DEFAULT NOW(),
-                    INDEX idx_guild_logs (guild_id),
-                    INDEX idx_user_logs (user_id),
-                    INDEX idx_command_logs (command_name),
-                    INDEX idx_created_at (created_at)
+                    created_at TIMESTAMPTZ DEFAULT NOW()
                 );
+                CREATE INDEX IF NOT EXISTS idx_guild_logs ON command_logs(guild_id);
+                CREATE INDEX IF NOT EXISTS idx_user_logs ON command_logs(user_id);
+                CREATE INDEX IF NOT EXISTS idx_command_logs ON command_logs(command_name);
+                CREATE INDEX IF NOT EXISTS idx_created_at ON command_logs(created_at);
                 """)
             print("✅ PostgreSQL connected and Air Commander tables are ready.")
             return
@@ -311,12 +314,79 @@ async def clear_old_logs(days=30):
         deleted = await _pool.fetchval("""
             DELETE FROM command_logs
             WHERE created_at < NOW() - INTERVAL '%s days'
-            RETURNING COUNT(*)
-        """, days)
+        """ % days)
         return deleted or 0
     except Exception as e:
         print(f"❌ Error clearing old logs: {e}")
         return 0
+
+# ======================== COMMAND LOGGING DECORATORS ========================
+
+def log_prefix_command(command_name=None):
+    """Decorator for prefix commands - automatically logs execution"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(ctx, *args, **kwargs):
+            start_time = time.time()
+            success = True
+            error_message = None
+            
+            try:
+                return await func(ctx, *args, **kwargs)
+            except Exception as e:
+                success = False
+                error_message = str(e)
+                raise
+            finally:
+                # Log the command
+                await log_command(
+                    guild_id=ctx.guild.id if ctx.guild else 0,
+                    user_id=ctx.author.id,
+                    username=str(ctx.author),
+                    command_name=command_name or func.__name__,
+                    command_type="prefix",
+                    arguments=" ".join(str(arg) for arg in args) or "",
+                    channel_id=ctx.channel.id if ctx.channel else 0,
+                    channel_name=ctx.channel.name if ctx.channel else "",
+                    success=success,
+                    error_message=error_message,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+        return wrapper
+    return decorator
+
+def log_slash_command(command_name=None):
+    """Decorator for slash commands - automatically logs execution"""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+            start_time = time.time()
+            success = True
+            error_message = None
+            
+            try:
+                return await func(interaction, *args, **kwargs)
+            except Exception as e:
+                success = False
+                error_message = str(e)
+                raise
+            finally:
+                # Log the command
+                await log_command(
+                    guild_id=interaction.guild.id if interaction.guild else 0,
+                    user_id=interaction.user.id,
+                    username=str(interaction.user),
+                    command_name=command_name or func.__name__,
+                    command_type="slash",
+                    arguments=json.dumps(kwargs) if kwargs else "",
+                    channel_id=interaction.channel.id if interaction.channel else 0,
+                    channel_name=interaction.channel.name if interaction.channel else "",
+                    success=success,
+                    error_message=error_message,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+        return wrapper
+    return decorator
 
 # ======================== EXISTING PLAYER & GAME FUNCTIONS ========================
 
