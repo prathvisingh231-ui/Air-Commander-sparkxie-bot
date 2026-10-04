@@ -25,6 +25,7 @@ from discord import app_commands
 
 AUTOMODE_CONFIG_FILE = "automode_config.json"
 ANTINUKE_CONFIG_FILE = "antinuke_config.json"
+ANTILINK_CONFIG_FILE = "antilink_config.json"
 
 
 # ============================================================
@@ -66,6 +67,44 @@ AUTOMODE_DEFAULT = {
 # ============================================================
 # DEFAULT ANTINUKE CONFIG
 # ============================================================
+
+# ============================================================
+# DEFAULT ANTI-LINK CONFIG
+# ============================================================
+
+ANTILINK_DEFAULT = {
+    "enabled": False,
+    "log_channel_id": None,
+    "warning_enabled": True,
+    "dm_enabled": True,
+    "delete_enabled": True,
+    "types": {
+        "gif": True,
+        "youtube": False,
+        "discord": False,
+        "website": False,
+        "image": False,
+        "other": False
+    },
+    "whitelist_users": {
+        "gif": [],
+        "youtube": [],
+        "discord": [],
+        "website": [],
+        "image": [],
+        "other": []
+    },
+    "whitelist_roles": {
+        "gif": [],
+        "youtube": [],
+        "discord": [],
+        "website": [],
+        "image": [],
+        "other": []
+    },
+    "warnings": {}
+}
+
 
 ANTINUKE_DEFAULT = {
     "enabled": False,
@@ -192,6 +231,50 @@ def get_automode_config(guild_id):
 
 
 # ============================================================
+# ANTI-LINK STORAGE
+# ============================================================
+
+ANTILINK_CONFIGS = load_json_file(
+    ANTILINK_CONFIG_FILE,
+    {}
+)
+
+
+def antilink_save_all():
+    return save_json_file(
+        ANTILINK_CONFIG_FILE,
+        ANTILINK_CONFIGS
+    )
+
+
+def get_antilink_config(guild_id):
+    gid = str(guild_id)
+
+    if gid not in ANTILINK_CONFIGS:
+        ANTILINK_CONFIGS[gid] = copy.deepcopy(ANTILINK_DEFAULT)
+        antilink_save_all()
+
+    config = ANTILINK_CONFIGS[gid]
+
+    for key, value in ANTILINK_DEFAULT.items():
+        if key not in config:
+            config[key] = copy.deepcopy(value)
+
+    config.setdefault("types", {})
+    for key, value in ANTILINK_DEFAULT["types"].items():
+        config["types"].setdefault(key, value)
+
+    config.setdefault("whitelist_users", {})
+    config.setdefault("whitelist_roles", {})
+    for link_type in ANTILINK_DEFAULT["types"]:
+        config["whitelist_users"].setdefault(link_type, [])
+        config["whitelist_roles"].setdefault(link_type, [])
+
+    config.setdefault("warnings", {})
+    return config
+
+
+# ============================================================
 # ANTINUKE STORAGE
 # ============================================================
 
@@ -289,6 +372,94 @@ def contains_link(content):
             re.IGNORECASE
         )
     )
+
+
+ANTILINK_TYPES = (
+    "gif",
+    "youtube",
+    "discord",
+    "website",
+    "image",
+    "other"
+)
+
+ANTILINK_TYPE_LABELS = {
+    "gif": "🎞️ GIF",
+    "youtube": "▶️ YouTube",
+    "discord": "💬 Discord Invite",
+    "website": "🌐 Website",
+    "image": "🖼️ Image",
+    "other": "🔗 Other Link"
+}
+
+
+def detect_link_type(content):
+    if not content:
+        return None
+
+    urls = re.findall(
+        r"(?:https?://|www\.)[^\s<>]+",
+        content,
+        re.IGNORECASE
+    )
+
+    if not urls:
+        return None
+
+    for raw in urls:
+        url = raw.lower().rstrip(".,!?)]}>")
+
+        if (
+            "discord.gg/" in url
+            or "discord.com/invite/" in url
+            or "discordapp.com/invite/" in url
+        ):
+            return "discord"
+
+        if (
+            "youtube.com/" in url
+            or "youtu.be/" in url
+            or "music.youtube.com/" in url
+        ):
+            return "youtube"
+
+        if (
+            url.endswith(".gif")
+            or "giphy.com/" in url
+            or "tenor.com/" in url
+            or "media.giphy.com/" in url
+        ):
+            return "gif"
+
+        if re.search(
+            r"\.(?:png|jpe?g|webp|bmp|svg)(?:[?#].*)?$",
+            url,
+            re.IGNORECASE
+        ):
+            return "image"
+
+        if url.startswith("http://") or url.startswith("https://") or url.startswith("www."):
+            return "website"
+
+    return "other"
+
+
+def antilink_is_whitelisted(member, config, link_type):
+    if member is None or link_type not in ANTILINK_TYPES:
+        return False
+
+    if member.id == getattr(member.guild, "owner_id", None):
+        return True
+
+    user_ids = config.get("whitelist_users", {}).get(link_type, [])
+    if member.id in user_ids:
+        return True
+
+    role_ids = {role.id for role in getattr(member, "roles", [])}
+    allowed_roles = set(
+        config.get("whitelist_roles", {}).get(link_type, [])
+    )
+    return bool(role_ids.intersection(allowed_roles))
 
 
 def find_badword(content, badwords):
@@ -719,6 +890,143 @@ class AutoMode(commands.Cog):
             automode_save_all()
 
     # ========================================================
+    # ANTI-LINK
+    # ========================================================
+
+    async def get_antilink_log_channel(self, guild):
+        config = get_antilink_config(guild.id)
+        channel_id = config.get("log_channel_id")
+
+        if channel_id:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                return channel
+
+        return None
+
+    async def ensure_antilink_log_channel(self, guild, config=None):
+        config = config or get_antilink_config(guild.id)
+        existing = await self.get_antilink_log_channel(guild)
+        if existing:
+            return existing
+
+        try:
+            channel = await guild.create_text_channel(
+                "commander-antilink-logs",
+                reason="Air Commander Anti-Link"
+            )
+            config["log_channel_id"] = channel.id
+            antilink_save_all()
+            return channel
+        except Exception as e:
+            print(f"[AntiLink] Could not create log channel: {e}")
+            return None
+
+    async def antilink_log(self, guild, member, channel, link_type, action, warning_count):
+        config = get_antilink_config(guild.id)
+        log_channel = await self.get_antilink_log_channel(guild)
+        if not log_channel:
+            return
+
+        embed = discord.Embed(
+            title="🔗 Anti-Link Detection",
+            color=discord.Color.red(),
+            timestamp=discord.utils.utcnow()
+        )
+        embed.add_field(name="User", value=f"{member.mention} (`{member.id}`)", inline=False)
+        embed.add_field(name="Type", value=ANTILINK_TYPE_LABELS.get(link_type, link_type), inline=True)
+        embed.add_field(name="Channel", value=getattr(channel, "mention", "Unknown"), inline=True)
+        embed.add_field(name="Action", value=action, inline=True)
+        embed.add_field(name="Warning", value=f"+1 • Total `{warning_count}`", inline=True)
+        embed.set_footer(text="✈️ Air Commander • Anti-Link")
+
+        try:
+            await log_channel.send(embed=embed)
+        except Exception as e:
+            print(f"[AntiLink] Log error: {e}")
+
+    async def handle_antilink(self, message):
+        if not message.guild:
+            return False
+
+        config = get_antilink_config(message.guild.id)
+        if not config.get("enabled", False):
+            return False
+
+        member = message.author
+        if is_admin(member):
+            return True
+
+        link_type = detect_link_type(message.content or "")
+        if not link_type:
+            return False
+
+        # Anti-Link takes ownership of all links while enabled so that
+        # AutoMode's older generic link protection cannot conflict with it.
+        if (
+            config.get("types", {}).get(link_type, False)
+            or antilink_is_whitelisted(member, config, link_type)
+        ):
+            return True
+
+        deleted = False
+        if config.get("delete_enabled", True):
+            try:
+                await message.delete()
+                deleted = True
+            except Exception:
+                pass
+
+        warnings = config.setdefault("warnings", {})
+        user_id = str(member.id)
+        warnings[user_id] = warnings.get(user_id, 0) + 1
+        warning_count = warnings[user_id]
+        antilink_save_all()
+
+        if config.get("warning_enabled", True):
+            try:
+                warning_embed = discord.Embed(
+                    title="⚠️ Link Protection Warning",
+                    description=(
+                        f"{member.mention}\n\n"
+                        f"You are not allowed to send **{ANTILINK_TYPE_LABELS.get(link_type, link_type)}** links in this server.\n\n"
+                        f"Your message has been removed.\n"
+                        f"Warning count: `{warning_count}`"
+                    ),
+                    color=discord.Color.orange()
+                )
+                await message.channel.send(embed=warning_embed)
+            except Exception:
+                pass
+
+        if config.get("dm_enabled", True):
+            try:
+                dm_embed = discord.Embed(
+                    title="🛡️ Air Commander • Anti-Link",
+                    description=(
+                        f"Your message was removed in **{message.guild.name}**.\n\n"
+                        f"**Link Type:** {ANTILINK_TYPE_LABELS.get(link_type, link_type)}\n"
+                        f"**Reason:** This link type is not allowed for you.\n"
+                        f"**Warning count:** ⚠️ `{warning_count}`"
+                    ),
+                    color=discord.Color.red()
+                )
+                await member.send(embed=dm_embed)
+            except Exception:
+                pass
+
+        action = "Message Deleted" if deleted else "Message Detected"
+        await self.antilink_log(
+            message.guild,
+            member,
+            message.channel,
+            link_type,
+            action,
+            warning_count
+        )
+        return True
+
+    # ========================================================
     # MESSAGE PROTECTION
     # ========================================================
 
@@ -786,27 +1094,28 @@ class AutoMode(commands.Cog):
                 return
 
         # ----------------------------------------------------
-        # LINK PROTECTION
+        # ANTI-LINK / LEGACY LINK PROTECTION
         # ----------------------------------------------------
 
-        if (
-            config.get(
-                "link_protection",
-                True
-            )
-            and contains_link(content)
-        ):
-            try:
-                await message.delete()
-            except Exception:
-                pass
+        if contains_link(content):
+            antilink_config = get_antilink_config(message.guild.id)
 
-            await self.handle_escalation(
-                member,
-                "Unauthorized link detected."
-            )
+            if antilink_config.get("enabled", False):
+                await self.handle_antilink(message)
+                return
 
-            return
+            if config.get("link_protection", True):
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+
+                await self.handle_escalation(
+                    member,
+                    "Unauthorized link detected."
+                )
+
+                return
 
         # ----------------------------------------------------
         # MENTION PROTECTION
@@ -3112,6 +3421,333 @@ class AntiNukeLogsView(
 
 
 # ============================================================
+# ANTI-LINK SLASH GROUP
+# ============================================================
+
+antilink_group = app_commands.Group(
+    name="antilink",
+    description="Type-specific link protection"
+)
+
+
+def _antilink_type_choice(value):
+    return app_commands.Choice(name=ANTILINK_TYPE_LABELS.get(value, value), value=value)
+
+
+@antilink_group.command(name="enable", description="Enable Anti-Link")
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_enable(interaction: discord.Interaction):
+    config = get_antilink_config(interaction.guild.id)
+    config["enabled"] = True
+    antilink_save_all()
+    await public_send(interaction, embed=make_embed(
+        "🔗 Anti-Link Enabled",
+        "Type-specific link protection is now **enabled**.",
+        discord.Color.green()
+    ))
+
+
+@antilink_group.command(name="disable", description="Disable Anti-Link")
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_disable(interaction: discord.Interaction):
+    config = get_antilink_config(interaction.guild.id)
+    config["enabled"] = False
+    antilink_save_all()
+    await public_send(interaction, embed=make_embed(
+        "🔗 Anti-Link Disabled",
+        "Type-specific link protection is now **disabled**.",
+        discord.Color.red()
+    ))
+
+
+@antilink_group.command(name="status", description="View Anti-Link status")
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_status(interaction: discord.Interaction):
+    config = get_antilink_config(interaction.guild.id)
+    embed = make_embed("🔗 Air Commander Anti-Link")
+    embed.add_field(name="Status", value=status_text(config.get("enabled")), inline=False)
+    for link_type in ANTILINK_TYPES:
+        state = config.get("types", {}).get(link_type, False)
+        embed.add_field(
+            name=ANTILINK_TYPE_LABELS[link_type],
+            value=status_text(state),
+            inline=True
+        )
+    embed.add_field(
+        name="Whitelists",
+        value=(
+            f"👤 Users: `{sum(len(v) for v in config.get('whitelist_users', {}).values())}`\n"
+            f"🎭 Roles: `{sum(len(v) for v in config.get('whitelist_roles', {}).values())}`"
+        ),
+        inline=False
+    )
+    await public_send(interaction, embed=embed)
+
+
+@antilink_group.command(name="config", description="View Anti-Link configuration")
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_config_command(interaction: discord.Interaction):
+    config = get_antilink_config(interaction.guild.id)
+    embed = make_embed("⚙️ Anti-Link Configuration")
+    embed.add_field(
+        name="Protection",
+        value="\n".join(
+            f"{ANTILINK_TYPE_LABELS[t]}: {status_text(config['types'].get(t, False))}"
+            for t in ANTILINK_TYPES
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Actions",
+        value=(
+            f"🗑️ Delete: {status_text(config.get('delete_enabled', True))}\n"
+            f"⚠️ Warning: {status_text(config.get('warning_enabled', True))}\n"
+            f"📩 DM: {status_text(config.get('dm_enabled', True))}"
+        ),
+        inline=True
+    )
+    await public_send(interaction, embed=embed)
+
+
+@antilink_group.command(name="type", description="Allow or block a link type")
+@app_commands.describe(link_type="Link type", state="on = allow, off = block")
+@app_commands.choices(
+    link_type=[app_commands.Choice(name=ANTILINK_TYPE_LABELS[t], value=t) for t in ANTILINK_TYPES],
+    state=[app_commands.Choice(name="Allowed", value="on"), app_commands.Choice(name="Blocked", value="off")]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_type(interaction: discord.Interaction, link_type: app_commands.Choice[str], state: app_commands.Choice[str]):
+    config = get_antilink_config(interaction.guild.id)
+    config["types"][link_type.value] = state.value == "on"
+    antilink_save_all()
+    await public_send(
+        interaction,
+        content=f"✅ {ANTILINK_TYPE_LABELS[link_type.value]} is now **{'allowed' if state.value == 'on' else 'blocked'}**."
+    )
+
+
+@antilink_group.command(name="whitelist_user", description="Whitelist a user for one link type")
+@app_commands.describe(user="User", link_type="Link type")
+@app_commands.choices(
+    link_type=[app_commands.Choice(name=ANTILINK_TYPE_LABELS[t], value=t) for t in ANTILINK_TYPES]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_whitelist_user(interaction: discord.Interaction, user: discord.Member, link_type: app_commands.Choice[str]):
+    config = get_antilink_config(interaction.guild.id)
+    ids = config["whitelist_users"].setdefault(link_type.value, [])
+    if user.id not in ids:
+        ids.append(user.id)
+    antilink_save_all()
+    await public_send(interaction, content=f"✅ {user.mention} can now send {ANTILINK_TYPE_LABELS[link_type.value]} links.")
+
+
+@antilink_group.command(name="whitelist_role", description="Whitelist a role for one link type")
+@app_commands.describe(role="Role", link_type="Link type")
+@app_commands.choices(
+    link_type=[app_commands.Choice(name=ANTILINK_TYPE_LABELS[t], value=t) for t in ANTILINK_TYPES]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_whitelist_role(interaction: discord.Interaction, role: discord.Role, link_type: app_commands.Choice[str]):
+    config = get_antilink_config(interaction.guild.id)
+    ids = config["whitelist_roles"].setdefault(link_type.value, [])
+    if role.id not in ids:
+        ids.append(role.id)
+    antilink_save_all()
+    await public_send(interaction, content=f"✅ {role.mention} can now send {ANTILINK_TYPE_LABELS[link_type.value]} links.")
+
+
+@antilink_group.command(name="unwhitelist_user", description="Remove a user link-type whitelist")
+@app_commands.describe(user="User", link_type="Link type")
+@app_commands.choices(
+    link_type=[app_commands.Choice(name=ANTILINK_TYPE_LABELS[t], value=t) for t in ANTILINK_TYPES]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_unwhitelist_user(interaction: discord.Interaction, user: discord.Member, link_type: app_commands.Choice[str]):
+    config = get_antilink_config(interaction.guild.id)
+    ids = config["whitelist_users"].setdefault(link_type.value, [])
+    if user.id in ids:
+        ids.remove(user.id)
+    antilink_save_all()
+    await public_send(interaction, content=f"✅ {user.mention} is no longer whitelisted for {ANTILINK_TYPE_LABELS[link_type.value]} links.")
+
+
+@antilink_group.command(name="unwhitelist_role", description="Remove a role link-type whitelist")
+@app_commands.describe(role="Role", link_type="Link type")
+@app_commands.choices(
+    link_type=[app_commands.Choice(name=ANTILINK_TYPE_LABELS[t], value=t) for t in ANTILINK_TYPES]
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def antilink_unwhitelist_role(interaction: discord.Interaction, role: discord.Role, link_type: app_commands.Choice[str]):
+    config = get_antilink_config(interaction.guild.id)
+    ids = config["whitelist_roles"].setdefault(link_type.value, [])
+    if role.id in ids:
+        ids.remove(role.id)
+    antilink_save_all()
+    await public_send(interaction, content=f"✅ {role.mention} is no longer whitelisted for {ANTILINK_TYPE_LABELS[link_type.value]} links.")
+
+
+# ============================================================
+# ANTI-LINK PREFIX COMMANDS
+# ============================================================
+
+@commands.group(name="antilink", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_permissions(administrator=True)
+async def antilink_prefix(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    embed = make_embed(
+        "🔗 Air Commander Anti-Link",
+        (
+            f"Status: {status_text(config['enabled'])}\n\n"
+            "`,antilink enable`\n"
+            "`,antilink disable`\n"
+            "`,antilink status`\n"
+            "`,antilink config`\n"
+            "`,antilink type <gif/youtube/discord/website/image/other> <on/off>`\n"
+            "`,antilink whitelist user @User <type>`\n"
+            "`,antilink whitelist role @Role <type>`\n"
+            "`,antilink unwhitelist user @User <type>`\n"
+            "`,antilink unwhitelist role @Role <type>`"
+        )
+    )
+    await ctx.send(embed=embed)
+
+
+@antilink_prefix.command(name="enable")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_enable(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    config["enabled"] = True
+    antilink_save_all()
+    await ctx.send("🟢 **Anti-Link enabled.**")
+
+
+@antilink_prefix.command(name="disable")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_disable(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    config["enabled"] = False
+    antilink_save_all()
+    await ctx.send("🔴 **Anti-Link disabled.**")
+
+
+@antilink_prefix.command(name="status")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_status(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    embed = make_embed("🔗 Anti-Link Status")
+    embed.add_field(name="Status", value=status_text(config["enabled"]), inline=False)
+    for link_type in ANTILINK_TYPES:
+        embed.add_field(name=ANTILINK_TYPE_LABELS[link_type], value=status_text(config["types"].get(link_type, False)), inline=True)
+    await ctx.send(embed=embed)
+
+
+@antilink_prefix.command(name="config")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_config(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    embed = make_embed("⚙️ Anti-Link Configuration")
+    embed.add_field(
+        name="Protection",
+        value="\n".join(f"{ANTILINK_TYPE_LABELS[t]}: {status_text(config['types'].get(t, False))}" for t in ANTILINK_TYPES),
+        inline=False
+    )
+    await ctx.send(embed=embed)
+
+
+@antilink_prefix.command(name="type")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_type(ctx, link_type: str, state: str):
+    link_type = link_type.lower()
+    state = state.lower()
+    if link_type not in ANTILINK_TYPES:
+        await ctx.send("❌ Invalid link type. Use `gif`, `youtube`, `discord`, `website`, `image`, or `other`.")
+        return
+    if state not in ("on", "off"):
+        await ctx.send("❌ Use `on` or `off`.")
+        return
+    config = get_antilink_config(ctx.guild.id)
+    config["types"][link_type] = state == "on"
+    antilink_save_all()
+    await ctx.send(f"✅ {ANTILINK_TYPE_LABELS[link_type]} is now **{'allowed' if state == 'on' else 'blocked'}**.")
+
+
+@antilink_prefix.group(name="whitelist", invoke_without_command=True)
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_whitelist(ctx):
+    config = get_antilink_config(ctx.guild.id)
+    users = sum(len(v) for v in config.get("whitelist_users", {}).values())
+    roles = sum(len(v) for v in config.get("whitelist_roles", {}).values())
+    await ctx.send(embed=make_embed("🛡️ Anti-Link Whitelist", f"Users: `{users}`\nRoles: `{roles}`"))
+
+
+@antilink_prefix_whitelist.command(name="user")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_whitelist_user(ctx, member: discord.Member, link_type: str):
+    link_type = link_type.lower()
+    if link_type not in ANTILINK_TYPES:
+        await ctx.send("❌ Invalid link type.")
+        return
+    config = get_antilink_config(ctx.guild.id)
+    ids = config["whitelist_users"].setdefault(link_type, [])
+    if member.id not in ids:
+        ids.append(member.id)
+    antilink_save_all()
+    await ctx.send(f"✅ {member.mention} can now send {ANTILINK_TYPE_LABELS[link_type]} links.")
+
+
+@antilink_prefix_whitelist.command(name="role")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_whitelist_role(ctx, role: discord.Role, link_type: str):
+    link_type = link_type.lower()
+    if link_type not in ANTILINK_TYPES:
+        await ctx.send("❌ Invalid link type.")
+        return
+    config = get_antilink_config(ctx.guild.id)
+    ids = config["whitelist_roles"].setdefault(link_type, [])
+    if role.id not in ids:
+        ids.append(role.id)
+    antilink_save_all()
+    await ctx.send(f"✅ {role.mention} can now send {ANTILINK_TYPE_LABELS[link_type]} links.")
+
+
+@antilink_prefix.group(name="unwhitelist", invoke_without_command=True)
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_unwhitelist(ctx):
+    await ctx.send("Use `,antilink unwhitelist user @User <type>` or `,antilink unwhitelist role @Role <type>`.")
+
+
+@antilink_prefix_unwhitelist.command(name="user")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_unwhitelist_user(ctx, member: discord.Member, link_type: str):
+    link_type = link_type.lower()
+    if link_type not in ANTILINK_TYPES:
+        await ctx.send("❌ Invalid link type.")
+        return
+    config = get_antilink_config(ctx.guild.id)
+    ids = config["whitelist_users"].setdefault(link_type, [])
+    if member.id in ids:
+        ids.remove(member.id)
+    antilink_save_all()
+    await ctx.send(f"✅ {member.mention} is no longer whitelisted for {ANTILINK_TYPE_LABELS[link_type]} links.")
+
+
+@antilink_prefix_unwhitelist.command(name="role")
+@commands.has_permissions(administrator=True)
+async def antilink_prefix_unwhitelist_role(ctx, role: discord.Role, link_type: str):
+    link_type = link_type.lower()
+    if link_type not in ANTILINK_TYPES:
+        await ctx.send("❌ Invalid link type.")
+        return
+    config = get_antilink_config(ctx.guild.id)
+    ids = config["whitelist_roles"].setdefault(link_type, [])
+    if role.id in ids:
+        ids.remove(role.id)
+    antilink_save_all()
+    await ctx.send(f"✅ {role.mention} is no longer whitelisted for {ANTILINK_TYPE_LABELS[link_type]} links.")
+
+
+# ============================================================
 # ANTINUKE PREFIX COMMAND
 # ============================================================
 
@@ -3544,10 +4180,39 @@ async def setup(bot):
         )
 
     # --------------------------------------------------------
+    # ANTI-LINK PREFIX GROUP
+    # --------------------------------------------------------
+
+    try:
+        if bot.get_command("antilink") is None:
+            bot.add_command(antilink_prefix)
+            print("🔗 Anti-Link prefix commands loaded.")
+        else:
+            print("⚠️ Anti-Link prefix group already registered.")
+    except Exception as e:
+        print(f"❌ Anti-Link prefix setup error: {e}")
+
+    # --------------------------------------------------------
+    # ANTI-LINK SLASH GROUP
+    # --------------------------------------------------------
+
+    try:
+        existing = bot.tree.get_command("antilink")
+        if existing is None:
+            bot.tree.add_command(antilink_group)
+            print("🔗 Anti-Link slash group loaded.")
+        else:
+            print("⚠️ Anti-Link slash group already registered.")
+    except app_commands.errors.CommandAlreadyRegistered:
+        print("⚠️ Anti-Link slash group already registered.")
+    except Exception as e:
+        print(f"❌ Anti-Link slash setup error: {e}")
+
+    # --------------------------------------------------------
     # FINAL
     # --------------------------------------------------------
 
     print(
         "🚀 Air Commander Automation loaded "
-        "(AutoMode + Anti-Nuke)."
+        "(AutoMode + Anti-Nuke + Anti-Link)."
     )
