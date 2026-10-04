@@ -22,7 +22,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
@@ -879,7 +878,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
@@ -1033,7 +1031,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
@@ -1301,7 +1298,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
@@ -1380,7 +1376,6 @@ from discord.ext import commands
 import snipe
 import youtube_alerts
 import mention_response
-import security_center
 import automation
 import analytics
 import embed_builder
@@ -2484,7 +2479,6 @@ async def _air_startup_loader(bot):
             ("snipe", snipe),
             ("youtube_alerts", youtube_alerts),
             ("mention_response", mention_response),
-            ("security_center", security_center),
             ("automation", automation),
             ("analytics", analytics),
             ("embed_builder", embed_builder),
@@ -2501,7 +2495,6 @@ async def _air_startup_loader(bot):
             ("custom_commands", custom_commands),
             ("interactive_help", interactive_help),
             ("diagnostics", diagnostics),
-            ("antinuke", antinuke),
         ]
 
         loaded = 0
