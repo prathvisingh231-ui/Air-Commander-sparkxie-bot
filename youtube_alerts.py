@@ -1519,7 +1519,7 @@ def setup_slash_commands(bot):
             ephemeral=True
         )
 
-    # ========================================================
+      # ========================================================
     # /youtube config
     # ========================================================
 
@@ -1535,38 +1535,53 @@ def setup_slash_commands(bot):
             interaction.guild.id
         )
 
-      default_channel = config.get("default_channel")
-ping_role = config.get("ping_role")
-
-alert_channel_text = (
-    f"<#{default_channel}>"
-    if default_channel
-    else "Not set"
-)
-
-ping_role_text = (
-    f"<@&{ping_role}>"
-    if ping_role
-    else "Not set"
-)
-
-await interaction.response.send_message(
-    embed=make_embed(
-        "⚙️ YouTube Alerts Configuration",
-        (
-            f"**Status:** "
-            f"{'🟢 Enabled' if config.get('enabled', True) else '🔴 Disabled'}\n"
-            f"**Tracked:** "
-            f"{len(config.get('channels', {}))}\n"
-            f"**Alert Channel:** "
-            f"{alert_channel_text}\n"
-            f"**Ping Role:** "
-            f"{ping_role_text}\n"
-            f"**Check:** `{CHECK_INTERVAL}s`"
+        default_channel = config.get(
+            "default_channel"
         )
-    ),
-    ephemeral=True
-)
+
+        ping_role = config.get(
+            "ping_role"
+        )
+
+        alert_channel_text = (
+            f"<#{default_channel}>"
+            if default_channel
+            else "Not set"
+        )
+
+        ping_role_text = (
+            f"<@&{ping_role}>"
+            if ping_role
+            else "Not set"
+        )
+
+        status_text = (
+            "🟢 Enabled"
+            if config.get("enabled", True)
+            else "🔴 Disabled"
+        )
+
+        tracked_count = len(
+            config.get("channels", {})
+        )
+
+        embed = make_embed(
+            "⚙️ YouTube Alerts Configuration",
+            (
+                f"**Status:** {status_text}\n"
+                f"**Tracked:** {tracked_count}\n"
+                f"**Alert Channel:** "
+                f"{alert_channel_text}\n"
+                f"**Ping Role:** "
+                f"{ping_role_text}\n"
+                f"**Check:** `{CHECK_INTERVAL}s`"
+            )
+        )
+
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True
+        )
 
     # ========================================================
     # /youtube enable
