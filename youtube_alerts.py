@@ -82,41 +82,61 @@ def normalize_input(raw: str) -> str:
 
 
 def extract_channel_id(value: str) -> Optional[str]:
+    """Extract channel ID from URL, @handle, or direct ID"""
     text = normalize_input(value)
     if not text:
         return None
 
-    patterns = [
-        r"(?:https?://)?(?:www\.)?youtube\.com/channel/([A-Za-z0-9_-]+)",
-        r"(?:https?://)?(?:www\.)?youtu\.be/([A-Za-z0-9_-]+)",
-        r"(?:https?://)?(?:www\.)?youtube\.com/feeds/videos\.xml\?channel_id=([A-Za-z0-9_-]+)",
-        r"^([A-Za-z0-9_-]{10,})$",
-    ]
+    # Try to extract from URL format: youtube.com/channel/UCXXXX
+    match = re.search(r"youtube\.com/channel/([A-Za-z0-9_-]{20,})", text)
+    if match:
+        return match.group(1)
 
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            channel_id = match.group(1)
-            if channel_id.startswith("UC") or len(channel_id) >= 10:
-                return channel_id
-
-    if text.startswith("UC") and len(text) >= 10:
+    # Try direct UC format
+    if re.match(r"^UC[A-Za-z0-9_-]{20,}$", text):
         return text
 
     return None
 
 
-def extract_handle(value: str) -> Optional[str]:
-    text = normalize_input(value)
-    if not text:
+async def resolve_channel_handle(handle: str) -> Optional[str]:
+    """
+    Resolve YouTube @handle to channel ID using YouTube's channel page.
+    This is a workaround since RSS doesn't resolve handles.
+    """
+    try:
+        # Remove @ if present
+        clean_handle = handle.lstrip("@")
+        
+        # Try the YouTube channel page
+        url = f"https://www.youtube.com/{clean_handle}"
+        
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; AirCommanderBot/1.0)"},
+                allow_redirects=True
+            ) as response:
+                if response.status != 200:
+                    return None
+                
+                text = await response.text()
+                
+                # Look for channel ID in the page HTML
+                # Pattern: "externalId":"UCxxxxxx"
+                match = re.search(r'"externalId":"(UC[A-Za-z0-9_-]{20,})"', text)
+                if match:
+                    return match.group(1)
+                
+                # Alternative pattern
+                match = re.search(r'channel/([A-Za-z0-9_-]{20,})', text)
+                if match:
+                    return match.group(1)
+                
+                return None
+    except Exception:
         return None
-
-    match = re.search(r"(?:https?://)?(?:www\.)?youtube\.com/@([A-Za-z0-9._-]+)", text)
-    if match:
-        return match.group(1)
-    if text.startswith("@"):
-        return text[1:]
-    return None
 
 
 def make_embed(title: str, description: str = "", color: discord.Colour = DEFAULT_COLOR):
@@ -359,19 +379,19 @@ def setup_prefix_commands(bot: commands.Bot):
         embed = make_embed(
             "📺 YouTube Alerts",
             "**Available commands:**\n\n"
-            "`,youtube setup`\n"
-            "`,youtube add <channel-url-or-id>`\n"
-            "`,youtube remove <channel-id>`\n"
-            "`,youtube list`\n"
-            "`,youtube config`\n"
-            "`,youtube enable`\n"
-            "`,youtube disable`\n"
-            "`,youtube test`\n"
-            "`,youtube role set @Role`\n"
-            "`,youtube role remove`\n"
-            "`,youtube channel set #channel`\n"
-            "`,youtube channel clear`\n"
-            "`,youtube message <text>`",
+            "`,youtube setup` - Set alert channel\n"
+            "`,youtube add <URL/ID/@name>` - Add channel\n"
+            "`,youtube remove <ID>` - Remove channel\n"
+            "`,youtube list` - List tracked channels\n"
+            "`,youtube config` - Show configuration\n"
+            "`,youtube enable` - Enable alerts\n"
+            "`,youtube disable` - Disable alerts\n"
+            "`,youtube test` - Send test alert\n"
+            "`,youtube role set @Role` - Set ping role\n"
+            "`,youtube role remove` - Remove ping role\n"
+            "`,youtube channel set #channel` - Set alert channel\n"
+            "`,youtube channel clear` - Clear alert channel\n"
+            "`,youtube message <text>` - Set custom message",
         )
         await ctx.send(embed=embed)
 
@@ -389,27 +409,43 @@ def setup_prefix_commands(bot: commands.Bot):
     @commands.has_guild_permissions(manage_guild=True)
     async def youtube_add(ctx, *, channel: str = None):
         if not channel:
-            await ctx.send("❌ Usage: `,youtube add <channel-url-or-id>`")
+            await ctx.send("❌ Usage: `,youtube add <URL/ID/@name>`\n\nExamples:\n• `https://www.youtube.com/channel/UC...`\n• `UC...` (Channel ID)\n• `@channelname` (Channel handle)")
             return
 
+        channel = normalize_input(channel)
+        
+        # Try to extract channel ID directly
         channel_id = extract_channel_id(channel)
+        
+        # If not a direct ID/URL, try to resolve as handle
         if not channel_id:
-            await ctx.send("❌ Invalid YouTube channel. Use a channel URL or channel ID like `UC...`.")
-            return
+            await ctx.send("🔄 Resolving channel name... (This may take a moment)")
+            channel_id = await resolve_channel_handle(channel)
+            
+            if not channel_id:
+                await ctx.send(
+                    "❌ Couldn't find that YouTube channel.\n\n"
+                    "Please use one of these formats:\n"
+                    "• Full URL: `https://www.youtube.com/channel/UC...`\n"
+                    "• Channel ID: `UC...`\n"
+                    "• Handle: `@channelname`"
+                )
+                return
 
+        # Verify channel works with RSS
         rss = await fetch_rss(channel_id)
         if not rss:
-            await ctx.send("❌ Couldn't access that YouTube channel.")
+            await ctx.send("❌ Couldn't access that YouTube channel's RSS feed.\n\nMake sure it's a valid YouTube channel.")
             return
 
         videos = parse_rss(rss)
         if not videos:
-            await ctx.send("❌ No RSS data found for this channel.")
+            await ctx.send("❌ No videos found for this channel.")
             return
 
         cfg = guild_data(ctx.guild.id)
         if channel_id in cfg["channels"]:
-            await ctx.send("⚠️ This channel is already tracked.")
+            await ctx.send("⚠️ This channel is already being tracked.")
             return
 
         channel_name = videos[0].get("author") or await get_channel_name(channel_id)
@@ -424,8 +460,8 @@ def setup_prefix_commands(bot: commands.Bot):
 
         await ctx.send(
             embed=make_embed(
-                "📺 YouTube Channel Added",
-                f"**Channel:** {channel_name}\n**ID:** `{channel_id}`\n**Alert Channel:** <#{cfg['channels'][channel_id]['discord_channel_id']}>\n\nThe latest upload will be initialized without sending a notification.",
+                "✅ YouTube Channel Added",
+                f"**Channel:** {channel_name}\n**ID:** `{channel_id}`\n**Alert Channel:** <#{cfg['channels'][channel_id]['discord_channel_id']}>\n\n✨ Latest video initialized. Next upload will be alerted.",
                 discord.Color.green(),
             )
         )
@@ -614,28 +650,46 @@ def setup_slash_commands(bot: commands.Bot):
             ephemeral=True,
         )
 
-    @youtube.command(name="add", description="Track a YouTube channel")
+    @youtube.command(name="add", description="Track a YouTube channel by URL, ID, or @handle")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def slash_add(interaction: discord.Interaction, channel: str):
+        channel = normalize_input(channel)
+        
+        # Try to extract channel ID directly
         channel_id = extract_channel_id(channel)
+        
+        # If not a direct ID/URL, try to resolve as handle
         if not channel_id:
-            await interaction.response.send_message("❌ Invalid YouTube channel. Use a channel URL or ID like `UC...`.", ephemeral=True)
-            return
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send("🔄 Resolving channel name... (This may take a moment)", ephemeral=True)
+            channel_id = await resolve_channel_handle(channel)
+            
+            if not channel_id:
+                await interaction.followup.send(
+                    "❌ Couldn't find that YouTube channel.\n\n"
+                    "Please use one of these formats:\n"
+                    "• Full URL: `https://www.youtube.com/channel/UC...`\n"
+                    "• Channel ID: `UC...`\n"
+                    "• Handle: `@channelname`",
+                    ephemeral=True
+                )
+                return
+        else:
+            await interaction.response.defer(ephemeral=True)
 
-        await interaction.response.defer(ephemeral=True)
         rss = await fetch_rss(channel_id)
         if not rss:
-            await interaction.followup.send("❌ Couldn't access that YouTube channel.", ephemeral=True)
+            await interaction.followup.send("❌ Couldn't access that YouTube channel's RSS feed.", ephemeral=True)
             return
 
         videos = parse_rss(rss)
         if not videos:
-            await interaction.followup.send("❌ No RSS data found for that channel.", ephemeral=True)
+            await interaction.followup.send("❌ No videos found for this channel.", ephemeral=True)
             return
 
         cfg = guild_data(interaction.guild.id)
         if channel_id in cfg["channels"]:
-            await interaction.followup.send("⚠️ This channel is already tracked.", ephemeral=True)
+            await interaction.followup.send("⚠️ This channel is already being tracked.", ephemeral=True)
             return
 
         channel_name = videos[0].get("author") or await get_channel_name(channel_id)
@@ -650,8 +704,8 @@ def setup_slash_commands(bot: commands.Bot):
 
         await interaction.followup.send(
             embed=make_embed(
-                "📺 YouTube Channel Added",
-                f"**Channel:** {channel_name}\n**ID:** `{channel_id}`\n**Alert Channel:** <#{cfg['channels'][channel_id]['discord_channel_id']}>",
+                "✅ YouTube Channel Added",
+                f"**Channel:** {channel_name}\n**ID:** `{channel_id}`\n\n✨ Latest video initialized. Next upload will be alerted.",
                 discord.Color.green(),
             ),
             ephemeral=True,
