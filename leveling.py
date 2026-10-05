@@ -252,6 +252,9 @@ class Leveling(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cooldowns = {}
+        # Register the command groups with the bot's command tree
+        self.bot.tree.add_command(self.leveling)
+        self.bot.tree.add_command(self.levelrole)
 
     # ========================================================
     # MESSAGE XP
@@ -1654,4 +1657,3 @@ async def setup(bot):
     await bot.add_cog(
         Leveling(bot)
     )
-
