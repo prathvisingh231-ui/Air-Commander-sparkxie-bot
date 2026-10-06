@@ -3132,6 +3132,68 @@ class AirLeveling(commands.Cog):
             )
         )
 
+# ========================================================
+# MESSAGE COUNT
+# ,m
+# ,message
+# /message
+# ========================================================
+
+def get_message_stats(self, user):
+    history = user.get("message_history", [])
+    now = time.time()
+
+    today_start = now - 86400
+    week_start = now - (7 * 86400)
+    month_start = now - (30 * 86400)
+
+    return {
+        "today": sum(t >= today_start for t in history),
+        "week": sum(t >= week_start for t in history),
+        "month": sum(t >= month_start for t in history),
+        "all": user.get("messages", 0)
+    }
+
+
+@commands.command(
+    name="m",
+    aliases=["message", "messages"]
+)
+async def message_count(self, ctx):
+
+    if not ctx.guild:
+        return
+
+    config = guild_config(ctx.guild.id)
+    user = user_data(config, ctx.author.id)
+
+    stats = self.get_message_stats(user)
+
+    embed = discord.Embed(
+        title=f"💬 {ctx.author.display_name}'s Message Stats",
+        description=(
+            f"{ctx.author.mention}\n\n"
+            f"📅 **Today**\n"
+            f"`{stats['today']:,}` messages\n\n"
+            f"📆 **Week**\n"
+            f"`{stats['week']:,}` messages\n\n"
+            f"🗓️ **Month**\n"
+            f"`{stats['month']:,}` messages\n\n"
+            f"💬 **All Time**\n"
+            f"`{stats['all']:,}` messages"
+        ),
+        color=discord.Color.blurple()
+    )
+
+    embed.set_thumbnail(
+        url=ctx.author.display_avatar.url
+    )
+
+    embed.set_footer(
+        text="Air Commander • Message Statistics"
+    )
+
+    await ctx.send(embed=embed)
 
 # ============================================================
 # SETUP
