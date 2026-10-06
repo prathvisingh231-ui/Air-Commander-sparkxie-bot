@@ -32,7 +32,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
@@ -888,7 +888,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
@@ -1308,7 +1308,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
@@ -1386,7 +1386,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
@@ -1743,7 +1743,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
@@ -2488,7 +2488,7 @@ async def _air_startup_loader(bot):
             ("voice_jtc", voice_jtc),
             ("backup_recovery", backup_recovery),
             ("ai_utils", ai_utils),
-            ("leveling", leveling),
+            ("airleveling",airleveling),
             ("server_config", server_config),
             ("command_permissions", command_permissions),
             ("custom_commands", custom_commands),
