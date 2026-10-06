@@ -3195,6 +3195,57 @@ async def message_count(self, ctx):
 
     await ctx.send(embed=embed)
 
+@app_commands.command(
+    name="message",
+    description="View your message statistics"
+)
+async def slash_message(
+    self,
+    interaction: discord.Interaction
+):
+
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "This command can only be used inside a server.",
+            ephemeral=True
+        )
+        return
+
+    config = guild_config(
+        interaction.guild.id
+    )
+
+    user = user_data(
+        config,
+        interaction.user.id
+    )
+
+    stats = self.get_message_stats(user)
+
+    embed = discord.Embed(
+        title=f"💬 {interaction.user.display_name}'s Message Stats",
+        description=(
+            f"{interaction.user.mention}\n\n"
+            f"📅 **Today** — `{stats['today']:,}`\n"
+            f"📆 **Week** — `{stats['week']:,}`\n"
+            f"🗓️ **Month** — `{stats['month']:,}`\n"
+            f"💬 **All Time** — `{stats['all']:,}`"
+        ),
+        color=discord.Color.blurple()
+    )
+
+    embed.set_thumbnail(
+        url=interaction.user.display_avatar.url
+    )
+
+    embed.set_footer(
+        text="Air Commander • Message Statistics"
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
 # ============================================================
 # SETUP
 # ============================================================
