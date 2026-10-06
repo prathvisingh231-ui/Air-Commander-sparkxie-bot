@@ -3848,6 +3848,17 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
+    # Message statistics
+user.setdefault("message_history", [])
+user["message_history"].append(time.time())
+
+# Keep only last 90 days + current data
+cutoff = time.time() - (90 * 86400)
+user["message_history"] = [
+    t for t in user["message_history"]
+    if t >= cutoff
+]
+
     # -----------------------------------------------------
     # AFK: remove the sender's own AFK when they speak.
     # -----------------------------------------------------
