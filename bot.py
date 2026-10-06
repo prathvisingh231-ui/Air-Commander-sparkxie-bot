@@ -21,23 +21,13 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics
+
 
 # =========================================================
 # CONFIGURATION
@@ -55,7 +45,6 @@ if not TOKEN:
 # =========================================================
 
 app = Flask(__name__)
-
 
 @app.get("/")
 def home():
@@ -877,23 +866,13 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics   
+
 
 HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -1030,23 +1009,12 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics
 
 def _embed(title, description, color):
     e = discord.Embed(
@@ -1297,23 +1265,12 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics
 import db
 
 def clean_embed(title, description="", color=None):
@@ -1375,23 +1332,12 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics 
 
 OWNER_ID = 1504354088538869892
 DB_URL = os.getenv("DATABASE_URL")
@@ -1732,23 +1678,13 @@ from discord.ext import commands
 # =========================================================
 import snipe
 import youtube_alerts
-import mention_response
 import automation
-import analytics
-import embed_builder
 import welcome_autorole
-import role_system
 import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import airleveling
-import server_config
+import leveling
 import command_permissions
 import custom_commands
-import interactive_help
-import diagnostics
+
 # security is embedded above
 
 
@@ -2476,24 +2412,13 @@ async def _air_startup_loader(bot):
 
         feature_modules = [
             ("snipe", snipe),
-            ("youtube_alerts", youtube_alerts),
-            ("mention_response", mention_response),
-            ("automation", automation),
-            ("analytics", analytics),
-            ("embed_builder", embed_builder),
-            ("welcome_autorole", welcome_autorole),
-            ("role_system", role_system),
-            ("giveaways", giveaways),
-            ("applications", applications),
-            ("voice_jtc", voice_jtc),
-            ("backup_recovery", backup_recovery),
-            ("ai_utils", ai_utils),
-            ("airleveling",airleveling),
-            ("server_config", server_config),
+            ("youtube_alerts", youtube_alerts),        
+            ("automation", automation),                       
+            ("welcome_autorole", welcome_autorole),           
+            ("giveaways", giveaways),           
+            ("leveling",leveling),           
             ("command_permissions", command_permissions),
             ("custom_commands", custom_commands),
-            ("interactive_help", interactive_help),
-            ("diagnostics", diagnostics),
         ]
 
         loaded = 0
