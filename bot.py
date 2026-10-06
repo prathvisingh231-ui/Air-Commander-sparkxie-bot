@@ -1041,7 +1041,7 @@ import applications
 import voice_jtc
 import backup_recovery
 import ai_utils
-import leveling
+import airleveling
 import server_config
 import command_permissions
 import custom_commands
