@@ -25,8 +25,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
-
 
 # =========================================================
 # CONFIGURATION
@@ -870,8 +868,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
-
 
 HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -1013,7 +1009,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
 
 def _embed(title, description, color):
     e = discord.Embed(
@@ -1269,7 +1264,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
 import db
 
 def clean_embed(title, description="", color=None):
@@ -1336,7 +1330,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
 
 OWNER_ID = 1504354088538869892
 DB_URL = os.getenv("DATABASE_URL")
@@ -1682,8 +1675,6 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-import custom_commands
-
 # security is embedded above
 
 
@@ -2417,7 +2408,6 @@ async def _air_startup_loader(bot):
             ("giveaways", giveaways),           
             ("leveling",leveling),           
             ("command_permissions", command_permissions),
-            ("custom_commands", custom_commands),
         ]
 
         loaded = 0
