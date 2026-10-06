@@ -2,36 +2,7 @@
 # AIR COMMANDER — ADVANCED AIR LEVELING
 # ============================================================
 #
-# Features:
-#   • XP per message
-#   • XP cooldown
-#   • Level calculation
-#   • Rank/Profile
-#   • Leaderboard
-#   • Daily rewards
-#   • Daily/weekly streak
-#   • Weekly quests
-#   • Seasons
-#   • Level role rewards
-#   • Role XP boosters
-#   • Channel XP boosters
-#   • Ignored channels
-#   • Ignored roles
-#   • Level-up announcement channel
-#   • Automatic fallback to current chat channel
-#   • Enable / Disable
-#   • XP configuration
-#   • Announcement configuration
-#   • Reset user
-#   • Reset server
-#   • Badges
-#   • Battle Pass
-#   • Rewards
-#   • Boost display
-#   • Slash commands
-#   • Prefix commands
-#
-# Slash:
+# USER SLASH:
 #   /airlevel rank
 #   /airlevel profile
 #   /airlevel leaderboard
@@ -45,27 +16,39 @@
 #   /airlevel boost
 #   /airlevel help
 #
-# Admin:
-#   /airlevel settings
+# ADMIN SLASH:
 #   /airlevel enable
 #   /airlevel disable
-#   /airlevel channel set
-#   /airlevel channel clear
-#   /airlevel announce enable
-#   /airlevel announce disable
-#   /airlevel xp set
-#   /airlevel cooldown set
-#   /airlevel ignore channel
-#   /airlevel ignore role
-#   /airlevel reward set
-#   /airlevel reward remove
-#   /airlevel booster role
-#   /airlevel booster channel
+#   /airlevel settings
+#   /airlevel channel
+#   /airlevel announce
+#   /airlevel xp
+#   /airlevel cooldown
+#   /airlevel ignorechannel
+#   /airlevel ignorerole
+#   /airlevel reward
+#   /airlevel roleboost
+#   /airlevel channelboost
+#
+# RESET:
 #   /airlevel reset user
 #   /airlevel reset server
 #
-# Prefix:
-#   ,airlevel ...
+# MESSAGE:
+#   /message
+#   ,m
+#   ,message
+#   ,messages
+#
+# PREFIX:
+#   ,airlevel
+#   ,airlevel rank
+#   ,airlevel profile
+#   ,airlevel leaderboard
+#   ,airlevel streak
+#   ,airlevel daily
+#   ,airlevel quest
+#   ,airlevel help
 #   ,airrank
 #   ,airleaderboard
 #   ,airlb
@@ -81,8 +64,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 
 
 # ============================================================
@@ -101,6 +84,9 @@ WEEKLY_QUEST_REWARD = 1000
 
 MAX_LEADERBOARD = 10
 
+# Keep enough history for month statistics.
+MESSAGE_HISTORY_DAYS = 90
+
 EMBED_COLOR = discord.Color.blurple()
 SUCCESS_COLOR = discord.Color.green()
 ERROR_COLOR = discord.Color.red()
@@ -110,7 +96,7 @@ PURPLE_COLOR = discord.Color.purple()
 
 
 # ============================================================
-# DATABASE / JSON
+# DATA
 # ============================================================
 
 def load_data():
@@ -133,7 +119,6 @@ def load_data():
 def save_data(data):
     """
     Atomic JSON save.
-    Prevents partially-written JSON if process stops during save.
     """
 
     directory = os.path.dirname(DATA_FILE)
@@ -166,7 +151,7 @@ DATA = load_data()
 
 
 # ============================================================
-# DEFAULT STRUCTURE
+# DEFAULT GUILD CONFIG
 # ============================================================
 
 def default_config():
@@ -176,20 +161,20 @@ def default_config():
         "xp_per_message": DEFAULT_XP_PER_MESSAGE,
         "cooldown": DEFAULT_COOLDOWN,
 
-        # Announcement
+        # Level-up announcement
         "announce": True,
 
-        # None = automatic current channel
+        # None = current channel automatically
         "announce_channel": None,
 
         # Ignored locations
         "ignored_channels": [],
         "ignored_roles": [],
 
-        # Rewards
+        # Level role rewards
         "role_rewards": {},
 
-        # Boosters
+        # XP boosters
         "role_boosters": {},
         "channel_boosters": {},
 
@@ -231,12 +216,19 @@ def guild_config(guild_id: int):
         if key not in config:
             config[key] = value
 
-    # Nested defaults
+    # --------------------------------------------------------
+    # Nested season defaults
+    # --------------------------------------------------------
+
     if not isinstance(config.get("season"), dict):
         config["season"] = defaults["season"]
 
     for key, value in defaults["season"].items():
         config["season"].setdefault(key, value)
+
+    # --------------------------------------------------------
+    # Nested quest defaults
+    # --------------------------------------------------------
 
     if not isinstance(config.get("quests"), dict):
         config["quests"] = defaults["quests"]
@@ -244,8 +236,32 @@ def guild_config(guild_id: int):
     for key, value in defaults["quests"].items():
         config["quests"].setdefault(key, value)
 
+    # --------------------------------------------------------
+    # Type safety
+    # --------------------------------------------------------
+
+    for key in (
+        "ignored_channels",
+        "ignored_roles"
+    ):
+        if not isinstance(config.get(key), list):
+            config[key] = []
+
+    for key in (
+        "role_rewards",
+        "role_boosters",
+        "channel_boosters",
+        "users"
+    ):
+        if not isinstance(config.get(key), dict):
+            config[key] = {}
+
     return config
 
+
+# ============================================================
+# USER DATA
+# ============================================================
 
 def user_data(config, user_id: int):
     uid = str(user_id)
@@ -270,7 +286,10 @@ def user_data(config, user_id: int):
 
             # Quest
             "quest_progress": 0,
-            "quest_claimed": False
+            "quest_claimed": False,
+
+            # Message statistics
+            "message_history": []
         }
 
     user = config["users"][uid]
@@ -285,11 +304,18 @@ def user_data(config, user_id: int):
         "daily_claim": 0,
         "badges": [],
         "quest_progress": 0,
-        "quest_claimed": False
+        "quest_claimed": False,
+        "message_history": []
     }
 
     for key, value in defaults.items():
         user.setdefault(key, value)
+
+    if not isinstance(user.get("message_history"), list):
+        user["message_history"] = []
+
+    if not isinstance(user.get("badges"), list):
+        user["badges"] = []
 
     return user
 
@@ -299,13 +325,13 @@ def user_data(config, user_id: int):
 # ============================================================
 
 def xp_required(level: int) -> int:
-    """
-    XP required to move from this level to the next level.
-    """
-
     level = max(0, int(level))
 
-    return 100 + (level * 55) + int((level ** 2) * 5)
+    return (
+        100
+        + (level * 55)
+        + int((level ** 2) * 5)
+    )
 
 
 def calculate_level(total_xp: int):
@@ -316,20 +342,36 @@ def calculate_level(total_xp: int):
         remaining -= xp_required(level)
         level += 1
 
-    return level, remaining, xp_required(level)
+    return (
+        level,
+        remaining,
+        xp_required(level)
+    )
 
 
-def progress_bar(current: int, required: int, length: int = 14):
+def progress_bar(
+    current: int,
+    required: int,
+    length: int = 14
+):
     if required <= 0:
         return "▰" * length
 
-    ratio = max(0, min(1, current / required))
+    ratio = max(
+        0,
+        min(
+            1,
+            current / required
+        )
+    )
 
-    filled = int(ratio * length)
+    filled = int(
+        ratio * length
+    )
 
     return (
-        "▰" * filled +
-        "▱" * (length - filled)
+        "▰" * filled
+        + "▱" * (length - filled)
     )
 
 
@@ -380,17 +422,21 @@ def info_embed(title, description):
 
 
 # ============================================================
-# TIME / STREAK
+# STREAK
 # ============================================================
 
 def utc_day():
-    return datetime.now(timezone.utc).date()
+    return datetime.now(
+        timezone.utc
+    ).date()
 
 
 def update_streak(user):
     today = utc_day().isoformat()
 
-    last_day = user.get("last_chat_day")
+    last_day = user.get(
+        "last_chat_day"
+    )
 
     if last_day == today:
         return False
@@ -406,9 +452,10 @@ def update_streak(user):
             ).days
 
             if difference == 1:
-                user["streak"] = int(
-                    user.get("streak", 0)
-                ) + 1
+                user["streak"] = (
+                    int(user.get("streak", 0))
+                    + 1
+                )
 
             elif difference > 1:
                 user["streak"] = 1
@@ -434,41 +481,181 @@ def update_streak(user):
 # ============================================================
 
 def check_badges(user):
-    badges = set(user.get("badges", []))
+    badges = set(
+        user.get(
+            "badges",
+            []
+        )
+    )
 
-    messages = int(user.get("messages", 0))
-    streak = int(user.get("best_streak", 0))
+    messages = int(
+        user.get(
+            "messages",
+            0
+        )
+    )
+
+    streak = int(
+        user.get(
+            "best_streak",
+            0
+        )
+    )
 
     if messages >= 100:
-        badges.add("💬 Chat Starter")
+        badges.add(
+            "💬 Chat Starter"
+        )
 
     if messages >= 1000:
-        badges.add("🔥 Chat Veteran")
+        badges.add(
+            "🔥 Chat Veteran"
+        )
 
     if messages >= 5000:
-        badges.add("👑 Chat Legend")
+        badges.add(
+            "👑 Chat Legend"
+        )
 
     if streak >= 7:
-        badges.add("🔥 7 Day Streak")
+        badges.add(
+            "🔥 7 Day Streak"
+        )
 
     if streak >= 30:
-        badges.add("⚡ 30 Day Streak")
+        badges.add(
+            "⚡ 30 Day Streak"
+        )
 
-    user["badges"] = sorted(badges)
+    user["badges"] = sorted(
+        badges
+    )
 
 
 # ============================================================
-# BOOSTER
+# MESSAGE HISTORY
 # ============================================================
 
-def calculate_multiplier(config, member, channel):
+def record_message(user, timestamp=None):
+    """
+    Store message timestamp for Today/Week/Month statistics.
+    """
+
+    now = (
+        float(timestamp)
+        if timestamp is not None
+        else time.time()
+    )
+
+    history = user.setdefault(
+        "message_history",
+        []
+    )
+
+    if not isinstance(history, list):
+        history = []
+        user["message_history"] = history
+
+    history.append(now)
+
+    cutoff = (
+        now
+        - (
+            MESSAGE_HISTORY_DAYS
+            * 86400
+        )
+    )
+
+    user["message_history"] = [
+        value
+        for value in history
+        if isinstance(value, (int, float))
+        and value >= cutoff
+    ]
+
+
+def get_message_stats(user):
+    """
+    Rolling statistics:
+
+    Today = last 24 hours
+    Week = last 7 days
+    Month = last 30 days
+    All Time = permanent total
+    """
+
+    history = user.get(
+        "message_history",
+        []
+    )
+
+    now = time.time()
+
+    today_start = now - 86400
+    week_start = now - (
+        7 * 86400
+    )
+    month_start = now - (
+        30 * 86400
+    )
+
+    today = 0
+    week = 0
+    month = 0
+
+    for timestamp in history:
+
+        if not isinstance(
+            timestamp,
+            (int, float)
+        ):
+            continue
+
+        if timestamp >= today_start:
+            today += 1
+
+        if timestamp >= week_start:
+            week += 1
+
+        if timestamp >= month_start:
+            month += 1
+
+    return {
+        "today": today,
+        "week": week,
+        "month": month,
+        "all": int(
+            user.get(
+                "messages",
+                0
+            )
+        )
+    }
+
+
+# ============================================================
+# BOOSTERS
+# ============================================================
+
+def calculate_multiplier(
+    config,
+    member,
+    channel
+):
     multiplier = 1.0
 
-    for role in getattr(member, "roles", []):
+    for role in getattr(
+        member,
+        "roles",
+        []
+    ):
+
         boost = config.get(
             "role_boosters",
             {}
-        ).get(str(role.id))
+        ).get(
+            str(role.id)
+        )
 
         if boost is not None:
             try:
@@ -476,13 +663,18 @@ def calculate_multiplier(config, member, channel):
                     multiplier,
                     float(boost)
                 )
-            except (TypeError, ValueError):
+            except (
+                TypeError,
+                ValueError
+            ):
                 pass
 
     channel_boost = config.get(
         "channel_boosters",
         {}
-    ).get(str(channel.id))
+    ).get(
+        str(channel.id)
+    )
 
     if channel_boost is not None:
         try:
@@ -490,10 +682,16 @@ def calculate_multiplier(config, member, channel):
                 multiplier,
                 float(channel_boost)
             )
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError
+        ):
             pass
 
-    return max(1.0, multiplier)
+    return max(
+        1.0,
+        multiplier
+    )
 
 
 # ============================================================
@@ -502,7 +700,7 @@ def calculate_multiplier(config, member, channel):
 
 def get_announcement_channel(
     guild: discord.Guild,
-    fallback_channel: Optional[discord.abc.Messageable] = None
+    fallback_channel=None
 ):
     """
     Priority:
@@ -510,16 +708,18 @@ def get_announcement_channel(
     1. Configured leveling channel
     2. Current message channel
     3. System channel
-
-    This prevents level-up messages from randomly appearing
-    somewhere else when no channel has been configured.
     """
 
-    config = guild_config(guild.id)
+    config = guild_config(
+        guild.id
+    )
 
-    configured_id = config.get("announce_channel")
+    configured_id = config.get(
+        "announce_channel"
+    )
 
     if configured_id:
+
         try:
             channel = guild.get_channel(
                 int(configured_id)
@@ -528,7 +728,10 @@ def get_announcement_channel(
             if channel:
                 return channel
 
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError
+        ):
             pass
 
     if fallback_channel is not None:
@@ -538,22 +741,27 @@ def get_announcement_channel(
 
 
 # ============================================================
-# QUEST
+# WEEKLY QUEST
 # ============================================================
 
 def reset_weekly_quest_if_needed(config):
     quests = config["quests"]
 
-    started = float(
-        quests.get(
-            "started",
-            time.time()
+    try:
+        started = float(
+            quests.get(
+                "started",
+                time.time()
+            )
         )
-    )
+    except (
+        TypeError,
+        ValueError
+    ):
+        started = time.time()
 
     now = time.time()
 
-    # 7 days
     if now - started >= 604800:
 
         quests["started"] = now
@@ -561,14 +769,25 @@ def reset_weekly_quest_if_needed(config):
         quests["claimed"] = {}
 
         for uid in config["users"]:
-            config["users"][uid]["quest_progress"] = 0
-            config["users"][uid]["quest_claimed"] = False
+
+            config["users"][uid][
+                "quest_progress"
+            ] = 0
+
+            config["users"][uid][
+                "quest_claimed"
+            ] = False
 
         save_data(DATA)
 
 
-def update_quest(config, user_id):
-    reset_weekly_quest_if_needed(config)
+def update_quest(
+    config,
+    user_id
+):
+    reset_weekly_quest_if_needed(
+        config
+    )
 
     uid = str(user_id)
 
@@ -579,16 +798,24 @@ def update_quest(config, user_id):
         {}
     )
 
-    progress[uid] = int(
-        progress.get(uid, 0)
-    ) + 1
+    progress[uid] = (
+        int(
+            progress.get(
+                uid,
+                0
+            )
+        )
+        + 1
+    )
 
     user = user_data(
         config,
         user_id
     )
 
-    user["quest_progress"] = progress[uid]
+    user["quest_progress"] = (
+        progress[uid]
+    )
 
     target = int(
         quests.get(
@@ -606,9 +833,17 @@ def update_quest(config, user_id):
 
     if (
         progress[uid] >= target
-        and not user.get("quest_claimed", False)
+        and not user.get(
+            "quest_claimed",
+            False
+        )
     ):
-        user["xp"] += reward
+
+        user["xp"] = (
+            int(user.get("xp", 0))
+            + reward
+        )
+
         user["quest_claimed"] = True
 
         quests.setdefault(
@@ -625,12 +860,24 @@ def update_quest(config, user_id):
 # SEASON
 # ============================================================
 
-def add_season_xp(config, amount):
+def add_season_xp(
+    config,
+    amount
+):
     season = config["season"]
 
-    season["xp"] = int(
-        season.get("xp", 0)
-    ) + max(0, int(amount))
+    season["xp"] = (
+        int(
+            season.get(
+                "xp",
+                0
+            )
+        )
+        + max(
+            0,
+            int(amount)
+        )
+    )
 
 
 # ============================================================
@@ -639,16 +886,39 @@ def add_season_xp(config, amount):
 
 class AirLeveling(commands.Cog):
 
+    # --------------------------------------------------------
+    # Main /airlevel group
+    # --------------------------------------------------------
+
     airlevel = app_commands.Group(
         name="airlevel",
         description="Air Commander level system"
     )
 
-    def __init__(self, bot):
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # Reset is a subgroup.
+    #
+    # This keeps the direct child count under Discord.py's
+    # application-command limit.
+    #
+    # /airlevel reset user
+    # /airlevel reset server
+    # --------------------------------------------------------
+
+    reset = app_commands.Group(
+        name="reset",
+        description="Reset Air Leveling data"
+    )
+
+    def __init__(
+        self,
+        bot
+    ):
         self.bot = bot
 
-        # Runtime cooldown only.
-        # Persistent XP data stays in JSON.
+        # Runtime XP cooldown.
         self.cooldowns = {}
 
     # ========================================================
@@ -656,7 +926,10 @@ class AirLeveling(commands.Cog):
     # ========================================================
 
     @commands.Cog.listener()
-    async def on_message(self, message):
+    async def on_message(
+        self,
+        message
+    ):
 
         if message.author.bot:
             return
@@ -674,11 +947,19 @@ class AirLeveling(commands.Cog):
         ):
             return
 
+        # ----------------------------------------------------
+        # Ignored channel
+        # ----------------------------------------------------
+
         if message.channel.id in config.get(
             "ignored_channels",
             []
         ):
             return
+
+        # ----------------------------------------------------
+        # Ignored roles
+        # ----------------------------------------------------
 
         member_role_ids = {
             role.id
@@ -689,37 +970,82 @@ class AirLeveling(commands.Cog):
             )
         }
 
-        ignored_roles = {
-            int(role_id)
-            for role_id in config.get(
-                "ignored_roles",
-                []
-            )
-            if str(role_id).isdigit()
-        }
+        ignored_roles = set()
+
+        for role_id in config.get(
+            "ignored_roles",
+            []
+        ):
+
+            try:
+                ignored_roles.add(
+                    int(role_id)
+                )
+            except (
+                TypeError,
+                ValueError
+            ):
+                continue
 
         if member_role_ids.intersection(
             ignored_roles
         ):
             return
 
+        # ----------------------------------------------------
+        # User data
+        # ----------------------------------------------------
+
         user = user_data(
             config,
             message.author.id
         )
 
-        # Message count ALWAYS increases.
-        user["messages"] = int(
-            user.get("messages", 0)
-        ) + 1
+        # ----------------------------------------------------
+        # MESSAGE COUNT
+        # ----------------------------------------------------
 
-        # Streak is based on actual chatting,
-        # not XP cooldown.
-        update_streak(user)
+        user["messages"] = (
+            int(
+                user.get(
+                    "messages",
+                    0
+                )
+            )
+            + 1
+        )
 
-        check_badges(user)
+        record_message(
+            user
+        )
 
-        # Weekly quest counts messages.
+        # ----------------------------------------------------
+        # STREAK
+        # ----------------------------------------------------
+
+        update_streak(
+            user
+        )
+
+        # ----------------------------------------------------
+        # BADGES
+        # ----------------------------------------------------
+
+        check_badges(
+            user
+        )
+
+        # ----------------------------------------------------
+        # QUEST
+        # ----------------------------------------------------
+
+        old_xp_before_quest = int(
+            user.get(
+                "xp",
+                0
+            )
+        )
+
         quest_reward = update_quest(
             config,
             message.author.id
@@ -732,6 +1058,10 @@ class AirLeveling(commands.Cog):
             )
 
         now = time.time()
+
+        # ----------------------------------------------------
+        # XP COOLDOWN
+        # ----------------------------------------------------
 
         cooldown_key = (
             message.guild.id,
@@ -753,16 +1083,56 @@ class AirLeveling(commands.Cog):
             )
         )
 
-        # Cooldown means no XP,
-        # but message/streak/quest already counted.
+        # ----------------------------------------------------
+        # If cooldown active:
+        #
+        # Message statistics still save.
+        # Quest reward still works.
+        # ----------------------------------------------------
+
         if now - last_xp < cooldown:
+
+            # If quest reward caused a level-up,
+            # announce it even though normal XP is cooldowned.
+            if quest_reward:
+
+                old_level, _, _ = calculate_level(
+                    old_xp_before_quest
+                )
+
+                new_level, _, _ = calculate_level(
+                    user["xp"]
+                )
+
+                if new_level > old_level:
+
+                    for level in range(
+                        old_level + 1,
+                        new_level + 1
+                    ):
+                        await self.handle_level_up(
+                            message.guild,
+                            message.author,
+                            level,
+                            message.channel
+                        )
+
             save_data(DATA)
             return
 
-        self.cooldowns[cooldown_key] = now
+        self.cooldowns[
+            cooldown_key
+        ] = now
+
+        # ----------------------------------------------------
+        # NORMAL XP
+        # ----------------------------------------------------
 
         old_xp = int(
-            user.get("xp", 0)
+            user.get(
+                "xp",
+                0
+            )
         )
 
         old_level, _, _ = calculate_level(
@@ -792,7 +1162,10 @@ class AirLeveling(commands.Cog):
             )
         )
 
-        user["xp"] = old_xp + gained
+        user["xp"] = (
+            old_xp + gained
+        )
+
         user["last_xp"] = now
 
         add_season_xp(
@@ -800,9 +1173,15 @@ class AirLeveling(commands.Cog):
             gained
         )
 
-        check_badges(user)
+        check_badges(
+            user
+        )
 
         save_data(DATA)
+
+        # ----------------------------------------------------
+        # LEVEL UP
+        # ----------------------------------------------------
 
         new_level, _, _ = calculate_level(
             user["xp"]
@@ -814,6 +1193,7 @@ class AirLeveling(commands.Cog):
                 old_level + 1,
                 new_level + 1
             ):
+
                 await self.handle_level_up(
                     message.guild,
                     message.author,
@@ -837,6 +1217,10 @@ class AirLeveling(commands.Cog):
             guild.id
         )
 
+        # ----------------------------------------------------
+        # Role reward
+        # ----------------------------------------------------
+
         reward_role_id = config.get(
             "role_rewards",
             {}
@@ -852,35 +1236,52 @@ class AirLeveling(commands.Cog):
                 reward_role = guild.get_role(
                     int(reward_role_id)
                 )
-            except (TypeError, ValueError):
+            except (
+                TypeError,
+                ValueError
+            ):
                 reward_role = None
 
             if (
                 reward_role
                 and reward_role not in member.roles
             ):
+
                 try:
                     await member.add_roles(
                         reward_role,
-                        reason=f"Air Leveling level {level} reward"
+                        reason=(
+                            f"Air Leveling "
+                            f"level {level} reward"
+                        )
                     )
 
-                except discord.Forbidden:
+                except (
+                    discord.Forbidden,
+                    discord.HTTPException
+                ):
                     reward_role = None
 
-                except discord.HTTPException:
-                    reward_role = None
-
+        # ----------------------------------------------------
         # Announcement disabled
+        # ----------------------------------------------------
+
         if not config.get(
             "announce",
             True
         ):
             return
 
-        # IMPORTANT:
-        # Configured channel wins.
-        # Otherwise current message channel.
+        # ----------------------------------------------------
+        # Channel priority
+        #
+        # Configured channel
+        #       ↓
+        # Current chat channel
+        #       ↓
+        # System channel
+        # ----------------------------------------------------
+
         channel = get_announcement_channel(
             guild,
             source_channel
@@ -889,10 +1290,15 @@ class AirLeveling(commands.Cog):
         if channel is None:
             return
 
+        # ----------------------------------------------------
+        # Embed
+        # ----------------------------------------------------
+
         embed = discord.Embed(
             title="✦ LEVEL UP!",
             description=(
-                f"## 🎉 Congratulations {member.mention}!\n\n"
+                f"## 🎉 Congratulations "
+                f"{member.mention}!\n\n"
                 f"You reached **Level {level}**!\n\n"
                 f"**✨ New Level:** `{level}`"
             ),
@@ -917,6 +1323,7 @@ class AirLeveling(commands.Cog):
         )
 
         if reward_role:
+
             embed.add_field(
                 name="🎖️ Reward",
                 value=reward_role.mention,
@@ -930,12 +1337,17 @@ class AirLeveling(commands.Cog):
 
         embed.add_field(
             name="⭐ Total XP",
-            value=f"**{user['xp']:,} XP**",
+            value=(
+                f"**{user['xp']:,} XP**"
+            ),
             inline=True
         )
 
         embed.set_footer(
-            text=f"{guild.name} • Air Commander Leveling"
+            text=(
+                f"{guild.name} • "
+                f"Air Commander Leveling"
+            )
         )
 
         try:
@@ -969,7 +1381,10 @@ class AirLeveling(commands.Cog):
         )
 
         total_xp = int(
-            user.get("xp", 0)
+            user.get(
+                "xp",
+                0
+            )
         )
 
         level, current_xp, needed = calculate_level(
@@ -978,9 +1393,11 @@ class AirLeveling(commands.Cog):
 
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get(
-                "xp",
-                0
+            key=lambda item: int(
+                item[1].get(
+                    "xp",
+                    0
+                )
             ),
             reverse=True
         )
@@ -994,7 +1411,10 @@ class AirLeveling(commands.Cog):
             ranking,
             start=1
         ):
-            if uid == str(member.id):
+
+            if uid == str(
+                member.id
+            ):
                 position = index
                 break
 
@@ -1005,10 +1425,14 @@ class AirLeveling(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"✦ {member.display_name}'s Profile",
+            title=(
+                f"✦ {member.display_name}'s "
+                f"Profile"
+            ),
             description=(
                 f"{member.mention}\n"
-                f"**Keep chatting and climb the ranks!**"
+                f"**Keep chatting and climb "
+                f"the ranks!**"
             ),
             color=EMBED_COLOR
         )
@@ -1031,14 +1455,17 @@ class AirLeveling(commands.Cog):
 
         embed.add_field(
             name="💬 MESSAGES",
-            value=f"**{user['messages']:,}**",
+            value=(
+                f"**{user['messages']:,}**"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="✨ XP",
             value=(
-                f"**{current_xp:,} / {needed:,} XP**\n"
+                f"**{current_xp:,} / "
+                f"{needed:,} XP**\n"
                 f"`{progress_bar(current_xp, needed)}`\n"
                 f"**{percentage:.1f}%**"
             ),
@@ -1099,9 +1526,11 @@ class AirLeveling(commands.Cog):
 
         ranking = sorted(
             config["users"].items(),
-            key=lambda item: item[1].get(
-                "xp",
-                0
+            key=lambda item: int(
+                item[1].get(
+                    "xp",
+                    0
+                )
             ),
             reverse=True
         )
@@ -1121,7 +1550,9 @@ class AirLeveling(commands.Cog):
             uid,
             data
         ) in enumerate(
-            ranking[:MAX_LEADERBOARD],
+            ranking[
+                :MAX_LEADERBOARD
+            ],
             start=1
         ):
 
@@ -1129,7 +1560,10 @@ class AirLeveling(commands.Cog):
                 member = guild.get_member(
                     int(uid)
                 )
-            except ValueError:
+            except (
+                TypeError,
+                ValueError
+            ):
                 member = None
 
             name = (
@@ -1163,20 +1597,22 @@ class AirLeveling(commands.Cog):
                 "```ansi\n"
                 "     AIR COMMANDER • TOP 10\n"
                 "```\n"
-                +
-                "\n\n".join(lines)
+                + "\n\n".join(lines)
             ),
             color=GOLD_COLOR
         )
 
         embed.set_footer(
-            text=f"{guild.name} • Air Leveling Leaderboard"
+            text=(
+                f"{guild.name} • "
+                f"Air Leveling Leaderboard"
+            )
         )
 
         return embed
 
     # ========================================================
-    # USER COMMANDS
+    # USER — RANK
     # ========================================================
 
     @airlevel.command(
@@ -1193,6 +1629,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1201,7 +1638,10 @@ class AirLeveling(commands.Cog):
             )
             return
 
-        member = member or interaction.user
+        member = (
+            member
+            or interaction.user
+        )
 
         await interaction.response.send_message(
             embed=self.build_rank_embed(
@@ -1209,6 +1649,10 @@ class AirLeveling(commands.Cog):
                 member
             )
         )
+
+    # ========================================================
+    # USER — PROFILE
+    # ========================================================
 
     @airlevel.command(
         name="profile",
@@ -1224,6 +1668,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1232,7 +1677,10 @@ class AirLeveling(commands.Cog):
             )
             return
 
-        member = member or interaction.user
+        member = (
+            member
+            or interaction.user
+        )
 
         await interaction.response.send_message(
             embed=self.build_rank_embed(
@@ -1240,6 +1688,10 @@ class AirLeveling(commands.Cog):
                 member
             )
         )
+
+    # ========================================================
+    # USER — LEADERBOARD
+    # ========================================================
 
     @airlevel.command(
         name="leaderboard",
@@ -1251,6 +1703,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1264,6 +1717,7 @@ class AirLeveling(commands.Cog):
         )
 
         if embed is None:
+
             await interaction.response.send_message(
                 embed=info_embed(
                     "📊 No XP Data",
@@ -1275,6 +1729,10 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=embed
         )
+
+    # ========================================================
+    # USER — STREAK
+    # ========================================================
 
     @airlevel.command(
         name="streak",
@@ -1290,6 +1748,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1298,7 +1757,10 @@ class AirLeveling(commands.Cog):
             )
             return
 
-        member = member or interaction.user
+        member = (
+            member
+            or interaction.user
+        )
 
         config = guild_config(
             interaction.guild.id
@@ -1310,7 +1772,9 @@ class AirLeveling(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"🔥 {member.display_name}'s Streak",
+            title=(
+                f"🔥 {member.display_name}'s Streak"
+            ),
             description=(
                 f"Current streak: "
                 f"**{user.get('streak', 0)}** days\n"
@@ -1328,31 +1792,24 @@ class AirLeveling(commands.Cog):
             embed=embed
         )
 
-    @airlevel.command(
-        name="daily",
-        description="Claim your daily XP reward"
-    )
-    async def airlevel_daily(
+    # ========================================================
+    # DAILY HELPER
+    # ========================================================
+
+    async def claim_daily(
         self,
-        interaction: discord.Interaction
+        guild,
+        member,
+        send_func
     ):
 
-        if not interaction.guild:
-            await interaction.response.send_message(
-                embed=error_embed(
-                    "This command can only be used inside a server."
-                ),
-                ephemeral=True
-            )
-            return
-
         config = guild_config(
-            interaction.guild.id
+            guild.id
         )
 
         user = user_data(
             config,
-            interaction.user.id
+            member.id
         )
 
         now = time.time()
@@ -1369,33 +1826,44 @@ class AirLeveling(commands.Cog):
             remain = max(
                 0,
                 int(
-                    86400 -
-                    (now - last_claim)
+                    86400
+                    - (
+                        now - last_claim
+                    )
                 )
             )
 
             hours = remain // 3600
+
             minutes = (
                 remain % 3600
             ) // 60
 
-            await interaction.response.send_message(
+            await send_func(
                 embed=info_embed(
                     "⏳ Daily Reward",
                     (
                         "You already claimed today.\n"
-                        f"Come back in **{hours}h {minutes}m**."
+                        f"Come back in **{hours}h "
+                        f"{minutes}m**."
                     )
-                ),
-                ephemeral=True
+                )
             )
 
             return
 
-        old_xp = user["xp"]
+        old_xp = int(
+            user.get(
+                "xp",
+                0
+            )
+        )
 
         user["daily_claim"] = now
-        user["xp"] += DAILY_XP
+
+        user["xp"] = (
+            old_xp + DAILY_XP
+        )
 
         add_season_xp(
             config,
@@ -1413,23 +1881,60 @@ class AirLeveling(commands.Cog):
         )
 
         if new_level > old_level:
+
             for level in range(
                 old_level + 1,
                 new_level + 1
             ):
+
                 await self.handle_level_up(
-                    interaction.guild,
-                    interaction.user,
-                    level,
-                    interaction.channel
+                    guild,
+                    member,
+                    level
                 )
 
-        await interaction.response.send_message(
+        await send_func(
             embed=success_embed(
                 "🎁 Daily Reward Claimed",
-                f"You received **{DAILY_XP} XP**."
+                (
+                    f"You received "
+                    f"**{DAILY_XP} XP**."
+                )
             )
         )
+
+    # ========================================================
+    # USER — DAILY
+    # ========================================================
+
+    @airlevel.command(
+        name="daily",
+        description="Claim your daily XP reward"
+    )
+    async def airlevel_daily(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not interaction.guild:
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "This command can only be used inside a server."
+                ),
+                ephemeral=True
+            )
+            return
+
+        await self.claim_daily(
+            interaction.guild,
+            interaction.user,
+            interaction.response.send_message
+        )
+
+    # ========================================================
+    # USER — BADGES
+    # ========================================================
 
     @airlevel.command(
         name="badges",
@@ -1445,6 +1950,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1453,7 +1959,10 @@ class AirLeveling(commands.Cog):
             )
             return
 
-        member = member or interaction.user
+        member = (
+            member
+            or interaction.user
+        )
 
         config = guild_config(
             interaction.guild.id
@@ -1470,6 +1979,7 @@ class AirLeveling(commands.Cog):
         )
 
         if not badges:
+
             await interaction.response.send_message(
                 embed=info_embed(
                     f"🎖️ {member.display_name}'s Badges",
@@ -1485,11 +1995,17 @@ class AirLeveling(commands.Cog):
 
         await interaction.response.send_message(
             embed=discord.Embed(
-                title=f"🎖️ {member.display_name}'s Badges",
+                title=(
+                    f"🎖️ {member.display_name}'s Badges"
+                ),
                 description=label,
                 color=GOLD_COLOR
             )
         )
+
+    # ========================================================
+    # USER — SEASON
+    # ========================================================
 
     @airlevel.command(
         name="season",
@@ -1501,6 +2017,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1525,13 +2042,19 @@ class AirLeveling(commands.Cog):
         days = max(
             0,
             int(
-                (time.time() - started)
+                (
+                    time.time()
+                    - started
+                )
                 / 86400
             )
         )
 
         embed = discord.Embed(
-            title=f"🏆 Season {season.get('number', 1)}",
+            title=(
+                f"🏆 Season "
+                f"{season.get('number', 1)}"
+            ),
             description=(
                 f"Season XP: "
                 f"**{season.get('xp', 0):,} XP**\n"
@@ -1544,27 +2067,15 @@ class AirLeveling(commands.Cog):
             embed=embed
         )
 
-    @airlevel.command(
-        name="quest",
-        description="Show the current weekly quest"
-    )
-    async def airlevel_quest(
+    # ========================================================
+    # USER — QUEST
+    # ========================================================
+
+    def build_quest_embed(
         self,
-        interaction: discord.Interaction
+        config,
+        user_id
     ):
-
-        if not interaction.guild:
-            await interaction.response.send_message(
-                embed=error_embed(
-                    "This command can only be used inside a server."
-                ),
-                ephemeral=True
-            )
-            return
-
-        config = guild_config(
-            interaction.guild.id
-        )
 
         reset_weekly_quest_if_needed(
             config
@@ -1577,7 +2088,7 @@ class AirLeveling(commands.Cog):
                 "progress",
                 {}
             ).get(
-                str(interaction.user.id),
+                str(user_id),
                 0
             )
         )
@@ -1605,25 +2116,29 @@ class AirLeveling(commands.Cog):
             else 100
         )
 
-        claimed = user_data(
+        user = user_data(
             config,
-            interaction.user.id
-        ).get(
-            "quest_claimed",
-            False
+            user_id
         )
 
-        status = (
-            "✅ Completed"
-            if progress >= target
-            else "🔥 In Progress"
+        claimed = user.get(
+            "quest_claimed",
+            False
         )
 
         if claimed:
             status = "🎁 Reward Claimed"
 
-        embed = discord.Embed(
-            title=f"⚔️ {quest.get('name', 'Weekly Quest')}",
+        elif progress >= target:
+            status = "✅ Completed"
+
+        else:
+            status = "🔥 In Progress"
+
+        return discord.Embed(
+            title=(
+                f"⚔️ {quest.get('name', 'Weekly Quest')}"
+            ),
             description=(
                 f"{quest.get('description', '')}\n\n"
                 f"**Progress:** "
@@ -1636,9 +2151,39 @@ class AirLeveling(commands.Cog):
             color=ORANGE_COLOR
         )
 
-        await interaction.response.send_message(
-            embed=embed
+    @airlevel.command(
+        name="quest",
+        description="Show the current weekly quest"
+    )
+    async def airlevel_quest(
+        self,
+        interaction: discord.Interaction
+    ):
+
+        if not interaction.guild:
+
+            await interaction.response.send_message(
+                embed=error_embed(
+                    "This command can only be used inside a server."
+                ),
+                ephemeral=True
+            )
+            return
+
+        config = guild_config(
+            interaction.guild.id
         )
+
+        await interaction.response.send_message(
+            embed=self.build_quest_embed(
+                config,
+                interaction.user.id
+            )
+        )
+
+    # ========================================================
+    # USER — BATTLE PASS
+    # ========================================================
 
     @airlevel.command(
         name="battlepass",
@@ -1661,9 +2206,17 @@ class AirLeveling(commands.Cog):
             color=discord.Color.dark_magenta()
         )
 
+        embed.set_footer(
+            text="Air Commander • Air Battle Pass"
+        )
+
         await interaction.response.send_message(
             embed=embed
         )
+
+    # ========================================================
+    # USER — REWARDS
+    # ========================================================
 
     @airlevel.command(
         name="rewards",
@@ -1675,6 +2228,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1693,6 +2247,7 @@ class AirLeveling(commands.Cog):
         )
 
         if not rewards:
+
             await interaction.response.send_message(
                 embed=info_embed(
                     "🎖️ Reward Milestones",
@@ -1703,13 +2258,19 @@ class AirLeveling(commands.Cog):
 
         sorted_rewards = sorted(
             rewards.items(),
-            key=lambda item: int(item[0])
+            key=lambda item: int(
+                item[0]
+            )
         )
 
-        lines = [
-            f"**Level {level}** → <@&{role_id}>"
-            for level, role_id in sorted_rewards
-        ]
+        lines = []
+
+        for level, role_id in sorted_rewards:
+
+            lines.append(
+                f"**Level {level}** → "
+                f"<@&{role_id}>"
+            )
 
         await interaction.response.send_message(
             embed=discord.Embed(
@@ -1718,6 +2279,10 @@ class AirLeveling(commands.Cog):
                 color=GOLD_COLOR
             )
         )
+
+    # ========================================================
+    # USER — BOOST
+    # ========================================================
 
     @airlevel.command(
         name="boost",
@@ -1729,6 +2294,7 @@ class AirLeveling(commands.Cog):
     ):
 
         if not interaction.guild:
+
             await interaction.response.send_message(
                 embed=error_embed(
                     "This command can only be used inside a server."
@@ -1754,13 +2320,17 @@ class AirLeveling(commands.Cog):
         lines = []
 
         for role_id, boost in roles.items():
+
             lines.append(
-                f"<@&{role_id}> → **{boost}x XP**"
+                f"<@&{role_id}> → "
+                f"**{boost}x XP**"
             )
 
         for channel_id, boost in channels.items():
+
             lines.append(
-                f"<#{channel_id}> → **{boost}x XP**"
+                f"<#{channel_id}> → "
+                f"**{boost}x XP**"
             )
 
         text = (
@@ -1780,6 +2350,10 @@ class AirLeveling(commands.Cog):
                 )
             )
         )
+
+    # ========================================================
+    # USER — HELP
+    # ========================================================
 
     @airlevel.command(
         name="help",
@@ -1809,20 +2383,22 @@ class AirLeveling(commands.Cog):
             "/airlevel settings\n"
             "/airlevel enable\n"
             "/airlevel disable\n"
-            "/airlevel channel set\n"
-            "/airlevel channel clear\n"
-            "/airlevel announce enable\n"
-            "/airlevel announce disable\n"
-            "/airlevel xp set\n"
-            "/airlevel cooldown set\n"
-            "/airlevel ignore channel\n"
-            "/airlevel ignore role\n"
-            "/airlevel reward set\n"
-            "/airlevel reward remove\n"
-            "/airlevel booster role\n"
-            "/airlevel booster channel\n"
+            "/airlevel channel\n"
+            "/airlevel announce\n"
+            "/airlevel xp\n"
+            "/airlevel cooldown\n"
+            "/airlevel ignorechannel\n"
+            "/airlevel ignorerole\n"
+            "/airlevel reward\n"
+            "/airlevel roleboost\n"
+            "/airlevel channelboost\n"
             "/airlevel reset user\n"
             "/airlevel reset server\n"
+            "\n"
+            "MESSAGE STATS\n"
+            "/message\n"
+            ",m\n"
+            ",message\n"
             "```"
         )
 
@@ -1837,7 +2413,10 @@ class AirLeveling(commands.Cog):
     # ADMIN CHECK
     # ========================================================
 
-    def is_admin(self, interaction):
+    def is_admin(
+        self,
+        interaction
+    ):
         return (
             interaction.user.guild_permissions.administrator
             or interaction.user.guild_permissions.manage_guild
@@ -1847,7 +2426,10 @@ class AirLeveling(commands.Cog):
         self,
         interaction
     ):
-        if self.is_admin(interaction):
+
+        if self.is_admin(
+            interaction
+        ):
             return True
 
         await interaction.response.send_message(
@@ -1861,7 +2443,7 @@ class AirLeveling(commands.Cog):
         return False
 
     # ========================================================
-    # ENABLE
+    # ADMIN — ENABLE
     # ========================================================
 
     @airlevel.command(
@@ -1873,7 +2455,9 @@ class AirLeveling(commands.Cog):
         interaction: discord.Interaction
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -1892,7 +2476,7 @@ class AirLeveling(commands.Cog):
         )
 
     # ========================================================
-    # DISABLE
+    # ADMIN — DISABLE
     # ========================================================
 
     @airlevel.command(
@@ -1904,7 +2488,9 @@ class AirLeveling(commands.Cog):
         interaction: discord.Interaction
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -1923,7 +2509,7 @@ class AirLeveling(commands.Cog):
         )
 
     # ========================================================
-    # SETTINGS
+    # ADMIN — SETTINGS
     # ========================================================
 
     @airlevel.command(
@@ -1935,7 +2521,9 @@ class AirLeveling(commands.Cog):
         interaction: discord.Interaction
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -1950,41 +2538,6 @@ class AirLeveling(commands.Cog):
             f"<#{channel_id}>"
             if channel_id
             else "Automatic — current chat channel"
-        )
-
-        ignored_channels = len(
-            config.get(
-                "ignored_channels",
-                []
-            )
-        )
-
-        ignored_roles = len(
-            config.get(
-                "ignored_roles",
-                []
-            )
-        )
-
-        rewards = len(
-            config.get(
-                "role_rewards",
-                {}
-            )
-        )
-
-        role_boosts = len(
-            config.get(
-                "role_boosters",
-                {}
-            )
-        )
-
-        channel_boosts = len(
-            config.get(
-                "channel_boosters",
-                {}
-            )
         )
 
         embed = discord.Embed(
@@ -2004,13 +2557,17 @@ class AirLeveling(commands.Cog):
 
         embed.add_field(
             name="XP / Message",
-            value=f"`{config['xp_per_message']}`",
+            value=(
+                f"`{config['xp_per_message']}`"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="Cooldown",
-            value=f"`{config['cooldown']}s`",
+            value=(
+                f"`{config['cooldown']}s`"
+            ),
             inline=True
         )
 
@@ -2032,31 +2589,41 @@ class AirLeveling(commands.Cog):
 
         embed.add_field(
             name="Ignored Channels",
-            value=f"`{ignored_channels}`",
+            value=(
+                f"`{len(config.get('ignored_channels', []))}`"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="Ignored Roles",
-            value=f"`{ignored_roles}`",
+            value=(
+                f"`{len(config.get('ignored_roles', []))}`"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="Role Rewards",
-            value=f"`{rewards}`",
+            value=(
+                f"`{len(config.get('role_rewards', {}))}`"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="Role Boosters",
-            value=f"`{role_boosts}`",
+            value=(
+                f"`{len(config.get('role_boosters', {}))}`"
+            ),
             inline=True
         )
 
         embed.add_field(
             name="Channel Boosters",
-            value=f"`{channel_boosts}`",
+            value=(
+                f"`{len(config.get('channel_boosters', {}))}`"
+            ),
             inline=True
         )
 
@@ -2070,16 +2637,16 @@ class AirLeveling(commands.Cog):
         )
 
     # ========================================================
-    # CHANNEL SET
+    # ADMIN — CHANNEL
     # ========================================================
 
     @airlevel.command(
         name="channel",
-        description="Configure the level-up announcement channel"
+        description="Set or clear the level-up announcement channel"
     )
     @app_commands.describe(
-        action="Set or clear the leveling announcement channel",
-        channel="Channel where level-up messages should appear"
+        action="Set or clear",
+        channel="Channel for level-up announcements"
     )
     @app_commands.choices(
         action=[
@@ -2100,7 +2667,9 @@ class AirLeveling(commands.Cog):
         channel: Optional[discord.TextChannel] = None
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2110,6 +2679,7 @@ class AirLeveling(commands.Cog):
         if action.value == "set":
 
             if channel is None:
+
                 await interaction.response.send_message(
                     embed=error_embed(
                         "Please select a channel when using `set`."
@@ -2118,7 +2688,9 @@ class AirLeveling(commands.Cog):
                 )
                 return
 
-            config["announce_channel"] = channel.id
+            config["announce_channel"] = (
+                channel.id
+            )
 
             save_data(DATA)
 
@@ -2126,7 +2698,8 @@ class AirLeveling(commands.Cog):
                 embed=success_embed(
                     "Level-Up Channel Set",
                     (
-                        f"All level-up announcements will now go to "
+                        f"All level-up announcements "
+                        f"will now go to "
                         f"{channel.mention}."
                     )
                 )
@@ -2150,7 +2723,7 @@ class AirLeveling(commands.Cog):
         )
 
     # ========================================================
-    # ANNOUNCE
+    # ADMIN — ANNOUNCE
     # ========================================================
 
     @airlevel.command(
@@ -2178,7 +2751,9 @@ class AirLeveling(commands.Cog):
         action: app_commands.Choice[str]
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2202,7 +2777,7 @@ class AirLeveling(commands.Cog):
         )
 
     # ========================================================
-    # XP SET
+    # ADMIN — XP
     # ========================================================
 
     @airlevel.command(
@@ -2215,10 +2790,16 @@ class AirLeveling(commands.Cog):
     async def airlevel_xp(
         self,
         interaction: discord.Interaction,
-        amount: app_commands.Range[int, 1, 10000]
+        amount: app_commands.Range[
+            int,
+            1,
+            10000
+        ]
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2234,12 +2815,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "XP Updated",
-                f"Users will now receive **{amount} XP** per eligible message."
+                (
+                    f"Users will now receive "
+                    f"**{amount} XP** per eligible message."
+                )
             )
         )
 
     # ========================================================
-    # COOLDOWN
+    # ADMIN — COOLDOWN
     # ========================================================
 
     @airlevel.command(
@@ -2252,10 +2836,16 @@ class AirLeveling(commands.Cog):
     async def airlevel_cooldown(
         self,
         interaction: discord.Interaction,
-        seconds: app_commands.Range[int, 0, 3600]
+        seconds: app_commands.Range[
+            int,
+            0,
+            3600
+        ]
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2271,12 +2861,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Cooldown Updated",
-                f"XP cooldown is now **{seconds} seconds**."
+                (
+                    f"XP cooldown is now "
+                    f"**{seconds} seconds**."
+                )
             )
         )
 
     # ========================================================
-    # IGNORE CHANNEL
+    # ADMIN — IGNORE CHANNEL
     # ========================================================
 
     @airlevel.command(
@@ -2292,7 +2885,9 @@ class AirLeveling(commands.Cog):
         channel: discord.TextChannel
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2325,12 +2920,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Channel Updated",
-                f"{channel.mention} XP is now **{action}**."
+                (
+                    f"{channel.mention} XP is now "
+                    f"**{action}**."
+                )
             )
         )
 
     # ========================================================
-    # IGNORE ROLE
+    # ADMIN — IGNORE ROLE
     # ========================================================
 
     @airlevel.command(
@@ -2346,7 +2944,9 @@ class AirLeveling(commands.Cog):
         role: discord.Role
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2379,12 +2979,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Role Updated",
-                f"{role.mention} XP is now **{action}**."
+                (
+                    f"{role.mention} XP is now "
+                    f"**{action}**."
+                )
             )
         )
 
     # ========================================================
-    # REWARD SET
+    # ADMIN — REWARD
     # ========================================================
 
     @airlevel.command(
@@ -2392,7 +2995,7 @@ class AirLeveling(commands.Cog):
         description="Set or remove a level reward role"
     )
     @app_commands.describe(
-        action="Set or remove reward",
+        action="Set or remove",
         level="Level number",
         role="Reward role"
     )
@@ -2412,11 +3015,17 @@ class AirLeveling(commands.Cog):
         self,
         interaction: discord.Interaction,
         action: app_commands.Choice[str],
-        level: app_commands.Range[int, 1, 10000],
+        level: app_commands.Range[
+            int,
+            1,
+            10000
+        ],
         role: Optional[discord.Role] = None
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2431,6 +3040,7 @@ class AirLeveling(commands.Cog):
         if action.value == "set":
 
             if role is None:
+
                 await interaction.response.send_message(
                     embed=error_embed(
                         "Select a role when using `set`."
@@ -2446,7 +3056,10 @@ class AirLeveling(commands.Cog):
             await interaction.response.send_message(
                 embed=success_embed(
                     "Level Reward Set",
-                    f"Level **{level}** → {role.mention}"
+                    (
+                        f"Level **{level}** → "
+                        f"{role.mention}"
+                    )
                 )
             )
 
@@ -2462,12 +3075,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Level Reward Removed",
-                f"Reward for level **{level}** was removed."
+                (
+                    f"Reward for level "
+                    f"**{level}** was removed."
+                )
             )
         )
 
     # ========================================================
-    # ROLE BOOSTER
+    # ADMIN — ROLE BOOST
     # ========================================================
 
     @airlevel.command(
@@ -2482,10 +3098,16 @@ class AirLeveling(commands.Cog):
         self,
         interaction: discord.Interaction,
         role: discord.Role,
-        multiplier: app_commands.Range[float, 1.0, 10.0]
+        multiplier: app_commands.Range[
+            float,
+            1.0,
+            10.0
+        ]
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2504,12 +3126,15 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Role XP Booster Set",
-                f"{role.mention} now receives **{multiplier}x XP**."
+                (
+                    f"{role.mention} now receives "
+                    f"**{multiplier}x XP**."
+                )
             )
         )
 
     # ========================================================
-    # CHANNEL BOOSTER
+    # ADMIN — CHANNEL BOOST
     # ========================================================
 
     @airlevel.command(
@@ -2524,10 +3149,16 @@ class AirLeveling(commands.Cog):
         self,
         interaction: discord.Interaction,
         channel: discord.TextChannel,
-        multiplier: app_commands.Range[float, 1.0, 10.0]
+        multiplier: app_commands.Range[
+            float,
+            1.0,
+            10.0
+        ]
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
@@ -2546,16 +3177,20 @@ class AirLeveling(commands.Cog):
         await interaction.response.send_message(
             embed=success_embed(
                 "Channel XP Booster Set",
-                f"{channel.mention} now gives **{multiplier}x XP**."
+                (
+                    f"{channel.mention} now gives "
+                    f"**{multiplier}x XP**."
+                )
             )
         )
 
     # ========================================================
     # RESET USER
+    # /airlevel reset user
     # ========================================================
 
-    @airlevel.command(
-        name="resetuser",
+    @reset.command(
+        name="user",
         description="Reset a member's leveling data"
     )
     @app_commands.describe(
@@ -2567,14 +3202,18 @@ class AirLeveling(commands.Cog):
         member: discord.Member
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         config = guild_config(
             interaction.guild.id
         )
 
-        uid = str(member.id)
+        uid = str(
+            member.id
+        )
 
         config["users"].pop(
             uid,
@@ -2597,21 +3236,34 @@ class AirLeveling(commands.Cog):
             None
         )
 
+        # Also clear runtime cooldown.
+        self.cooldowns.pop(
+            (
+                interaction.guild.id,
+                member.id
+            ),
+            None
+        )
+
         save_data(DATA)
 
         await interaction.response.send_message(
             embed=success_embed(
                 "User Reset",
-                f"{member.mention}'s Air Leveling data was reset."
+                (
+                    f"{member.mention}'s "
+                    f"Air Leveling data was reset."
+                )
             )
         )
 
     # ========================================================
     # RESET SERVER
+    # /airlevel reset server
     # ========================================================
 
-    @airlevel.command(
-        name="resetserver",
+    @reset.command(
+        name="server",
         description="Reset all server leveling data"
     )
     async def airlevel_resetserver(
@@ -2619,7 +3271,9 @@ class AirLeveling(commands.Cog):
         interaction: discord.Interaction
     ):
 
-        if not await self.require_admin(interaction):
+        if not await self.require_admin(
+            interaction
+        ):
             return
 
         guild_id = str(
@@ -2628,12 +3282,29 @@ class AirLeveling(commands.Cog):
 
         DATA[guild_id] = default_config()
 
+        # Clear runtime cooldowns for this guild.
+        keys_to_remove = [
+            key
+            for key in self.cooldowns
+            if key[0] == interaction.guild.id
+        ]
+
+        for key in keys_to_remove:
+            self.cooldowns.pop(
+                key,
+                None
+            )
+
         save_data(DATA)
 
         await interaction.response.send_message(
             embed=success_embed(
                 "Server Leveling Reset",
-                "All Air Leveling XP, ranks, streaks and rewards data for this server has been reset."
+                (
+                    "All Air Leveling XP, ranks, "
+                    "streaks and reward data "
+                    "for this server has been reset."
+                )
             )
         )
 
@@ -2682,7 +3353,10 @@ class AirLeveling(commands.Cog):
         member: Optional[discord.Member] = None
     ):
 
-        member = member or ctx.author
+        member = (
+            member
+            or ctx.author
+        )
 
         await ctx.send(
             embed=self.build_rank_embed(
@@ -2704,7 +3378,10 @@ class AirLeveling(commands.Cog):
         member: Optional[discord.Member] = None
     ):
 
-        member = member or ctx.author
+        member = (
+            member
+            or ctx.author
+        )
 
         await ctx.send(
             embed=self.build_rank_embed(
@@ -2730,6 +3407,7 @@ class AirLeveling(commands.Cog):
         )
 
         if embed is None:
+
             await ctx.send(
                 embed=info_embed(
                     "📊 No XP Data",
@@ -2754,86 +3432,10 @@ class AirLeveling(commands.Cog):
         ctx
     ):
 
-        config = guild_config(
-            ctx.guild.id
-        )
-
-        user = user_data(
-            config,
-            ctx.author.id
-        )
-
-        now = time.time()
-
-        last_claim = float(
-            user.get(
-                "daily_claim",
-                0
-            )
-        )
-
-        if now - last_claim < 86400:
-
-            remain = max(
-                0,
-                int(
-                    86400 -
-                    (now - last_claim)
-                )
-            )
-
-            hours = remain // 3600
-            minutes = (
-                remain % 3600
-            ) // 60
-
-            await ctx.send(
-                embed=info_embed(
-                    "⏳ Daily Reward",
-                    f"Come back in **{hours}h {minutes}m**."
-                )
-            )
-
-            return
-
-        old_xp = user["xp"]
-
-        user["daily_claim"] = now
-        user["xp"] += DAILY_XP
-
-        add_season_xp(
-            config,
-            DAILY_XP
-        )
-
-        save_data(DATA)
-
-        old_level, _, _ = calculate_level(
-            old_xp
-        )
-
-        new_level, _, _ = calculate_level(
-            user["xp"]
-        )
-
-        if new_level > old_level:
-
-            for level in range(
-                old_level + 1,
-                new_level + 1
-            ):
-                await self.handle_level_up(
-                    ctx.guild,
-                    ctx.author,
-                    level,
-                    ctx.channel
-                )
-
-        await ctx.send(
-            embed=success_embed(
-                "🎁 Daily Reward Claimed",
-                f"You received **{DAILY_XP} XP**."
-            )
+        await self.claim_daily(
+            ctx.guild,
+            ctx.author,
+            ctx.send
         )
 
     # ========================================================
@@ -2849,7 +3451,10 @@ class AirLeveling(commands.Cog):
         member: Optional[discord.Member] = None
     ):
 
-        member = member or ctx.author
+        member = (
+            member
+            or ctx.author
+        )
 
         config = guild_config(
             ctx.guild.id
@@ -2861,12 +3466,20 @@ class AirLeveling(commands.Cog):
         )
 
         embed = discord.Embed(
-            title=f"🔥 {member.display_name}'s Streak",
+            title=(
+                f"🔥 {member.display_name}'s Streak"
+            ),
             description=(
-                f"Current streak: **{user['streak']} days**\n"
-                f"Best streak: **{user['best_streak']} days**"
+                f"Current streak: "
+                f"**{user['streak']} days**\n"
+                f"Best streak: "
+                f"**{user['best_streak']} days**"
             ),
             color=ORANGE_COLOR
+        )
+
+        embed.set_thumbnail(
+            url=member.display_avatar.url
         )
 
         await ctx.send(
@@ -2889,45 +3502,10 @@ class AirLeveling(commands.Cog):
             ctx.guild.id
         )
 
-        reset_weekly_quest_if_needed(
-            config
-        )
-
-        quest = config["quests"]
-
-        progress = int(
-            quest.get(
-                "progress",
-                {}
-            ).get(
-                str(ctx.author.id),
-                0
-            )
-        )
-
-        target = int(
-            quest.get(
-                "target",
-                WEEKLY_QUEST_TARGET
-            )
-        )
-
-        reward = int(
-            quest.get(
-                "reward",
-                WEEKLY_QUEST_REWARD
-            )
-        )
-
         await ctx.send(
-            embed=info_embed(
-                f"⚔️ {quest['name']}",
-                (
-                    f"{quest['description']}\n\n"
-                    f"Progress: **{progress}/{target}**\n"
-                    f"`{progress_bar(progress, target)}`\n"
-                    f"Reward: **{reward} XP**"
-                )
+            embed=self.build_quest_embed(
+                config,
+                ctx.author.id
             )
         )
 
@@ -2953,13 +3531,18 @@ class AirLeveling(commands.Cog):
                     "`,airlevel streak`\n"
                     "`,airlevel daily`\n"
                     "`,airlevel quest`\n"
-                    "`,airlevel settings`"
+                    "`,airlevel settings`\n"
+                    "\n"
+                    "Message Stats:\n"
+                    "`,m`\n"
+                    "`,message`\n"
+                    "`,messages`"
                 )
             )
         )
 
     # ========================================================
-    # OLD SHORTCUT COMMANDS
+    # SHORTCUT — AIRRANK
     # ========================================================
 
     @commands.command(
@@ -2974,7 +3557,10 @@ class AirLeveling(commands.Cog):
         member: Optional[discord.Member] = None
     ):
 
-        member = member or ctx.author
+        member = (
+            member
+            or ctx.author
+        )
 
         await ctx.send(
             embed=self.build_rank_embed(
@@ -2982,6 +3568,10 @@ class AirLeveling(commands.Cog):
                 member
             )
         )
+
+    # ========================================================
+    # SHORTCUT — AIRLEADERBOARD
+    # ========================================================
 
     @commands.command(
         name="airleaderboard",
@@ -2999,6 +3589,7 @@ class AirLeveling(commands.Cog):
         )
 
         if embed is None:
+
             await ctx.send(
                 embed=info_embed(
                     "📊 No XP Data",
@@ -3011,6 +3602,10 @@ class AirLeveling(commands.Cog):
             embed=embed
         )
 
+    # ========================================================
+    # SHORTCUT — AIRSTREAK
+    # ========================================================
+
     @commands.command(
         name="airstreak"
     )
@@ -3020,7 +3615,10 @@ class AirLeveling(commands.Cog):
         member: Optional[discord.Member] = None
     ):
 
-        member = member or ctx.author
+        member = (
+            member
+            or ctx.author
+        )
 
         config = guild_config(
             ctx.guild.id
@@ -3031,16 +3629,26 @@ class AirLeveling(commands.Cog):
             member.id
         )
 
-        await ctx.send(
-            embed=discord.Embed(
-                title=f"🔥 {member.display_name}'s Streak",
-                description=(
-                    f"Current streak: **{user['streak']} days**\n"
-                    f"Best streak: **{user['best_streak']} days**"
-                ),
-                color=ORANGE_COLOR
-            )
+        embed = discord.Embed(
+            title=(
+                f"🔥 {member.display_name}'s Streak"
+            ),
+            description=(
+                f"Current streak: "
+                f"**{user['streak']} days**\n"
+                f"Best streak: "
+                f"**{user['best_streak']} days**"
+            ),
+            color=ORANGE_COLOR
         )
+
+        await ctx.send(
+            embed=embed
+        )
+
+    # ========================================================
+    # SHORTCUT — AIRDAILY
+    # ========================================================
 
     @commands.command(
         name="airdaily"
@@ -3050,201 +3658,161 @@ class AirLeveling(commands.Cog):
         ctx
     ):
 
+        await self.claim_daily(
+            ctx.guild,
+            ctx.author,
+            ctx.send
+        )
+
+    # ========================================================
+    # MESSAGE COUNT — PREFIX
+    #
+    # ,m
+    # ,message
+    # ,messages
+    # ========================================================
+
+    @commands.command(
+        name="m",
+        aliases=[
+            "message",
+            "messages"
+        ]
+    )
+    async def message_count(
+        self,
+        ctx,
+        member: Optional[discord.Member] = None
+    ):
+
+        if not ctx.guild:
+            return
+
+        member = (
+            member
+            or ctx.author
+        )
+
         config = guild_config(
             ctx.guild.id
         )
 
         user = user_data(
             config,
-            ctx.author.id
+            member.id
         )
 
-        now = time.time()
-
-        last_claim = float(
-            user.get(
-                "daily_claim",
-                0
-            )
+        stats = get_message_stats(
+            user
         )
 
-        if now - last_claim < 86400:
-
-            remain = max(
-                0,
-                int(
-                    86400 -
-                    (now - last_claim)
-                )
-            )
-
-            hours = remain // 3600
-            minutes = (
-                remain % 3600
-            ) // 60
-
-            await ctx.send(
-                embed=info_embed(
-                    "⏳ Daily Reward",
-                    f"Come back in **{hours}h {minutes}m**."
-                )
-            )
-
-            return
-
-        old_xp = user["xp"]
-
-        user["daily_claim"] = now
-        user["xp"] += DAILY_XP
-
-        add_season_xp(
-            config,
-            DAILY_XP
+        embed = discord.Embed(
+            title=(
+                f"💬 {member.display_name}'s "
+                f"Message Stats"
+            ),
+            description=(
+                f"{member.mention}\n\n"
+                f"📅 **Today**\n"
+                f"`{stats['today']:,}` messages\n\n"
+                f"📆 **Week**\n"
+                f"`{stats['week']:,}` messages\n\n"
+                f"🗓️ **Month**\n"
+                f"`{stats['month']:,}` messages\n\n"
+                f"💬 **All Time**\n"
+                f"`{stats['all']:,}` messages"
+            ),
+            color=discord.Color.blurple()
         )
 
-        save_data(DATA)
-
-        old_level, _, _ = calculate_level(
-            old_xp
+        embed.set_thumbnail(
+            url=member.display_avatar.url
         )
 
-        new_level, _, _ = calculate_level(
-            user["xp"]
+        embed.set_footer(
+            text="Air Commander • Message Statistics"
         )
-
-        if new_level > old_level:
-
-            for level in range(
-                old_level + 1,
-                new_level + 1
-            ):
-                await self.handle_level_up(
-                    ctx.guild,
-                    ctx.author,
-                    level,
-                    ctx.channel
-                )
 
         await ctx.send(
-            embed=success_embed(
-                "🎁 Daily Reward Claimed",
-                f"You received **{DAILY_XP} XP**."
+            embed=embed
+        )
+
+    # ========================================================
+    # MESSAGE COUNT — SLASH
+    #
+    # /message
+    # ========================================================
+
+    @app_commands.command(
+        name="message",
+        description="View message statistics"
+    )
+    @app_commands.describe(
+        member="Member whose message statistics you want to see"
+    )
+    async def slash_message(
+        self,
+        interaction: discord.Interaction,
+        member: Optional[discord.Member] = None
+    ):
+
+        if not interaction.guild:
+
+            await interaction.response.send_message(
+                "This command can only be used inside a server.",
+                ephemeral=True
             )
+            return
+
+        member = (
+            member
+            or interaction.user
         )
 
-# ========================================================
-# MESSAGE COUNT
-# ,m
-# ,message
-# /message
-# ========================================================
+        config = guild_config(
+            interaction.guild.id
+        )
 
-def get_message_stats(self, user):
-    history = user.get("message_history", [])
-    now = time.time()
+        user = user_data(
+            config,
+            member.id
+        )
 
-    today_start = now - 86400
-    week_start = now - (7 * 86400)
-    month_start = now - (30 * 86400)
+        stats = get_message_stats(
+            user
+        )
 
-    return {
-        "today": sum(t >= today_start for t in history),
-        "week": sum(t >= week_start for t in history),
-        "month": sum(t >= month_start for t in history),
-        "all": user.get("messages", 0)
-    }
+        embed = discord.Embed(
+            title=(
+                f"💬 {member.display_name}'s "
+                f"Message Stats"
+            ),
+            description=(
+                f"{member.mention}\n\n"
+                f"📅 **Today** — "
+                f"`{stats['today']:,}`\n"
+                f"📆 **Week** — "
+                f"`{stats['week']:,}`\n"
+                f"🗓️ **Month** — "
+                f"`{stats['month']:,}`\n"
+                f"💬 **All Time** — "
+                f"`{stats['all']:,}`"
+            ),
+            color=discord.Color.blurple()
+        )
 
+        embed.set_thumbnail(
+            url=member.display_avatar.url
+        )
 
-@commands.command(
-    name="m",
-    aliases=["message", "messages"]
-)
-async def message_count(self, ctx):
+        embed.set_footer(
+            text="Air Commander • Message Statistics"
+        )
 
-    if not ctx.guild:
-        return
-
-    config = guild_config(ctx.guild.id)
-    user = user_data(config, ctx.author.id)
-
-    stats = self.get_message_stats(user)
-
-    embed = discord.Embed(
-        title=f"💬 {ctx.author.display_name}'s Message Stats",
-        description=(
-            f"{ctx.author.mention}\n\n"
-            f"📅 **Today**\n"
-            f"`{stats['today']:,}` messages\n\n"
-            f"📆 **Week**\n"
-            f"`{stats['week']:,}` messages\n\n"
-            f"🗓️ **Month**\n"
-            f"`{stats['month']:,}` messages\n\n"
-            f"💬 **All Time**\n"
-            f"`{stats['all']:,}` messages"
-        ),
-        color=discord.Color.blurple()
-    )
-
-    embed.set_thumbnail(
-        url=ctx.author.display_avatar.url
-    )
-
-    embed.set_footer(
-        text="Air Commander • Message Statistics"
-    )
-
-    await ctx.send(embed=embed)
-
-@app_commands.command(
-    name="message",
-    description="View your message statistics"
-)
-async def slash_message(
-    self,
-    interaction: discord.Interaction
-):
-
-    if not interaction.guild:
         await interaction.response.send_message(
-            "This command can only be used inside a server.",
-            ephemeral=True
+            embed=embed
         )
-        return
 
-    config = guild_config(
-        interaction.guild.id
-    )
-
-    user = user_data(
-        config,
-        interaction.user.id
-    )
-
-    stats = self.get_message_stats(user)
-
-    embed = discord.Embed(
-        title=f"💬 {interaction.user.display_name}'s Message Stats",
-        description=(
-            f"{interaction.user.mention}\n\n"
-            f"📅 **Today** — `{stats['today']:,}`\n"
-            f"📆 **Week** — `{stats['week']:,}`\n"
-            f"🗓️ **Month** — `{stats['month']:,}`\n"
-            f"💬 **All Time** — `{stats['all']:,}`"
-        ),
-        color=discord.Color.blurple()
-    )
-
-    embed.set_thumbnail(
-        url=interaction.user.display_avatar.url
-    )
-
-    embed.set_footer(
-        text="Air Commander • Message Statistics"
-    )
-
-    await interaction.response.send_message(
-        embed=embed
-    )
 
 # ============================================================
 # SETUP
