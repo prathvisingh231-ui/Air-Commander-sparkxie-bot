@@ -747,4 +747,296 @@ def setup(bot: commands.Bot):
                 )
             )
 
+        ```python
+# ============================================================
+# ✈️ AIR COMMANDER — CLEAR CHANNELS ADD-ON
+# Paste at the bottom of autochannel.py
+# Existing imports required:
+# import discord
+# from discord import app_commands
+# from discord.ext import commands
+# ============================================================
+
+class _ClearChannelsConfirm(discord.ui.View):
+    def __init__(self, guild_id, owner_id):
+        super().__init__(timeout=30)
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the command invoker can use these buttons.",
+                ephemeral=True,
+            )
+            return False
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Administrator permission is required.",
+                ephemeral=True,
+            )
+            return False
+
+        return True
+
+    @discord.ui.button(
+        label="Continue",
+        style=discord.ButtonStyle.danger,
+        emoji="⚠️",
+    )
+    async def continue_button(self, interaction, button):
+        view = _ClearChannelsFinal(
+            self.guild_id,
+            self.owner_id,
+        )
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="⚠️ FINAL CONFIRMATION",
+                description=(
+                    "This will delete **all server channels "
+                    "and categories**.\n\n"
+                    "This action cannot be automatically undone."
+                ),
+                color=discord.Color.red(),
+            ),
+            view=view,
+        )
+        self.stop()
+
+    @discord.ui.button(
+        label="Cancel",
+        style=discord.ButtonStyle.secondary,
+        emoji="✖️",
+    )
+    async def cancel_button(self, interaction, button):
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            content="Cancelled. Nothing was deleted.",
+            embed=None,
+            view=self,
+        )
+        self.stop()
+
+
+class _ClearChannelsFinal(discord.ui.View):
+    def __init__(self, guild_id, owner_id):
+        super().__init__(timeout=30)
+        self.guild_id = guild_id
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the command invoker can use these buttons.",
+                ephemeral=True,
+            )
+            return False
+
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "Administrator permission is required.",
+                ephemeral=True,
+            )
+            return False
+
+        return True
+
+    @discord.ui.button(
+        label="DELETE EVERYTHING",
+        style=discord.ButtonStyle.danger,
+        emoji="🗑️",
+    )
+    async def delete_button(self, interaction, button):
+        guild = interaction.guild
+
+        if guild is None or guild.id != self.guild_id:
+            return await interaction.response.send_message(
+                "Invalid server.",
+                ephemeral=True,
+            )
+
+        me = guild.me
+        if me is None or not me.guild_permissions.manage_channels:
+            return await interaction.response.send_message(
+                "Air Commander needs Manage Channels permission.",
+                ephemeral=True,
+            )
+
+        await interaction.response.defer(ephemeral=True)
+
+        for child in self.children:
+            child.disabled = True
+
+        try:
+            await interaction.message.edit(view=self)
+        except discord.HTTPException:
+            pass
+
+        # Delete regular channels first, categories last.
+        channels = list(guild.channels)
+        channels.sort(
+            key=lambda channel: isinstance(
+                channel, discord.CategoryChannel
+            )
+        )
+
+        deleted = 0
+        failed = []
+
+        for channel in channels:
+            try:
+                await channel.delete(
+                    reason=(
+                        f"Clear channels confirmed by "
+                        f"{interaction.user} ({interaction.user.id})"
+                    )
+                )
+                deleted += 1
+
+            except discord.NotFound:
+                continue
+
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failed.append(f"{channel.name}: {type(exc).__name__}")
+
+        result = discord.Embed(
+            title="✈️ Channel Cleanup Finished",
+            description=(
+                f"Deleted: **{deleted}**\n"
+                f"Failed: **{len(failed)}**\n\n"
+                "The server and its roles were not deleted."
+            ),
+            color=(
+                discord.Color.orange()
+                if failed
+                else discord.Color.green()
+            ),
+        )
+
+        if failed:
+            result.add_field(
+                name="Failed items",
+                value="\n".join(failed[:10]),
+                inline=False,
+            )
+
+        await interaction.followup.send(
+            embed=result,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Cancel",
+        style=discord.ButtonStyle.secondary,
+        emoji="✖️",
+    )
+    async def cancel_button(self, interaction, button):
+        for child in self.children:
+            child.disabled = True
+
+        await interaction.response.edit_message(
+            content="Cancelled. Nothing was deleted.",
+            embed=None,
+            view=self,
+        )
+        self.stop()
+
+
+# Call this from your EXISTING setup(bot) function.
+def register_clearchannels(bot: commands.Bot):
+
+    @bot.tree.command(
+        name="clearchannels",
+        description="Clear all server channels and categories",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def slash_clearchannels(interaction: discord.Interaction):
+        guild = interaction.guild
+
+        if guild is None:
+            return await interaction.response.send_message(
+                "Use this command inside a server.",
+                ephemeral=True,
+            )
+
+        me = guild.me
+        if me is None or not me.guild_permissions.manage_channels:
+            return await interaction.response.send_message(
+                "Air Commander needs Manage Channels permission.",
+                ephemeral=True,
+            )
+
+        channels = list(guild.channels)
+        categories = sum(
+            isinstance(c, discord.CategoryChannel)
+            for c in channels
+        )
+
+        view = _ClearChannelsConfirm(
+            guild.id,
+            interaction.user.id,
+        )
+
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title="⚠️ Clear All Channels?",
+                description=(
+                    f"Server: **{guild.name}**\n"
+                    f"Channels and categories: **{len(channels)}**\n"
+                    f"Categories: **{categories}**\n\n"
+                    "You will need to confirm twice. "
+                    "Deletion cannot be automatically undone."
+                ),
+                color=discord.Color.red(),
+            ),
+            view=view,
+            ephemeral=True,
+        )
+
+    @bot.command(name="clearchannels")
+    @commands.has_guild_permissions(administrator=True)
+    async def prefix_clearchannels(ctx):
+        guild = ctx.guild
+
+        if guild is None:
+            return await ctx.send(
+                "Use this command inside a server."
+            )
+
+        me = guild.me
+        if me is None or not me.guild_permissions.manage_channels:
+            return await ctx.send(
+                "Air Commander needs Manage Channels permission."
+            )
+
+        channels = list(guild.channels)
+        categories = sum(
+            isinstance(c, discord.CategoryChannel)
+            for c in channels
+        )
+
+        view = _ClearChannelsConfirm(
+            guild.id,
+            ctx.author.id,
+        )
+
+        await ctx.send(
+            embed=discord.Embed(
+                title="⚠️ Clear All Channels?",
+                description=(
+                    f"Server: **{guild.name}**\n"
+                    f"Channels and categories: **{len(channels)}**\n"
+                    f"Categories: **{categories}**\n\n"
+                    "You will need to confirm twice. "
+                    "Deletion cannot be automatically undone."
+                ),
+                color=discord.Color.red(),
+            ),
+            view=view,
+        )
+```
+
         await ctx.send(embed=_channel_result_embed(result))
