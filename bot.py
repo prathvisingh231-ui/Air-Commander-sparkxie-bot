@@ -1010,7 +1010,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
-        import autorolesetup
+import autorolesetup
 
 def _embed(title, description, color):
     e = discord.Embed(
