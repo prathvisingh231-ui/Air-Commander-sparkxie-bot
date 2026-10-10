@@ -747,7 +747,6 @@ def setup(bot: commands.Bot):
                 )
             )
 
-        ```python
 # ============================================================
 # ✈️ AIR COMMANDER — CLEAR CHANNELS ADD-ON
 # Paste at the bottom of autochannel.py
@@ -1037,6 +1036,6 @@ def register_clearchannels(bot: commands.Bot):
             ),
             view=view,
         )
-```
+
 
         await ctx.send(embed=_channel_result_embed(result))
