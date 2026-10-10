@@ -25,6 +25,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+import autorolesetup
 
 # =========================================================
 # CONFIGURATION
@@ -867,6 +868,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+import autorolesetup
 
 HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -1008,6 +1010,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+        import autorolesetup
 
 def _embed(title, description, color):
     e = discord.Embed(
@@ -1263,6 +1266,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+import autorolesetup
 import db
 
 def clean_embed(title, description="", color=None):
@@ -1329,6 +1333,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+import autorolesetup
 
 OWNER_ID = 1504354088538869892
 DB_URL = os.getenv("DATABASE_URL")
@@ -1674,6 +1679,7 @@ import welcome_autorole
 import giveaways
 import leveling
 import command_permissions
+import autorolesetup
 # security is embedded above
 
 
