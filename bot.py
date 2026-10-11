@@ -5202,6 +5202,329 @@ async def ar_message_listener(message: discord.Message):
 ar_load()
 print("✈️ Air Commander AutoResponder loaded.")
 
+# ============================================================
+# ✈️ AIR COMMANDER — AI CHAT SYSTEM
+# File: ai_chat.py
+# Database: PostgreSQL through existing db.py
+# ============================================================
+
+import os
+import asyncio
+import logging
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+from openai import AsyncOpenAI
+
+import db
+
+log = logging.getLogger("aircommander.ai")
+
+AI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+AI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+ai_client = AsyncOpenAI(api_key=AI_API_KEY) if AI_API_KEY else None
+
+AI_INSTRUCTIONS = """
+You are Air Commander AI, a helpful assistant inside a Discord server.
+Be friendly, clear, respectful and useful.
+Reply in the language used by the member when practical.
+Do not claim to have permissions or abilities you do not have.
+Keep answers readable in Discord.
+"""
+
+
+# ============================================================
+# DATABASE
+# ============================================================
+
+async def ensure_ai_table():
+    pool = getattr(db, "_pool", None)
+
+    if pool is None:
+        raise RuntimeError(
+            "Database pool is not initialized. "
+            "Initialize db.py before loading ai_chat.py."
+        )
+
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ai_chat_config (
+                guild_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+
+async def get_ai_channel(guild_id: int):
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return None
+
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            """
+            SELECT channel_id
+            FROM ai_chat_config
+            WHERE guild_id = $1
+            """,
+            guild_id,
+        )
+
+
+# ============================================================
+# SLASH COMMAND GROUPS
+# /ai channel set
+# /ai channel remove
+# ============================================================
+
+ai_group = app_commands.Group(
+    name="ai",
+    description="Air Commander AI chat settings",
+)
+
+channel_group = app_commands.Group(
+    name="channel",
+    description="Configure the AI chat channel",
+)
+
+
+@channel_group.command(
+    name="set",
+    description="Set the AI chat channel",
+)
+@app_commands.describe(channel="Select the channel where members can chat with AI")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def ai_channel_set(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "This command can only be used in a server.",
+            ephemeral=True,
+        )
+        return
+
+    if not channel.permissions_for(interaction.guild.me).send_messages:
+        await interaction.response.send_message(
+            "I cannot send messages in that channel. Check my permissions.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        pool = getattr(db, "_pool", None)
+        if pool is None:
+            await interaction.response.send_message(
+                "Database is not ready. Please try again shortly.",
+                ephemeral=True,
+            )
+            return
+
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO ai_chat_config (guild_id, channel_id, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (guild_id)
+                DO UPDATE SET
+                    channel_id = EXCLUDED.channel_id,
+                    updated_at = NOW()
+                """,
+                interaction.guild.id,
+                channel.id,
+            )
+
+        await interaction.response.send_message(
+            f"✅ AI chat channel set to {channel.mention}.\n"
+            "Members can now send messages there to chat with Air Commander AI.",
+            ephemeral=True,
+        )
+
+    except Exception:
+        log.exception("Failed to configure AI channel")
+        await interaction.response.send_message(
+            "❌ Could not save the AI channel. Check the database logs.",
+            ephemeral=True,
+        )
+
+
+@channel_group.command(
+    name="remove",
+    description="Disable AI chat for this server",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def ai_channel_remove(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "This command can only be used in a server.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        pool = getattr(db, "_pool", None)
+        if pool is None:
+            await interaction.response.send_message(
+                "Database is not ready. Please try again shortly.",
+                ephemeral=True,
+            )
+            return
+
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM ai_chat_config
+                WHERE guild_id = $1
+                """,
+                interaction.guild.id,
+            )
+
+        if result == "DELETE 0":
+            message = "ℹ️ AI chat was not configured for this server."
+        else:
+            message = "✅ AI chat channel removed. AI replies are now disabled."
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True,
+        )
+
+    except Exception:
+        log.exception("Failed to remove AI channel")
+        await interaction.response.send_message(
+            "❌ Could not remove the AI channel. Check the database logs.",
+            ephemeral=True,
+        )
+
+
+ai_group.add_command(channel_group)
+
+
+# ============================================================
+# AI CHAT COG
+# ============================================================
+
+class AIChat(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        # Short-term conversation context, isolated by server and member.
+        self.history = {}
+        self.user_locks = {}
+
+    async def cog_load(self):
+        # bot.py should initialize the database before loading this cog.
+        await self.bot.wait_until_ready()
+        await ensure_ai_table()
+        log.info("Air Commander AI Chat loaded.")
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.guild is None or message.author.bot:
+            return
+
+        if message.webhook_id is not None:
+            return
+
+        if ai_client is None:
+            return
+
+        configured_channel = await get_ai_channel(message.guild.id)
+
+        if configured_channel != message.channel.id:
+            return
+
+        # Prevent concurrent requests from the same member.
+        key = (message.guild.id, message.author.id)
+        lock = self.user_locks.setdefault(key, asyncio.Lock())
+
+        async with lock:
+            # Discord message content must be enabled in bot.py.
+            prompt = message.content.strip()
+
+            if not prompt and message.attachments:
+                prompt = (
+                    "The member sent an attachment. "
+                    "Explain that image/file understanding is not enabled "
+                    "in this prototype and ask them to describe it."
+                )
+
+            if not prompt:
+                return
+
+            # Keep requests and costs under control.
+            prompt = prompt[:4000]
+
+            history = self.history.get(key, [])
+            history = history[-10:]
+
+            history.append({
+                "role": "user",
+                "content": prompt,
+            })
+
+            try:
+                async with message.channel.typing():
+                    response = await ai_client.responses.create(
+                        model=AI_MODEL,
+                        instructions=AI_INSTRUCTIONS,
+                        input=history,
+                        max_output_tokens=700,
+                    )
+
+                answer = (response.output_text or "").strip()
+
+                if not answer:
+                    answer = "I couldn't generate a reply. Please try again."
+
+                # Store only recent turns in process memory.
+                history.append({
+                    "role": "assistant",
+                    "content": answer[:12000],
+                })
+                self.history[key] = history[-12:]
+
+                # Discord message limit is 2000 characters.
+                for start in range(0, len(answer), 1900):
+                    chunk = answer[start:start + 1900]
+                    await message.reply(
+                        chunk,
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+
+            except Exception:
+                log.exception("Air Commander AI request failed")
+                try:
+                    await message.reply(
+                        "⚠️ AI is temporarily unavailable. Please try again later.",
+                        mention_author=False,
+                        allowed_mentions=discord.AllowedMentions.none(),
+                    )
+                except discord.HTTPException:
+                    pass
+
+
+# ============================================================
+# EXTENSION SETUP
+# ============================================================
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(AIChat(bot))
+
+    # Register the command group without replacing existing commands.
+    if bot.tree.get_command("ai") is None:
+        bot.tree.add_command(ai_group)
+    else:
+        log.warning(
+            "An /ai command already exists. "
+            "Merge the channel subgroup into the existing group instead."
+        )
+
+
 
 # =========================================================
 # BOT STARTUP
