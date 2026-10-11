@@ -4640,6 +4640,569 @@ async def airscan(i):
         embed=e
     )
 
+
+# ============================================================
+# ✈️ AIR COMMANDER — AUTO RESPONDER
+# Prefix + Slash | Create / Edit / Delete / List / Test
+# Temporary JSON storage — PostgreSQL integration comes next
+# Paste BEFORE bot.run(...)
+# ============================================================
+
+import json
+import time
+from pathlib import Path
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+AR_DIR = Path("data")
+AR_DIR.mkdir(parents=True, exist_ok=True)
+AR_FILE = AR_DIR / "autoresponder.json"
+
+AR_RULES = {}
+AR_COOLDOWNS = {}
+AR_COOLDOWN_SECONDS = 3
+AR_MAX_RULES = 100
+
+
+def ar_load():
+    global AR_RULES
+
+    try:
+        with AR_FILE.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        AR_RULES = data if isinstance(data, dict) else {}
+
+    except FileNotFoundError:
+        AR_RULES = {}
+
+    except (json.JSONDecodeError, OSError) as error:
+        print(f"⚠️ AutoResponder load error: {error}")
+        AR_RULES = {}
+
+
+def ar_save():
+    temporary = AR_FILE.with_suffix(".tmp")
+
+    with temporary.open("w", encoding="utf-8") as file:
+        json.dump(AR_RULES, file, ensure_ascii=False, indent=2)
+
+    temporary.replace(AR_FILE)
+
+
+def ar_store(guild_id):
+    return AR_RULES.setdefault(
+        str(guild_id),
+        {"enabled": True, "rules": {}}
+    )
+
+
+def ar_normalize(text):
+    return " ".join(text.casefold().split())
+
+
+def ar_next_id(rules):
+    numbers = []
+
+    for rule_id in rules:
+        if rule_id.startswith("AR-"):
+            try:
+                numbers.append(int(rule_id[3:]))
+            except ValueError:
+                pass
+
+    return f"AR-{max(numbers, default=0) + 1:03d}"
+
+
+def ar_embed(title, description):
+    embed = discord.Embed(
+        title=f"✈️ {title}",
+        description=description,
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
+    )
+    embed.set_footer(text="Air Commander • AutoResponder")
+    return embed
+
+
+def ar_is_admin(member):
+    permissions = member.guild_permissions
+    return permissions.administrator or permissions.manage_guild
+
+
+async def ar_deny(interaction):
+    message = (
+        "❌ You need **Manage Server** or "
+        "**Administrator** permission."
+    )
+
+    if interaction.response.is_done():
+        await interaction.followup.send(
+            message, ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            message, ephemeral=True
+        )
+
+
+# ------------------------------------------------------------
+# PREFIX COMMANDS
+# ------------------------------------------------------------
+
+@bot.group(name="autoresponder", aliases=["ar"],
+           invoke_without_command=True)
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def autoresponder(ctx):
+    await ctx.send(embed=ar_embed(
+        "AutoResponder Help",
+        "**Create:** `,autoresponder create hello | Hi there!`\n"
+        "**Edit:** `,autoresponder edit AR-001 hello | Hello!`\n"
+        "**Delete:** `,autoresponder delete AR-001`\n"
+        "**List:** `,autoresponder list`\n"
+        "**Test:** `,autoresponder test hello everyone`\n"
+        "**Enable:** `,autoresponder enable`\n"
+        "**Disable:** `,autoresponder disable`\n\n"
+        "Slash commands are also available under `/autoresponder`."
+    ))
+
+
+@autoresponder.command(name="create")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_create(ctx, *, content: str):
+    if "|" not in content:
+        return await ctx.send(
+            "Usage: `,autoresponder create trigger | response`"
+        )
+
+    trigger, response = map(str.strip, content.split("|", 1))
+
+    if not trigger or not response:
+        return await ctx.send("Trigger and response are required.")
+
+    if len(trigger) > 100 or len(response) > 1800:
+        return await ctx.send("Trigger max: 100; response max: 1800 characters.")
+
+    store = ar_store(ctx.guild.id)
+    rules = store["rules"]
+
+    if len(rules) >= AR_MAX_RULES:
+        return await ctx.send("This server has reached 100 rules.")
+
+    if any(ar_normalize(r["trigger"]) == ar_normalize(trigger)
+           for r in rules.values()):
+        return await ctx.send("That trigger already exists.")
+
+    rule_id = ar_next_id(rules)
+    rules[rule_id] = {
+        "trigger": trigger,
+        "response": response
+    }
+
+    try:
+        ar_save()
+    except OSError as error:
+        rules.pop(rule_id, None)
+        return await ctx.send(f"Could not save rule: `{error}`")
+
+    await ctx.send(embed=ar_embed(
+        "Rule Created",
+        f"**ID:** `{rule_id}`\n"
+        f"**Trigger:** `{trigger}`\n"
+        f"**Response:** {response}"
+    ))
+
+
+@autoresponder.command(name="edit")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_edit(ctx, rule_id: str, *, content: str):
+    store = ar_store(ctx.guild.id)
+    rule_id = rule_id.upper()
+    rule = store["rules"].get(rule_id)
+
+    if not rule:
+        return await ctx.send("Rule not found. Use `,autoresponder list`.")
+
+    if "|" not in content:
+        return await ctx.send(
+            "Usage: `,autoresponder edit AR-001 trigger | response`"
+        )
+
+    trigger, response = map(str.strip, content.split("|", 1))
+
+    if not trigger or not response:
+        return await ctx.send("Trigger and response are required.")
+
+    if len(trigger) > 100 or len(response) > 1800:
+        return await ctx.send("Trigger max: 100; response max: 1800 characters.")
+
+    if any(key != rule_id and
+           ar_normalize(value["trigger"]) == ar_normalize(trigger)
+           for key, value in store["rules"].items()):
+        return await ctx.send("Another rule already uses that trigger.")
+
+    old_rule = dict(rule)
+    rule.update({"trigger": trigger, "response": response})
+
+    try:
+        ar_save()
+    except OSError as error:
+        rule.clear()
+        rule.update(old_rule)
+        return await ctx.send(f"Could not save edit: `{error}`")
+
+    await ctx.send(embed=ar_embed(
+        "Rule Updated",
+        f"**ID:** `{rule_id}`\n"
+        f"**Trigger:** `{trigger}`\n"
+        f"**Response:** {response}"
+    ))
+
+
+@autoresponder.command(name="delete", aliases=["remove"])
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_delete(ctx, rule_id: str):
+    store = ar_store(ctx.guild.id)
+    rule_id = rule_id.upper()
+    rule = store["rules"].pop(rule_id, None)
+
+    if not rule:
+        return await ctx.send("Rule not found.")
+
+    try:
+        ar_save()
+    except OSError as error:
+        store["rules"][rule_id] = rule
+        return await ctx.send(f"Could not save deletion: `{error}`")
+
+    AR_COOLDOWNS.pop((ctx.guild.id, rule_id), None)
+    await ctx.send(f"✅ Deleted `{rule_id}` — **{rule['trigger']}**")
+
+
+@autoresponder.command(name="list")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_list(ctx):
+    store = ar_store(ctx.guild.id)
+    rules = store["rules"]
+
+    if not rules:
+        return await ctx.send("No rules configured yet.")
+
+    lines = [
+        f"**{rid}** — `{rule['trigger']}` → "
+        f"{rule['response'][:100]}"
+        for rid, rule in list(rules.items())[:40]
+    ]
+
+    status = "Enabled" if store.get("enabled", True) else "Disabled"
+    await ctx.send(embed=ar_embed(
+        f"Rules • {status}", "\n".join(lines)
+    ))
+
+
+@autoresponder.command(name="test")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_test(ctx, *, message: str):
+    store = ar_store(ctx.guild.id)
+    normalized = ar_normalize(message)
+
+    for rid, rule in store["rules"].items():
+        if ar_normalize(rule["trigger"]) in normalized:
+            return await ctx.send(embed=ar_embed(
+                "Test Match",
+                f"Matched `{rid}`\n"
+                f"**Trigger:** {rule['trigger']}\n"
+                f"**Response:** {rule['response']}"
+            ))
+
+    await ctx.send("No matching rule found.")
+
+
+@autoresponder.command(name="enable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_enable(ctx):
+    store = ar_store(ctx.guild.id)
+    store["enabled"] = True
+    ar_save()
+    await ctx.send("✅ AutoResponder enabled.")
+
+
+@autoresponder.command(name="disable")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def ar_disable(ctx):
+    store = ar_store(ctx.guild.id)
+    store["enabled"] = False
+    ar_save()
+    await ctx.send("⏸️ AutoResponder disabled.")
+
+
+# ------------------------------------------------------------
+# SLASH COMMANDS
+# ------------------------------------------------------------
+
+ar_slash = app_commands.Group(
+    name="autoresponder",
+    description="Manage Air Commander automatic replies"
+)
+
+
+@ar_slash.command(name="create", description="Create a response rule")
+@app_commands.describe(trigger="Word or phrase to detect",
+                       response="Automatic reply text")
+async def ar_slash_create(interaction: discord.Interaction,
+                          trigger: str, response: str):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    trigger, response = trigger.strip(), response.strip()
+
+    if not trigger or not response or len(trigger) > 100 or len(response) > 1800:
+        return await interaction.response.send_message(
+            "Trigger max: 100 characters; response max: 1800 characters.",
+            ephemeral=True
+        )
+
+    rules = ar_store(interaction.guild_id)["rules"]
+
+    if len(rules) >= AR_MAX_RULES:
+        return await interaction.response.send_message(
+            "This server has reached 100 rules.", ephemeral=True
+        )
+
+    if any(ar_normalize(r["trigger"]) == ar_normalize(trigger)
+           for r in rules.values()):
+        return await interaction.response.send_message(
+            "That trigger already exists.", ephemeral=True
+        )
+
+    rid = ar_next_id(rules)
+    rules[rid] = {"trigger": trigger, "response": response}
+
+    try:
+        ar_save()
+    except OSError as error:
+        rules.pop(rid, None)
+        return await interaction.response.send_message(
+            f"Save failed: `{error}`", ephemeral=True
+        )
+
+    await interaction.response.send_message(
+        embed=ar_embed("Rule Created",
+                       f"**ID:** `{rid}`\n**Trigger:** `{trigger}`\n"
+                       f"**Response:** {response}"),
+        ephemeral=True
+    )
+
+
+@ar_slash.command(name="edit", description="Edit a response rule")
+async def ar_slash_edit(interaction: discord.Interaction,
+                        rule_id: str, trigger: str, response: str):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    store = ar_store(interaction.guild_id)
+    rid = rule_id.upper()
+    rule = store["rules"].get(rid)
+    trigger, response = trigger.strip(), response.strip()
+
+    if not rule:
+        return await interaction.response.send_message(
+            "Rule not found.", ephemeral=True
+        )
+
+    if not trigger or not response or len(trigger) > 100 or len(response) > 1800:
+        return await interaction.response.send_message(
+            "Invalid trigger or response length.", ephemeral=True
+        )
+
+    if any(key != rid and ar_normalize(value["trigger"]) == ar_normalize(trigger)
+           for key, value in store["rules"].items()):
+        return await interaction.response.send_message(
+            "Another rule already uses that trigger.", ephemeral=True
+        )
+
+    old_rule = dict(rule)
+    rule.update({"trigger": trigger, "response": response})
+
+    try:
+        ar_save()
+    except OSError as error:
+        rule.clear()
+        rule.update(old_rule)
+        return await interaction.response.send_message(
+            f"Save failed: `{error}`", ephemeral=True
+        )
+
+    await interaction.response.send_message(
+        f"✅ Updated `{rid}`.", ephemeral=True
+    )
+
+
+@ar_slash.command(name="delete", description="Delete a response rule")
+@app_commands.describe(rule_id="Rule ID, e.g. AR-001")
+async def ar_slash_delete(interaction: discord.Interaction, rule_id: str):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    store = ar_store(interaction.guild_id)
+    rid = rule_id.upper()
+    rule = store["rules"].pop(rid, None)
+
+    if not rule:
+        return await interaction.response.send_message(
+            "Rule not found.", ephemeral=True
+        )
+
+    try:
+        ar_save()
+    except OSError as error:
+        store["rules"][rid] = rule
+        return await interaction.response.send_message(
+            f"Save failed: `{error}`", ephemeral=True
+        )
+
+    AR_COOLDOWNS.pop((interaction.guild_id, rid), None)
+    await interaction.response.send_message(
+        f"✅ Deleted `{rid}`.", ephemeral=True
+    )
+
+
+@ar_slash.command(name="list", description="List this server's rules")
+async def ar_slash_list(interaction: discord.Interaction):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    store = ar_store(interaction.guild_id)
+    rules = store["rules"]
+
+    if not rules:
+        return await interaction.response.send_message(
+            "No rules configured.", ephemeral=True
+        )
+
+    lines = [
+        f"**{rid}** — `{rule['trigger']}` → {rule['response'][:100]}"
+        for rid, rule in list(rules.items())[:40]
+    ]
+
+    await interaction.response.send_message(
+        embed=ar_embed("AutoResponder Rules", "\n".join(lines)),
+        ephemeral=True
+    )
+
+
+@ar_slash.command(name="test", description="Test a message against rules")
+@app_commands.describe(message="Message to test")
+async def ar_slash_test(interaction: discord.Interaction, message: str):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    store = ar_store(interaction.guild_id)
+    normalized = ar_normalize(message)
+
+    for rid, rule in store["rules"].items():
+        if ar_normalize(rule["trigger"]) in normalized:
+            return await interaction.response.send_message(
+                embed=ar_embed(
+                    "Test Match",
+                    f"Matched `{rid}`\n**Response:** {rule['response']}"
+                ),
+                ephemeral=True
+            )
+
+    await interaction.response.send_message(
+        "No matching rule.", ephemeral=True
+    )
+
+
+@ar_slash.command(name="enable", description="Enable automatic replies")
+async def ar_slash_enable(interaction: discord.Interaction):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    ar_store(interaction.guild_id)["enabled"] = True
+    ar_save()
+    await interaction.response.send_message(
+        "✅ AutoResponder enabled.", ephemeral=True
+    )
+
+
+@ar_slash.command(name="disable", description="Disable automatic replies")
+async def ar_slash_disable(interaction: discord.Interaction):
+    if not interaction.guild or not ar_is_admin(interaction.user):
+        return await ar_deny(interaction)
+
+    ar_store(interaction.guild_id)["enabled"] = False
+    ar_save()
+    await interaction.response.send_message(
+        "⏸️ AutoResponder disabled.", ephemeral=True
+    )
+
+
+# Register the slash group only once.
+if not bot.tree.get_command("autoresponder"):
+    bot.tree.add_command(ar_slash)
+
+
+# ------------------------------------------------------------
+# AUTOMATIC REPLY LISTENER
+# Use bot.listen so existing on_message handlers are preserved.
+# ------------------------------------------------------------
+
+@bot.listen("on_message")
+async def ar_message_listener(message: discord.Message):
+    if message.author.bot or not message.guild or not message.content:
+        return
+
+    store = AR_RULES.get(str(message.guild.id))
+
+    if not store or not store.get("enabled", True):
+        return
+
+    content = ar_normalize(message.content)
+
+    for rid, rule in list(store.get("rules", {}).items()):
+        trigger = ar_normalize(rule.get("trigger", ""))
+
+        if not trigger or trigger not in content:
+            continue
+
+        key = (message.guild.id, rid)
+        now = time.monotonic()
+
+        if now - AR_COOLDOWNS.get(key, 0) < AR_COOLDOWN_SECONDS:
+            return
+
+        AR_COOLDOWNS[key] = now
+
+        try:
+            await message.reply(
+                rule["response"],
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+        except discord.Forbidden:
+            pass
+        except discord.HTTPException as error:
+            print(f"⚠️ AutoResponder send error: {error}")
+
+        return
+
+
+ar_load()
+print("✈️ Air Commander AutoResponder loaded.")
+
+
 # =========================================================
 # BOT STARTUP
 # =========================================================
