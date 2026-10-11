@@ -27,6 +27,7 @@
 import os
 import json
 import time
+import asyncio
 from urllib.parse import urlparse
 from functools import wraps
 
@@ -268,11 +269,6 @@ async def init_db():
                     ALTER TABLE players
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
-                    ALTER TABLE guild_settings
-                    ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
-
-                    ALTER TABLE guild_settings
-                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
                 """)
 
                 # ====================================================
@@ -286,6 +282,12 @@ async def init_db():
                         data JSONB DEFAULT '{}'::jsonb,
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
+
+                    ALTER TABLE guild_settings
+                    ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb;
+
+                    ALTER TABLE guild_settings
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
                     ALTER TABLE guild_settings
                     ALTER COLUMN prefix SET DEFAULT ',';
@@ -733,6 +735,38 @@ async def init_db():
                         UNIQUE(guild_id,name)
                     );
 
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS id BIGSERIAL;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS name TEXT;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS response TEXT;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS embed_data JSONB DEFAULT '{}'::jsonb;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS command_name TEXT;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS usage TEXT;
+                    ALTER TABLE custom_commands
+                        ADD COLUMN IF NOT EXISTS prompt TEXT;
+
+                    -- Keep older central-schema rows usable by cmdmaker.py.
+                    UPDATE custom_commands
+                    SET command_name = COALESCE(NULLIF(command_name, ''), name),
+                        usage = COALESCE(usage, ''),
+                        prompt = COALESCE(prompt, response, '')
+                    WHERE command_name IS NULL OR usage IS NULL OR prompt IS NULL;
+
+                    ALTER TABLE custom_commands ALTER COLUMN name DROP NOT NULL;
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_commands_guild_name
+                        ON custom_commands(guild_id, name) WHERE name IS NOT NULL;
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_commands_guild_command_name
+                        ON custom_commands(guild_id, command_name) WHERE command_name IS NOT NULL;
+
                     CREATE INDEX IF NOT EXISTS idx_custom_commands_guild
                         ON custom_commands(guild_id);
                 """)
@@ -811,6 +845,22 @@ async def delete_guild_data(guild_id, key):
         DELETE FROM guild_data
         WHERE guild_id=$1 AND data_key=$2
     """, guild_id, key)
+
+
+async def save_feature_config(guild_id, feature, config):
+    """Persist any module configuration as JSONB under guild_data."""
+    feature = str(feature).strip().lower()
+    if not feature:
+        raise ValueError("feature must be a non-empty string")
+    return await save_guild_data(int(guild_id), f"config:{feature}", config)
+
+
+async def get_feature_config(guild_id, feature, default=None):
+    """Load a module configuration previously saved with save_feature_config."""
+    feature = str(feature).strip().lower()
+    if not feature:
+        raise ValueError("feature must be a non-empty string")
+    return await get_guild_data(int(guild_id), f"config:{feature}", default or {})
 
 
 # ============================================================
@@ -1035,22 +1085,37 @@ async def create_warning(
     reason,
     evidence="Not provided",
 ):
-    return await db_fetchrow("""
+    """Create a warning and return (case_code, total_warning_count).
+
+    This return contract matches bot.py's ,warn command.
+    Returns (None, 0) on database failure so the caller can fail safely.
+    """
+    row = await db_fetchrow("""
         INSERT INTO warnings(
-            guild_id,
-            user_id,
-            moderator_id,
-            reason,
-            evidence
+            guild_id, user_id, moderator_id, reason, evidence
         )
         VALUES($1,$2,$3,$4,$5)
-        RETURNING *
+        RETURNING id
     """, guild_id, user_id, moderator_id, reason, evidence)
+
+    if not row:
+        return None, 0
+
+    warning_id = int(row["id"])
+    count = await db_fetchval("""
+        SELECT COUNT(*)
+        FROM warnings
+        WHERE guild_id=$1 AND user_id=$2
+    """, guild_id, user_id)
+
+    if count is None:
+        return f"AC-W{warning_id:04d}", 0
+    return f"AC-W{warning_id:04d}", int(count)
 
 
 async def get_warnings(guild_id, user_id):
     return await db_fetch("""
-        SELECT *
+        SELECT *, ('AC-W' || LPAD(id::text, 4, '0')) AS case_code
         FROM warnings
         WHERE guild_id=$1 AND user_id=$2
         ORDER BY created_at DESC
