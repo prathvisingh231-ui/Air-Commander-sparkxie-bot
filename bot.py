@@ -2413,6 +2413,7 @@ async def _air_startup_loader(bot):
             ("giveaways", giveaways),           
             ("leveling",leveling),           
             ("command_permissions", command_permissions),
+             ("autorolesetup", autorolesetup), 
         ]
 
         loaded = 0
