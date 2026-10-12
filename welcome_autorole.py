@@ -4153,6 +4153,46 @@ class Welcome(commands.Cog):
 # ============================================================
 
 async def setup(bot):
-    await bot.add_cog(
-        Welcome(bot)
-    )
+    # Be safe on reconnect/reload: never register the same cog twice.
+    cog = bot.get_cog("Welcome")
+    if cog is None:
+        cog = Welcome(bot)
+        await bot.add_cog(cog)
+
+    # Explicitly ensure both app-command groups are on the tree. Some
+    # discord.py startup paths may load the cog while leaving class-level
+    # Group objects unregistered; merge missing children without duplicates.
+    for attribute in ("welcome_group", "selfrole_group"):
+        group = getattr(cog, attribute, None)
+        if not isinstance(group, app_commands.Group):
+            print(f"⚠️ Welcome/self-role group {attribute} is missing.", flush=True)
+            continue
+
+        existing = bot.tree.get_command(group.name)
+        if existing is None:
+            for child in group.commands:
+                child.binding = cog
+            bot.tree.add_command(group)
+            print(f"✅ Registered /{group.name} command group.", flush=True)
+        elif isinstance(existing, app_commands.Group):
+            added = 0
+            for child in group.commands:
+                if existing.get_command(child.name) is None:
+                    child.binding = cog
+                    existing.add_command(child)
+                    added += 1
+            print(
+                f"✅ Verified /{group.name}: merged {added} missing subcommand(s).",
+                flush=True,
+            )
+        else:
+            print(
+                f"❌ Cannot register /{group.name}: a non-group command uses that name.",
+                flush=True,
+            )
+
+    # Re-register persistent self-role buttons after reconnects.
+    try:
+        cog.register_persistent_selfroles()
+    except Exception as exc:
+        print(f"⚠️ Persistent self-role registration failed: {type(exc).__name__}: {exc}", flush=True)
