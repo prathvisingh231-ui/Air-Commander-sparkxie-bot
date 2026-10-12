@@ -31,6 +31,8 @@ Environment variables:
 - DISCORD_TOKEN
 - GUILD_ID (optional; recommended for instant slash-command sync during testing)
 - DATABASE_URL
+- OPENAI_API_KEY (required for the /ai chat command)
+- OPENAI_MODEL (optional; defaults to gpt-4o-mini)
 
 Render Postgres should be in the same region as the bot. Render provides an internal connection URL for same-region services; use that for the bot. citeturn0search1
 
