@@ -2886,7 +2886,7 @@ async def _air_json_snapshot_worker():
                     if await db.init_db():
                         bot._air_db_initialized = True
                         await db.restore_json_snapshots()
-                    _air_autoresponder_load()
+                        _air_autoresponder_load()
                         for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
                             importlib.reload(module)
                         welcome_cog = bot.get_cog("Welcome")
