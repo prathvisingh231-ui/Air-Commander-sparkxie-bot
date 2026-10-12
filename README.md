@@ -55,3 +55,10 @@ The existing `/ai prompt:` command remains available for private AI answers. Ser
 - `,ai channel remove` — prefix equivalent
 
 In the configured channel, members can mention **Air Commander** or reply to one of its messages to chat. The bot uses a short per-user cooldown and stores the channel setting in PostgreSQL, so it survives redeploys. The bot needs Message Content Intent enabled in code and in the Discord Developer Portal.
+
+
+### Slash-command troubleshooting
+
+- Set `GUILD_ID` in Render to the numeric ID of your test Discord server for fast guild command updates.
+- After deployment, the bot owner can run `,syncslash` inside the target server. It copies the current registered commands to that server, syncs them, and reports the commands Discord confirms.
+- The startup log now prints the actual commands fetched back from Discord after syncing, including the `/youtube` subcommands.
