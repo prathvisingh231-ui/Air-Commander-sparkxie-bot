@@ -4999,6 +4999,214 @@ async def airscan(i):
         embed=e
     )
 
+
+# ============================================================
+# AIR COMMANDER — AUTORESPONDER (PREFIX + SLASH)
+# Storage: data/autoresponder.json
+# ============================================================
+
+AIR_AUTORESPONDER_FILE = Path("data") / "autoresponder.json"
+AIR_AUTORESPONDER_DATA = {"guilds": {}}
+
+
+def _air_autoresponder_load():
+    AIR_AUTORESPONDER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not AIR_AUTORESPONDER_FILE.exists():
+        _air_autoresponder_save()
+        return
+    try:
+        with AIR_AUTORESPONDER_FILE.open("r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        if isinstance(loaded, dict) and isinstance(loaded.get("guilds"), dict):
+            AIR_AUTORESPONDER_DATA.clear()
+            AIR_AUTORESPONDER_DATA.update(loaded)
+    except (OSError, ValueError, TypeError) as exc:
+        print(f"⚠️ Autoresponder config could not be loaded: {type(exc).__name__}: {exc}", flush=True)
+
+
+def _air_autoresponder_save():
+    AIR_AUTORESPONDER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = AIR_AUTORESPONDER_FILE.with_suffix(".json.tmp")
+    with temp_path.open("w", encoding="utf-8") as handle:
+        json.dump(AIR_AUTORESPONDER_DATA, handle, ensure_ascii=False, indent=2)
+    os.replace(temp_path, AIR_AUTORESPONDER_FILE)
+
+
+def _air_autoresponder_rules(guild_id: int):
+    guilds = AIR_AUTORESPONDER_DATA.setdefault("guilds", {})
+    cfg = guilds.setdefault(str(guild_id), {"enabled": True, "rules": {}})
+    cfg.setdefault("enabled", True)
+    cfg.setdefault("rules", {})
+    return cfg
+
+
+_air_autoresponder_load()
+
+
+@bot.group(name="autoresponder", invoke_without_command=True)
+@commands.guild_only()
+async def prefix_autoresponder(ctx):
+    await ctx.send(
+        "✈️ Air Commander • Autoresponder\n"
+        ",autoresponder add <trigger> | <response>\n"
+        ",autoresponder remove <trigger>\n"
+        ",autoresponder list\n"
+        ",autoresponder enable / ,autoresponder disable\n"
+        "Triggers match case-insensitively."
+    )
+
+
+@prefix_autoresponder.command(name="add")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_autoresponder_add(ctx, *, pair: str):
+    if "|" not in pair:
+        return await ctx.send("Use: ,autoresponder add trigger | response")
+    trigger, response = (part.strip() for part in pair.split("|", 1))
+    if not trigger or not response:
+        return await ctx.send("Trigger and response are both required.")
+    if len(trigger) > 100 or len(response) > 1900:
+        return await ctx.send("Trigger limit is 100 characters and response limit is 1900.")
+    cfg = _air_autoresponder_rules(ctx.guild.id)
+    cfg["rules"][trigger.casefold()] = {"trigger": trigger, "response": response}
+    _air_autoresponder_save()
+    await ctx.send(f"Autoresponder saved for trigger: {trigger}")
+
+
+@prefix_autoresponder.command(name="remove")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_autoresponder_remove(ctx, *, trigger: str):
+    cfg = _air_autoresponder_rules(ctx.guild.id)
+    removed = cfg["rules"].pop(trigger.strip().casefold(), None)
+    if not removed:
+        return await ctx.send("That autoresponder trigger was not found.")
+    _air_autoresponder_save()
+    await ctx.send(f"Removed autoresponder trigger: {removed.get('trigger', trigger)}")
+
+
+@prefix_autoresponder.command(name="list")
+async def prefix_autoresponder_list(ctx):
+    cfg = _air_autoresponder_rules(ctx.guild.id)
+    rules = list(cfg["rules"].items())
+    if not rules:
+        return await ctx.send("No autoresponders configured for this server.")
+    lines = [f"- {item.get('trigger', key)} -> {item.get('response', '')[:120]}"
+             for key, item in rules[:20]]
+    await ctx.send("Autoresponder Rules\n" + "\n".join(lines))
+
+
+@prefix_autoresponder.command(name="enable")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_autoresponder_enable(ctx):
+    _air_autoresponder_rules(ctx.guild.id)["enabled"] = True
+    _air_autoresponder_save()
+    await ctx.send("Autoresponder enabled.")
+
+
+@prefix_autoresponder.command(name="disable")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_autoresponder_disable(ctx):
+    _air_autoresponder_rules(ctx.guild.id)["enabled"] = False
+    _air_autoresponder_save()
+    await ctx.send("Autoresponder disabled.")
+
+
+@bot.listen("on_message")
+async def _air_autoresponder_listener(message):
+    if not message.guild or message.author.bot or not message.content:
+        return
+    if message.content.startswith(","):
+        return
+    cfg = AIR_AUTORESPONDER_DATA.get("guilds", {}).get(str(message.guild.id), {})
+    if not cfg.get("enabled", True):
+        return
+    content = message.content.casefold()
+    for rule in cfg.get("rules", {}).values():
+        trigger = str(rule.get("trigger", "")).strip()
+        response = str(rule.get("response", "")).strip()
+        if trigger and response and trigger.casefold() in content:
+            try:
+                await message.channel.send(
+                    response[:2000],
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+            except discord.HTTPException as exc:
+                print(f"Autoresponder send failed: {type(exc).__name__}: {exc}", flush=True)
+            return
+
+
+_air_autoresponder_slash = app_commands.Group(
+    name="autoresponder",
+    description="Manage server autoresponder rules",
+)
+
+
+@_air_autoresponder_slash.command(name="add", description="Add an autoresponder trigger and response")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(trigger="Text that triggers the response", response="Message the bot should send")
+async def _air_autoresponder_slash_add(interaction: discord.Interaction, trigger: str, response: str):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    trigger, response = trigger.strip(), response.strip()
+    if not trigger or not response or len(trigger) > 100 or len(response) > 1900:
+        return await interaction.response.send_message("Trigger must be 1–100 characters and response 1–1900 characters.", ephemeral=True)
+    cfg = _air_autoresponder_rules(interaction.guild.id)
+    cfg["rules"][trigger.casefold()] = {"trigger": trigger, "response": response}
+    _air_autoresponder_save()
+    await interaction.response.send_message(f"Saved autoresponder for: {trigger}", ephemeral=True)
+
+
+@_air_autoresponder_slash.command(name="remove", description="Remove an autoresponder trigger")
+@app_commands.checks.has_permissions(manage_guild=True)
+@app_commands.describe(trigger="The trigger text to remove")
+async def _air_autoresponder_slash_remove(interaction: discord.Interaction, trigger: str):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    cfg = _air_autoresponder_rules(interaction.guild.id)
+    removed = cfg["rules"].pop(trigger.strip().casefold(), None)
+    if not removed:
+        return await interaction.response.send_message("Trigger not found.", ephemeral=True)
+    _air_autoresponder_save()
+    await interaction.response.send_message(f"Removed: {removed.get('trigger', trigger)}", ephemeral=True)
+
+
+@_air_autoresponder_slash.command(name="list", description="List autoresponder rules")
+async def _air_autoresponder_slash_list(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    cfg = _air_autoresponder_rules(interaction.guild.id)
+    rules = list(cfg["rules"].values())
+    result = "\n".join(f"- {r.get('trigger', '')} -> {r.get('response', '')[:120]}" for r in rules[:20])
+    await interaction.response.send_message(result or "No autoresponder rules configured.", ephemeral=True)
+
+
+@_air_autoresponder_slash.command(name="enable", description="Enable autoresponders")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def _air_autoresponder_slash_enable(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    _air_autoresponder_rules(interaction.guild.id)["enabled"] = True
+    _air_autoresponder_save()
+    await interaction.response.send_message("Autoresponder enabled.", ephemeral=True)
+
+
+@_air_autoresponder_slash.command(name="disable", description="Disable autoresponders")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def _air_autoresponder_slash_disable(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    _air_autoresponder_rules(interaction.guild.id)["enabled"] = False
+    _air_autoresponder_save()
+    await interaction.response.send_message("Autoresponder disabled.", ephemeral=True)
+
+
+if bot.tree.get_command("autoresponder") is None:
+    bot.tree.add_command(_air_autoresponder_slash)
+    print("Registered /autoresponder command group.", flush=True)
+else:
+    print("Autoresponder slash group already exists; leaving it untouched.", flush=True)
+
+
+
 # =========================================================
 # BOT STARTUP
 # =========================================================
