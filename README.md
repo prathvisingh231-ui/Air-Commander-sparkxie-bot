@@ -62,3 +62,18 @@ In the configured channel, members can mention **Air Commander** or reply to one
 - Set `GUILD_ID` in Render to the numeric ID of your test Discord server for fast guild command updates.
 - After deployment, the bot owner can run `,syncslash` inside the target server. It copies the current registered commands to that server, syncs them, and reports the commands Discord confirms.
 - The startup log now prints the actual commands fetched back from Discord after syncing, including the `/youtube` subcommands.
+
+
+## PostgreSQL persistence and recovery
+
+- Set `DATABASE_URL` in Render to a valid PostgreSQL connection string. Prefer the Render Postgres **internal** URL when the bot and database are in the same Render region. For Supabase, use a supported pooler URL if the direct host is not reachable from Render.
+- `,dbstatus` is an owner-only diagnostic. It reports whether the environment variable is present, whether PostgreSQL is connected, and how many JSON snapshots are stored. It never prints the connection string.
+- Legacy JSON-backed module files are backed up to the `air_json_snapshots` PostgreSQL table every 10 seconds and restored before feature modules initialize on the next deployment.
+- PostgreSQL-backed records such as warnings, game/player data, tickets, and giveaways continue using their own database tables. Keep the same database instance and `DATABASE_URL` between deployments; creating a new database starts with a new empty data store.
+- If `,dbstatus` reports that PostgreSQL is disconnected, check Render logs for the first `Database initialization attempt failed` error. Do not paste the full connection URL into chat or commit it to GitHub.
+
+## Slash command sync
+
+- Slash commands are synced globally so the same command set is available across servers.
+- `,syncslash` is an owner-only manual global sync and clears old guild-scoped copies in the server where it is run to prevent duplicate entries.
+- On startup, the bot also cleans stale guild-scoped copies across servers it has joined.
