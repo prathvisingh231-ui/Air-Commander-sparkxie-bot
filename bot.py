@@ -176,6 +176,199 @@ async def ai_chat(interaction: discord.Interaction, prompt: str):
             await interaction.followup.send(message, ephemeral=True)
 
 
+
+# =========================================================
+# AI CHANNEL CONFIGURATION + MENTION/REPLY CHAT
+# =========================================================
+
+# Cache avoids querying PostgreSQL on every message. The setting itself lives
+# in guild_settings.data so it survives bot restarts and redeploys.
+_air_ai_channel_cache = {}
+_air_ai_last_reply = {}
+_AIR_AI_COOLDOWN_SECONDS = 8
+
+
+async def _air_get_ai_channel_id(guild_id: int):
+    if guild_id in _air_ai_channel_cache:
+        return _air_ai_channel_cache[guild_id]
+    if not getattr(db, "_pool", None):
+        return None
+    try:
+        value = await db._pool.fetchval(
+            "SELECT data->>'ai_channel_id' FROM guild_settings WHERE guild_id=$1",
+            guild_id,
+        )
+        channel_id = int(value) if value else None
+        _air_ai_channel_cache[guild_id] = channel_id
+        return channel_id
+    except Exception as exc:
+        print(f"AI channel config read failed: {type(exc).__name__}: {exc}")
+        return None
+
+
+async def _air_set_ai_channel(guild_id: int, channel_id: int):
+    if not getattr(db, "_pool", None):
+        return False
+    try:
+        await db._pool.execute(
+            """
+            INSERT INTO guild_settings (guild_id, prefix, data)
+            VALUES ($1, ',', jsonb_build_object('ai_channel_id', $2::bigint))
+            ON CONFLICT (guild_id) DO UPDATE
+            SET data = COALESCE(guild_settings.data, '{}'::jsonb)
+                       || jsonb_build_object('ai_channel_id', $2::bigint),
+                updated_at = NOW()
+            """,
+            guild_id, channel_id,
+        )
+        _air_ai_channel_cache[guild_id] = channel_id
+        return True
+    except Exception as exc:
+        print(f"AI channel config save failed: {type(exc).__name__}: {exc}")
+        return False
+
+
+async def _air_remove_ai_channel(guild_id: int):
+    if not getattr(db, "_pool", None):
+        return False
+    try:
+        await db._pool.execute(
+            """
+            INSERT INTO guild_settings (guild_id, prefix, data)
+            VALUES ($1, ',', '{}'::jsonb)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET data = COALESCE(guild_settings.data, '{}'::jsonb) - 'ai_channel_id',
+                updated_at = NOW()
+            """,
+            guild_id,
+        )
+        _air_ai_channel_cache[guild_id] = None
+        return True
+    except Exception as exc:
+        print(f"AI channel config removal failed: {type(exc).__name__}: {exc}")
+        return False
+
+
+async def _air_generate_ai_reply(prompt: str, *, conversational: bool = False):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured")
+
+    client = AsyncOpenAI(api_key=api_key)
+    try:
+        instructions = (
+            "You are Air Commander, a friendly and natural Discord server bot. "
+            "Reply like a helpful chat assistant, not a formal essay. The server may "
+            "chat in Hinglish or Hindi, so naturally match the user's language and tone. "
+            "Keep casual replies short, warm, and relevant. Do not claim to have performed "
+            "Discord actions unless a tool actually did so."
+        )
+        if conversational:
+            instructions += (
+                " This is a casual Discord conversation. Answer the message directly; "
+                "greetings should receive a friendly greeting. Avoid unnecessary lists "
+                "or long explanations."
+            )
+        response = await client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            instructions=instructions,
+            input=(prompt or "Say hello in a friendly way.")[:6000],
+            max_output_tokens=500 if conversational else 900,
+        )
+        answer = (response.output_text or "").strip()
+        return answer or "Arre, abhi reply generate nahi hua 😅 Ek baar phir try karo."
+    finally:
+        await client.close()
+
+
+@bot.tree.command(
+    name="ai-channel-set",
+    description="Set the channel where Air Commander chats when mentioned or replied to",
+)
+@app_commands.describe(channel="Text channel where AI chat should be enabled")
+async def ai_channel_set(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.guild:
+        return await interaction.response.send_message(
+            "Ye command server ke andar use karo.", ephemeral=True
+        )
+    if not interaction.user.guild_permissions.manage_guild:
+        return await interaction.response.send_message(
+            "❌ Is command ke liye **Manage Server** permission chahiye.", ephemeral=True
+        )
+    if not await _air_set_ai_channel(interaction.guild.id, channel.id):
+        return await interaction.response.send_message(
+            "❌ Database available nahi hai. DATABASE_URL aur Render logs check karo.",
+            ephemeral=True,
+        )
+    await interaction.response.send_message(
+        f"✅ AI chat channel set ho gaya: {channel.mention}\n"
+        "Ab members is channel mein mujhe mention ya mere message ka reply karke chat kar sakte hain.",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(
+    name="ai-channel-remove",
+    description="Disable mention/reply AI chat for this server",
+)
+async def ai_channel_remove(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message(
+            "Ye command server ke andar use karo.", ephemeral=True
+        )
+    if not interaction.user.guild_permissions.manage_guild:
+        return await interaction.response.send_message(
+            "❌ Is command ke liye **Manage Server** permission chahiye.", ephemeral=True
+        )
+    if not await _air_remove_ai_channel(interaction.guild.id):
+        return await interaction.response.send_message(
+            "❌ Database available nahi hai. DATABASE_URL aur Render logs check karo.",
+            ephemeral=True,
+        )
+    await interaction.response.send_message(
+        "✅ Is server mein AI mention/reply chat disable kar diya gaya.",
+        ephemeral=True,
+    )
+
+
+@bot.group(name="ai", invoke_without_command=True)
+async def ai_prefix_group(ctx):
+    await ctx.send(
+        "🤖 **AI channel commands**\n"
+        "`,ai channel set #channel` — AI chat channel set karo\n"
+        "`,ai channel remove` — AI chat disable karo\n"
+        "Slash commands: `/ai-channel-set`, `/ai-channel-remove`"
+    )
+
+
+@ai_prefix_group.group(name="channel", invoke_without_command=True)
+async def ai_prefix_channel_group(ctx):
+    await ctx.send("Use `,ai channel set #channel` or `,ai channel remove`.")
+
+
+@ai_prefix_channel_group.command(name="set")
+@commands.has_guild_permissions(manage_guild=True)
+async def ai_prefix_channel_set(ctx, channel: discord.TextChannel):
+    if not ctx.guild:
+        return await ctx.send("❌ Ye command sirf server mein use ho sakti hai.")
+    if not await _air_set_ai_channel(ctx.guild.id, channel.id):
+        return await ctx.send("❌ Database unavailable hai. Render logs check karo.")
+    await ctx.send(
+        f"✅ AI chat channel set: {channel.mention}\n"
+        "Ab members mujhe mention ya mere message ka reply karke chat kar sakte hain."
+    )
+
+
+@ai_prefix_channel_group.command(name="remove")
+@commands.has_guild_permissions(manage_guild=True)
+async def ai_prefix_channel_remove(ctx):
+    if not ctx.guild:
+        return await ctx.send("❌ Ye command sirf server mein use ho sakti hai.")
+    if not await _air_remove_ai_channel(ctx.guild.id):
+        return await ctx.send("❌ Database unavailable hai. Render logs check karo.")
+    await ctx.send("✅ AI mention/reply chat disable kar diya gaya.")
+
+
 # =========================================================
 # PURGE / AFK / STEAL
 # =========================================================
@@ -3887,6 +4080,56 @@ async def on_message(message):
             )
         except discord.HTTPException:
             pass
+
+    # -----------------------------------------------------
+    # AI CHAT: configured channel + mention or reply to bot.
+    # -----------------------------------------------------
+    try:
+        configured_channel_id = await _air_get_ai_channel_id(message.guild.id)
+        in_ai_channel = configured_channel_id == message.channel.id
+
+        replied_to_bot = False
+        if message.reference and message.reference.message_id:
+            referenced = message.reference.resolved
+            if isinstance(referenced, discord.Message):
+                replied_to_bot = bool(bot.user and referenced.author.id == bot.user.id)
+            elif in_ai_channel:
+                try:
+                    referenced = await message.channel.fetch_message(message.reference.message_id)
+                    replied_to_bot = bool(bot.user and referenced.author.id == bot.user.id)
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    replied_to_bot = False
+
+        mentioned_bot = bool(bot.user and bot.user in message.mentions)
+        should_ai_reply = in_ai_channel and (mentioned_bot or replied_to_bot)
+
+        if should_ai_reply:
+            cooldown_key = (message.guild.id, message.author.id)
+            now = time.monotonic()
+            last_reply = _air_ai_last_reply.get(cooldown_key, 0)
+            if now - last_reply >= _AIR_AI_COOLDOWN_SECONDS:
+                bot_id = bot.user.id if bot.user else 0
+                prompt = re.sub(r"<@!?" + str(bot_id) + r">", "", message.content).strip()
+                _air_ai_last_reply[cooldown_key] = now
+                try:
+                    answer = await _air_generate_ai_reply(prompt, conversational=True)
+                    chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)]
+                    for chunk in chunks:
+                        await message.reply(
+                            chunk,
+                            mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+                except Exception as ai_exc:
+                    print(f"AI auto-reply failed: {type(ai_exc).__name__}: {ai_exc}")
+                    if not os.getenv("OPENAI_API_KEY"):
+                        await message.reply(
+                            "AI abhi configure nahi hai. Bot owner ko OPENAI_API_KEY set karni hogi.",
+                            mention_author=False,
+                            allowed_mentions=discord.AllowedMentions.none(),
+                        )
+    except Exception as ai_config_exc:
+        print(f"AI message handler error: {type(ai_config_exc).__name__}: {ai_config_exc}")
 
     try:
         await db.log_activity(
