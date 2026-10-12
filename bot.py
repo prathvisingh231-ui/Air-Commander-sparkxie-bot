@@ -2791,14 +2791,15 @@ async def database_status_prefix(ctx):
             snapshot_count = await db._pool.fetchval("SELECT COUNT(*) FROM air_json_snapshots")
         except Exception as exc:
             snapshot_count = f"query failed: {type(exc).__name__}"
+    safe_error = getattr(db, "_last_init_error", None) or ("None" if connected else "No recorded error yet; inspect latest Render logs or restart the service.")
     await ctx.send(
         "🗄️ **Air Commander Database Status**\n"
-        f"• DATABASE_URL configured: **{'yes' if configured else 'NO'}**\n"
-        f"• PostgreSQL pool connected: **{'yes' if connected else 'NO'}**\n"
+        f"• DATABASE_URL configured: **{str(configured)}**\n"
+        f"• PostgreSQL pool connected: **{str(connected)}**\n"
         f"• Saved JSON snapshots: **{snapshot_count}**\n"
+        f"• Last connection error: `{safe_error[:700]}`\n"
         "Connection credentials are never displayed."
     )
-
 
 async def _air_json_snapshot_worker():
     """Persist legacy JSON-backed module state and retry transient DB failures."""
