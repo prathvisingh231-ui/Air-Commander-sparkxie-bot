@@ -40,6 +40,7 @@ from discord.ext import commands
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 _pool = None
+_last_init_error = None
 
 
 # ============================================================
@@ -119,13 +120,15 @@ def json_dump(value):
 # ============================================================
 
 async def init_db():
-    global _pool
+    global _pool, _last_init_error
+    _last_init_error = None
 
     if _pool:
         return True
 
     database_url = (os.getenv("DATABASE_URL") or DATABASE_URL or "").strip()
     if not database_url:
+        _last_init_error = "DATABASE_URL is missing or empty in this running service."
         print("❌ DATABASE_URL is missing/empty in the running Render service environment.")
         print("   Add the Render Postgres INTERNAL connection URL to the bot service's DATABASE_URL variable.")
         return False
@@ -136,11 +139,13 @@ async def init_db():
 
     parsed = urlparse(database_url)
     if not parsed.hostname or not parsed.path.strip("/"):
+        _last_init_error = "DATABASE_URL format is invalid; expected a PostgreSQL connection URL."
         print("❌ DATABASE_URL format is invalid. Expected postgresql://USER:PASSWORD@HOST:PORT/DATABASE.")
         return False
     host = (parsed.hostname or "").lower()
 
     if host.startswith("db.") and host.endswith(".supabase.co"):
+        _last_init_error = "Supabase direct database host detected. Use the project Session Pooler URL."
         print(
             "❌ Supabase direct database URL detected. "
             "Use the Session Pooler connection string."
@@ -813,6 +818,7 @@ async def init_db():
             return True
 
         except Exception as exc:
+            _last_init_error = f"{type(exc).__name__}: {str(exc)[:500]}"
             print(
                 f"❌ Database initialization attempt {attempt} failed: "
                 f"{type(exc).__name__}: {exc}",
@@ -831,6 +837,8 @@ async def init_db():
             if attempt < 3:
                 await asyncio.sleep(3)
 
+    if not _last_init_error:
+        _last_init_error = "PostgreSQL initialization failed after 3 attempts; see Render logs."
     print("❌ PostgreSQL initialization failed after 3 attempts.")
     return False
 
