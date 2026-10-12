@@ -2528,44 +2528,43 @@ async def on_ready():
 
     # =====================================================
     # FINAL SLASH SYNC
-    # Some systems register commands during on_ready.
-    # Sync once more after those systems are initialized.
+    # Re-copy the complete global tree at READY time. This catches
+    # commands registered by feature modules after setup_hook started.
     # =====================================================
     if not getattr(bot, "_air_final_sync_done", False):
         try:
             if GUILD_ID:
                 guild_id = int(GUILD_ID)
                 guild = discord.Object(id=guild_id)
+                bot.tree.copy_global_to(guild=guild)
                 guild_synced = await bot.tree.sync(guild=guild)
+                remote = await bot.tree.fetch_commands(guild=guild)
                 print(
-                    f"⚡ Final guild slash sync: "
-                    f"{len(guild_synced)} commands "
+                    f"⚡ Final guild slash sync: {len(guild_synced)} commands "
                     f"(Guild ID: {guild_id})"
                 )
+                print("📋 Commands confirmed on Discord:")
+                for command in sorted(remote, key=lambda item: item.name):
+                    if command.name == "youtube" and getattr(command, "options", None):
+                        children = ", ".join(option.name for option in command.options)
+                        print(f"   └─ /youtube ({children})")
+                    else:
+                        print(f"   └─ /{command.name}")
+            else:
+                global_synced = await bot.tree.sync()
+                print(
+                    f"🌍 Final global slash sync: {len(global_synced)} commands. "
+                    "Set GUILD_ID in Render for immediate guild sync."
+                )
 
-            global_synced = await bot.tree.sync()
-            print(
-                f"🌍 Final global slash sync: "
-                f"{len(global_synced)} commands"
-            )
-
-            print("\n📋 FINAL REGISTERED SLASH COMMANDS:")
-            for command in sorted(
-                bot.tree.get_commands(),
-                key=lambda command: command.name
-            ):
-                print(f"   └─ /{command.name}")
-
-            print(
-                f"✅ Final slash command count: "
-                f"{len(bot.tree.get_commands())}"
-            )
+            print(f"✅ Final local slash roots: {len(bot.tree.get_commands())}")
             bot._air_final_sync_done = True
 
         except Exception as exc:
+            bot._air_final_sync_done = False
             print(
-                f"⚠️ Final slash sync failed: "
-                f"{type(exc).__name__}: {exc}"
+                f"❌ Final slash sync failed: {type(exc).__name__}: {exc}",
+                flush=True,
             )
 
 async def _air_startup_loader(bot):
@@ -2746,6 +2745,53 @@ async def _air_startup_loader(bot):
 # setup_hook is implemented by AirCommanderBot above.
 # Do NOT assign bot.setup_hook = setup_hook here.
 # =========================================================
+
+
+
+# =========================================================
+# OWNER DIAGNOSTIC: FORCE SLASH COMMAND SYNC
+# Usage: ,syncslash  (inside the target server)
+# =========================================================
+
+@bot.command(name="syncslash")
+@commands.is_owner()
+async def sync_slash_commands_prefix(ctx):
+    if not ctx.guild:
+        return await ctx.send("❌ Is command ko target Discord server ke andar use karo.")
+
+    status = await ctx.send("🔄 Air Commander ke slash commands sync kar raha hoon...")
+    try:
+        target = discord.Object(id=ctx.guild.id)
+        bot.tree.copy_global_to(guild=target)
+        synced = await bot.tree.sync(guild=target)
+        remote = await bot.tree.fetch_commands(guild=target)
+
+        lines = []
+        for command in sorted(remote, key=lambda item: item.name):
+            if command.name == "youtube" and getattr(command, "options", None):
+                children = ", ".join(option.name for option in command.options)
+                lines.append(f"• `/youtube` — {children}")
+            else:
+                lines.append(f"• `/{command.name}`")
+
+        summary = (
+            f"✅ **Sync successful**\n"
+            f"Commands sent: **{len(synced)}**\n"
+            f"Commands confirmed by Discord: **{len(remote)}**\n\n"
+            + ("\n".join(lines[:35]) if lines else "Discord returned no commands.")
+        )
+        await status.edit(content=summary[:1900])
+        print(f"🛠️ Manual slash sync successful for guild {ctx.guild.id}: {len(remote)} remote commands")
+    except Exception as exc:
+        print(f"❌ Manual slash sync failed for guild {ctx.guild.id}: {type(exc).__name__}: {exc}", flush=True)
+        await status.edit(
+            content=(
+                f"❌ **Slash sync failed**\n"
+                f"Error: `{type(exc).__name__}`\n"
+                f"`{str(exc)[:900]}`\n\n"
+                "Check Render logs for the full error."
+            )
+        )
 
 
 # =========================================================
