@@ -43,3 +43,15 @@ Do not commit secrets or a local .env file. Use Render Environment Variables. �
 Enable the Server Members Intent in the Discord Developer Portal because GhostScan/member data uses the guild member cache.
 
 Invite the bot with the applications.commands scope and the permissions required by the features you enable.
+
+
+## AI chat channel
+
+The existing `/ai prompt:` command remains available for private AI answers. Server admins with **Manage Server** can also configure conversational AI in one text channel:
+
+- `/ai-channel-set channel:#your-channel` — enable AI chat in that channel
+- `/ai-channel-remove` — disable automatic AI chat for the server
+- `,ai channel set #your-channel` — prefix equivalent
+- `,ai channel remove` — prefix equivalent
+
+In the configured channel, members can mention **Air Commander** or reply to one of its messages to chat. The bot uses a short per-user cooldown and stores the channel setting in PostgreSQL, so it survives redeploys. The bot needs Message Content Intent enabled in code and in the Discord Developer Portal.
