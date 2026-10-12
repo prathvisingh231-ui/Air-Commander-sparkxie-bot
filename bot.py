@@ -2477,6 +2477,14 @@ async def on_ready():
                     await db.restore_json_snapshots()
                     for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
                         importlib.reload(module)
+                    welcome_cog = bot.get_cog("Welcome")
+                    if welcome_cog is not None:
+                        try:
+                            welcome_cog._persistent_views_loaded = False
+                            welcome_cog.register_persistent_selfroles()
+                            print("🎭 Persistent self-role panels re-registered after DB restore.", flush=True)
+                        except Exception as view_exc:
+                            print(f"⚠️ Self-role restore warning: {type(view_exc).__name__}: {view_exc}", flush=True)
                     print("♻️ File-backed modules reloaded from persistent PostgreSQL state.")
                 except Exception as restore_exc:
                     print(f"⚠️ JSON restore/reload warning: {type(restore_exc).__name__}: {restore_exc}", flush=True)
@@ -2590,7 +2598,19 @@ async def on_ready():
                 f"{failed_guilds} failed."
             )
 
+            local_roots = sorted(command.name for command in bot.tree.get_commands())
+            print(
+                "🧪 Local feature roots: "
+                + ", ".join(name for name in ("autoresponder", "youtube", "welcome", "selfrole") if name in local_roots)
+            )
+            missing_roots = [name for name in ("autoresponder", "youtube", "welcome", "selfrole") if name not in local_roots]
+            if missing_roots:
+                print(f"⚠️ Expected slash groups missing locally: {', '.join(missing_roots)}", flush=True)
             remote = await bot.tree.fetch_commands()
+            remote_names = {command.name for command in remote}
+            missing_remote = [name for name in ("autoresponder", "youtube", "welcome", "selfrole") if name in local_roots and name not in remote_names]
+            if missing_remote:
+                print(f"⚠️ Expected slash groups not confirmed by Discord: {', '.join(missing_remote)}", flush=True)
             print(f"📋 Commands confirmed by Discord globally: {len(remote)}")
             for command in sorted(remote, key=lambda item: item.name):
                 if command.name == "youtube" and getattr(command, "options", None):
@@ -2865,6 +2885,14 @@ async def _air_json_snapshot_worker():
                         await db.restore_json_snapshots()
                         for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
                             importlib.reload(module)
+                        welcome_cog = bot.get_cog("Welcome")
+                        if welcome_cog is not None:
+                            try:
+                                welcome_cog._persistent_views_loaded = False
+                                welcome_cog.register_persistent_selfroles()
+                                print("🎭 Persistent self-role panels re-registered after DB reconnect.", flush=True)
+                            except Exception as view_exc:
+                                print(f"⚠️ Self-role restore warning: {type(view_exc).__name__}: {view_exc}", flush=True)
                         print("🔁 PostgreSQL reconnected; persistent JSON state restored.", flush=True)
                 except Exception as exc:
                     print(f"⚠️ Database reconnect attempt failed: {type(exc).__name__}: {exc}", flush=True)
