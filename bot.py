@@ -4,9 +4,12 @@ import threading
 import asyncio
 import io
 import re
+import random
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from collections import defaultdict, deque
 
+import asyncpg
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -17,9 +20,7 @@ import games
 import basic_commands
 from owner_prefix import setup_owner_prefixless
 
-# =========================================================
-# CURRENT AIR COMMANDER MODULES (files present on main)
-# =========================================================
+# Current repository modules (all present on main)
 import autorolesetup
 import automation
 import cmdmaker
@@ -31,7 +32,6 @@ import snipe
 import welcome_autorole
 import youtube_alerts
 
-# =========================================================
 # CONFIGURATION
 # =========================================================
 
@@ -613,12 +613,6 @@ async def slash_steal(interaction: discord.Interaction, message_id: str | None =
 # =========================================================
 # EMBEDDED COMMAND MODULES
 # =========================================================
-import re
-import random
-import asyncio
-import discord
-from discord import app_commands
-import db
 
 
 MAX_PROMPT = 1800
@@ -859,33 +853,9 @@ def setup_cmdmaker(bot):
     setup_autosetup(bot)
     bot._air_load_custom_commands = load_custom_commands
 
-import re
-import discord
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
-import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
-import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics   
 
 HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -1012,33 +982,9 @@ def setup_autorolesetup(bot: commands.Bot):
         await ctx.send(embed=_embed("Auto Role Setup Complete", text, discord.Color.green()))
 
 
-import re
-import discord
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
-import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
-import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics
 
 def _embed(title, description, color):
     e = discord.Embed(
@@ -1280,33 +1226,9 @@ def setup_autosetup(bot: commands.Bot):
         )
 
 
-import discord
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
-import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
-import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics
-import db
 
 def clean_embed(title, description="", color=None):
     e = discord.Embed(title=f"✈️ {title}", description=description, color=color or discord.Color.blurple(), timestamp=discord.utils.utcnow())
@@ -1351,39 +1273,10 @@ def setup_moderation_extra(bot: commands.Bot):
     #.setup_autorolesetup(bot)
 
 
-import asyncio
-import os
-import re
-from collections import defaultdict, deque
-from datetime import timedelta
 
-import asyncpg
-import discord
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
-import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
-import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics 
 
 OWNER_ID = 1504354088538869892
 DB_URL = os.getenv("DATABASE_URL")
@@ -1714,33 +1607,9 @@ class AutoModGroup(app_commands.Group):
         await interaction.response.send_message(embed=embed("Automod disabled", "Message automod is now off."))
 
 
-import asyncpg
-import discord
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
-import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
-import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics
 # security is embedded above
 
 
@@ -1859,8 +1728,6 @@ if not getattr(bot, "_air_moderation_extra_loaded", False):
 # =========================================================
 # AIR COMMANDER • SPECIAL INTELLIGENCE SYSTEM
 # =========================================================
-from collections import defaultdict
-from datetime import timedelta
 
 SPECIAL_SNAPSHOT_CACHE = defaultdict(list)
 SPECIAL_LAST_ACTIVITY = {}
@@ -2464,56 +2331,63 @@ async def _air_startup_loader(bot):
     # 1. LOAD ALL FEATURE MODULES
     # =================================================
 
-    if not getattr(bot, "_air_feature_modules_loaded", False):
+    feature_modules = [
+        ("autorolesetup", autorolesetup),
+        ("automation", automation),
+        ("cmdmaker", cmdmaker),
+        ("command_permissions", command_permissions),
+        ("embed_builder", embed_builder),
+        ("giveaways", giveaways),
+        ("leveling", leveling),
+        ("snipe", snipe),
+        ("welcome_autorole", welcome_autorole),
+        ("youtube_alerts", youtube_alerts),
+    ]
 
-        feature_modules = [
-            ("autorolesetup", autorolesetup),
-            ("automation", automation),
-            ("cmdmaker", cmdmaker),
-            ("command_permissions", command_permissions),
-            ("embed_builder", embed_builder),
-            ("giveaways", giveaways),
-            ("leveling", leveling),
-            ("snipe", snipe),
-            ("welcome_autorole", welcome_autorole),
-            ("youtube_alerts", youtube_alerts),
-        ]
+    # Track modules individually: one failed setup must not mark every module loaded.
+    loaded_modules = getattr(bot, "_air_loaded_feature_modules", set())
+    failed = 0
+    loaded_now = 0
 
-        loaded = 0
-        failed = 0
+    print("🧩 Loading current feature modules...")
 
-        print("🧩 Loading feature modules...")
+    for module_name, module in feature_modules:
+        if module_name in loaded_modules:
+            print(f"ℹ️ {module_name} already loaded; skipping duplicate setup.")
+            continue
 
-        for module_name, module in feature_modules:
-            try:
-                setup = getattr(module, "setup", None)
+        try:
+            setup = getattr(module, "setup", None)
+            if not callable(setup):
+                raise AttributeError(f"{module_name}.setup(bot) is missing")
 
-                if setup is None:
-                    print(f"⚠️ {module_name}: setup() missing")
-                    failed += 1
-                    continue
+            # The repository has both sync setup(bot) and async setup(bot)
+            # functions, so call them directly instead of bot.load_extension().
+            result = setup(bot)
+            if asyncio.iscoroutine(result):
+                await result
 
-                result = setup(bot)
+            loaded_modules.add(module_name)
+            loaded_now += 1
+            print(f"✅ {module_name} loaded.")
 
-                if asyncio.iscoroutine(result):
-                    await result
+        except Exception as exc:
+            failed += 1
+            print(
+                f"❌ {module_name} failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
-                loaded += 1
-                print(f"✅ {module_name} loaded.")
+    bot._air_loaded_feature_modules = loaded_modules
+    bot._air_feature_modules_loaded = (
+        len(loaded_modules) == len(feature_modules)
+    )
 
-            except Exception as exc:
-                failed += 1
-                print(
-                    f"❌ {module_name} failed: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
-        bot._air_feature_modules_loaded = True
-
-        print(
-            f"🧩 Feature loading finished: "
-            f"{loaded} loaded, {failed} failed."
-        )
+    print(
+        f"🧩 Feature loading finished: "
+        f"{len(loaded_modules)}/{len(feature_modules)} loaded, "
+        f"{failed} failed this pass ({loaded_now} newly loaded)."
+    )
 
     # =================================================
     # 2. MODERATION / EMBEDDED SYSTEMS
@@ -2614,7 +2488,6 @@ async def _air_startup_loader(bot):
 # Prefix: ,
 # =========================================================
 
-from datetime import datetime, timezone
 
 
 def prefix_embed(title, description="", color=discord.Color.blurple()):
