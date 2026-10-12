@@ -2551,12 +2551,16 @@ async def on_ready():
             # Publish one GLOBAL command set for every server.
             global_synced = await bot.tree.sync()
             print(f"🌍 Final global slash sync: {len(global_synced)} commands.")
-            # Remove stale guild-scoped copies to prevent duplicates.
-            if GUILD_ID:
-                guild = discord.Object(id=int(GUILD_ID))
-                bot.tree.clear_commands(guild=guild)
-                await bot.tree.sync(guild=guild)
-                print(f"🧹 Cleared stale guild command copies for {GUILD_ID}.")
+            # Remove stale guild-scoped copies from every connected server.
+            # The current command set is global; old guild copies cause duplicates.
+            cleaned_guilds = 0
+            for connected_guild in bot.guilds:
+                target_guild = discord.Object(id=connected_guild.id)
+                bot.tree.clear_commands(guild=target_guild)
+                await bot.tree.sync(guild=target_guild)
+                cleaned_guilds += 1
+            print(f"🧹 Cleared stale guild-scoped copies in {cleaned_guilds} server(s).")
+
             remote = await bot.tree.fetch_commands()
             print(f"📋 Commands confirmed by Discord globally: {len(remote)}")
             for command in sorted(remote, key=lambda item: item.name):
