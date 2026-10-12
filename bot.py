@@ -2801,10 +2801,23 @@ async def database_status_prefix(ctx):
 
 
 async def _air_json_snapshot_worker():
-    """Periodically back up legacy JSON configs to PostgreSQL."""
+    """Persist legacy JSON-backed module state and retry transient DB failures."""
+    last_db_retry = 0.0
     while not bot.is_closed():
         await asyncio.sleep(10)
         if not getattr(db, "_pool", None):
+            now = time.monotonic()
+            if (os.getenv("DATABASE_URL") or "").strip() and now - last_db_retry >= 60:
+                last_db_retry = now
+                try:
+                    if await db.init_db():
+                        bot._air_db_initialized = True
+                        await db.restore_json_snapshots()
+                        for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                            importlib.reload(module)
+                        print("🔁 PostgreSQL reconnected; persistent JSON state restored.", flush=True)
+                except Exception as exc:
+                    print(f"⚠️ Database reconnect attempt failed: {type(exc).__name__}: {exc}", flush=True)
             continue
         try:
             count = await db.save_json_snapshots()
