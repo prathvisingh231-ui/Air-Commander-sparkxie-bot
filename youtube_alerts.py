@@ -353,14 +353,32 @@ class YouTubeAlerts(commands.Cog):
                             break
                         new_videos.append(video)
 
+                    delivered_all = True
                     for video in new_videos:
-                        await send_alert(self.bot, guild, guild_cfg, tracked, video)
+                        delivered = await send_alert(self.bot, guild, guild_cfg, tracked, video)
+                        if not delivered:
+                            delivered_all = False
+                            print(
+                                f"⚠️ YouTube alert delivery failed: guild={guild.id}, "
+                                f"channel={yt_id}, video={video.get('video_id')}. "
+                                "Will retry on the next poll.",
+                                flush=True,
+                            )
+                            break
 
-                    tracked["last_video_id"] = latest_id
-                    tracked["name"] = tracked.get("name") or await get_channel_name(yt_id)
-                    save_data(DATA)
+                    # Do not advance the feed cursor when delivery fails. That
+                    # would permanently skip the upload before it was announced.
+                    if delivered_all:
+                        tracked["last_video_id"] = latest_id
+                        tracked["name"] = tracked.get("name") or await get_channel_name(yt_id)
+                        save_data(DATA)
 
-                except Exception:
+                except Exception as exc:
+                    print(
+                        f"⚠️ YouTube RSS poll failed: guild={guild_id}, "
+                        f"channel={yt_id}, {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
                     continue
 
     @youtube_loop.before_loop
@@ -880,7 +898,7 @@ def setup_slash_commands(bot: commands.Bot):
     existing = tree.get_command("youtube")
     if existing is None:
         tree.add_command(youtube)
-        print("📺 Registered /youtube slash-command group.")
+        print("📺 Registered /youtube slash-command group.", flush=True)
     elif isinstance(existing, app_commands.Group):
         added = 0
         for child in youtube.commands:
@@ -888,8 +906,15 @@ def setup_slash_commands(bot: commands.Bot):
                 existing.add_command(child)
                 added += 1
         print(
-            f"📺 Merged {added} missing subcommand(s) into existing /youtube group."
+            f"📺 Merged {added} missing subcommand(s) into existing /youtube group.",
+            flush=True,
         )
+        expected = ("setup", "add", "remove", "list", "enable", "disable", "test", "role", "channel", "message")
+        missing = [name for name in expected if existing.get_command(name) is None]
+        if missing:
+            print(f"⚠️ /youtube group still missing: {', '.join(missing)}", flush=True)
+        else:
+            print("✅ Verified /youtube slash subcommands and nested groups.", flush=True)
     else:
         raise TypeError(
             "A non-group slash command named 'youtube' already exists; "
