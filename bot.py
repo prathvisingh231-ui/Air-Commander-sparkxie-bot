@@ -1900,9 +1900,11 @@ class AntiNukeRollback(commands.Cog):
         return None
 
     async def _enabled_and_unauthorized(self, guild, entry):
-        if not (await security.cfg(guild.id)).get("antinuke_enabled"):
+        # Security helpers are module-level functions in this embedded implementation.
+        # Do not reference a `security` module that is not imported.
+        if not (await cfg(guild.id)).get("antinuke_enabled"):
             return False
-        return not await security.is_whitelisted(guild.id, entry.user.id)
+        return not await is_whitelisted(guild.id, entry.user.id)
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role):
