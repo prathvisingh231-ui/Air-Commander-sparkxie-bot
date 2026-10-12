@@ -2545,7 +2545,7 @@ async def on_ready():
 
     # =====================================================
     # FINAL SLASH SYNC
-    # Re-copy the complete global tree at READY time. This catches
+    # Publish the complete global tree at READY time. This catches
     # commands registered by feature modules after setup_hook started.
     # =====================================================
     if not getattr(bot, "_air_final_sync_done", False):
@@ -2560,6 +2560,17 @@ async def on_ready():
             failed_guilds = 0
             for connected_guild in bot.guilds:
                 target_guild = discord.Object(id=connected_guild.id)
+                # If PostgreSQL is offline and this tree is empty, custom
+                # commands cannot be restored; do not overwrite remote guild
+                # commands with an empty list.
+                local_guild_commands = bot.tree.get_commands(guild=target_guild)
+                if not local_guild_commands and not getattr(db, "_pool", None):
+                    print(
+                        f"⏭️ Skipping empty guild tree for {connected_guild.id}: "
+                        "database unavailable; preserving remote guild commands.",
+                        flush=True,
+                    )
+                    continue
                 try:
                     guild_synced = await bot.tree.sync(guild=target_guild)
                     synced_guilds += 1
@@ -2713,8 +2724,8 @@ async def _air_startup_loader(bot):
     print("=" * 60)
 
     try:
-        # Keep commands global so every server gets one copy, then remove
-        # stale guild-scoped copies left by earlier guild syncs.
+        # Publish the global command set. Guild-scoped trees are synchronized
+        # later, after database-backed custom commands have had a chance to load.
         synced = await bot.tree.sync()
         # Do not clear guild command trees here: database-backed custom
         # commands are restored later in on_ready and may be guild-scoped.
@@ -2773,6 +2784,14 @@ async def sync_slash_commands_prefix(ctx):
         guild_failed = 0
         for connected_guild in bot.guilds:
             target = discord.Object(id=connected_guild.id)
+            local_guild_commands = bot.tree.get_commands(guild=target)
+            if not local_guild_commands and not getattr(db, "_pool", None):
+                print(
+                    f"⏭️ Skipping empty guild tree for {connected_guild.id}: "
+                    "database unavailable; preserving remote guild commands.",
+                    flush=True,
+                )
+                continue
             try:
                 await bot.tree.sync(guild=target)
                 guild_synced += 1
