@@ -2553,15 +2553,31 @@ async def on_ready():
             # Publish one GLOBAL command set for every server.
             global_synced = await bot.tree.sync()
             print(f"🌍 Final global slash sync: {len(global_synced)} commands.")
-            # Remove stale guild-scoped copies from every connected server.
-            # The current command set is global; old guild copies cause duplicates.
-            cleaned_guilds = 0
+            # Sync each guild tree after feature/custom-command loading.
+            # discord.py sync publishes the registered guild-specific commands;
+            # avoid clear_commands(), which also erases valid custom commands.
+            synced_guilds = 0
+            failed_guilds = 0
             for connected_guild in bot.guilds:
                 target_guild = discord.Object(id=connected_guild.id)
-                bot.tree.clear_commands(guild=target_guild)
-                await bot.tree.sync(guild=target_guild)
-                cleaned_guilds += 1
-            print(f"🧹 Cleared stale guild-scoped copies in {cleaned_guilds} server(s).")
+                try:
+                    guild_synced = await bot.tree.sync(guild=target_guild)
+                    synced_guilds += 1
+                    print(
+                        f"   🏠 {connected_guild.name}: "
+                        f"{len(guild_synced)} guild-specific slash command(s) synced."
+                    )
+                except Exception as guild_exc:
+                    failed_guilds += 1
+                    print(
+                        f"⚠️ Guild slash sync failed for {connected_guild.id}: "
+                        f"{type(guild_exc).__name__}: {guild_exc}",
+                        flush=True,
+                    )
+            print(
+                f"🧭 Guild sync finished: {synced_guilds} succeeded, "
+                f"{failed_guilds} failed."
+            )
 
             remote = await bot.tree.fetch_commands()
             print(f"📋 Commands confirmed by Discord globally: {len(remote)}")
@@ -2700,11 +2716,10 @@ async def _air_startup_loader(bot):
         # Keep commands global so every server gets one copy, then remove
         # stale guild-scoped copies left by earlier guild syncs.
         synced = await bot.tree.sync()
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-            bot.tree.clear_commands(guild=guild)
-            await bot.tree.sync(guild=guild)
-            print(f"🧹 Cleared stale guild command copies for {GUILD_ID}.")
+        # Do not clear guild command trees here: database-backed custom
+        # commands are restored later in on_ready and may be guild-scoped.
+        # Guild-specific trees are synchronized after every feature/DB loader
+        # has finished so their commands are not accidentally erased.
         print(f"🌍 Global slash sync complete: {len(synced)} commands")
         if synced:
             print("\n📋 REGISTERED SLASH COMMANDS:")
@@ -2752,9 +2767,22 @@ async def sync_slash_commands_prefix(ctx):
     status = await ctx.send("🔄 Global slash commands sync ho rahe hain...")
     try:
         synced = await bot.tree.sync()
-        target = discord.Object(id=ctx.guild.id)
-        bot.tree.clear_commands(guild=target)
-        await bot.tree.sync(guild=target)
+        # Sync registered guild commands without clearing the local guild tree;
+        # this preserves custom commands restored from PostgreSQL.
+        guild_synced = 0
+        guild_failed = 0
+        for connected_guild in bot.guilds:
+            target = discord.Object(id=connected_guild.id)
+            try:
+                await bot.tree.sync(guild=target)
+                guild_synced += 1
+            except Exception as guild_exc:
+                guild_failed += 1
+                print(
+                    f"⚠️ Guild sync failed for {connected_guild.id}: "
+                    f"{type(guild_exc).__name__}: {guild_exc}",
+                    flush=True,
+                )
         remote = await bot.tree.fetch_commands()
         lines = []
         for command in sorted(remote, key=lambda item: item.name):
@@ -2766,7 +2794,7 @@ async def sync_slash_commands_prefix(ctx):
         summary = (
             f"✅ Global sync successful\nCommands sent globally: {len(synced)}\n"
             f"Commands confirmed by Discord: {len(remote)}\n"
-            "Old guild-only copies cleared for this server.\n\n"
+            f"Guild command sync: {guild_synced} succeeded, {guild_failed} failed.\n\n"
             + ("\n".join(lines[:35]) if lines else "Discord returned no global commands.")
         )
         await status.edit(content=summary[:1900])
