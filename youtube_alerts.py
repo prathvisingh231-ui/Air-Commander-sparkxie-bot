@@ -633,10 +633,9 @@ def setup_prefix_commands(bot: commands.Bot):
 
 def setup_slash_commands(bot: commands.Bot):
     tree = bot.tree
-    existing = tree.get_command("youtube")
-    if existing is not None:
-        return
 
+    # Build the complete group first. If another startup path already added
+    # /youtube, merge any missing subcommands instead of returning early.
     youtube = app_commands.Group(name="youtube", description="YouTube alert controls")
 
     @youtube.command(name="setup", description="Set this channel as the default alert channel")
@@ -877,25 +876,43 @@ def setup_slash_commands(bot: commands.Bot):
     youtube.add_command(role_group)
     youtube.add_command(channel_group)
     youtube.add_command(message_group)
-    tree.add_command(youtube)
+
+    existing = tree.get_command("youtube")
+    if existing is None:
+        tree.add_command(youtube)
+        print("📺 Registered /youtube slash-command group.")
+    elif isinstance(existing, app_commands.Group):
+        added = 0
+        for child in youtube.commands:
+            if existing.get_command(child.name) is None:
+                existing.add_command(child)
+                added += 1
+        print(
+            f"📺 Merged {added} missing subcommand(s) into existing /youtube group."
+        )
+    else:
+        raise TypeError(
+            "A non-group slash command named 'youtube' already exists; "
+            "cannot register YouTube subcommands."
+        )
 
 
 # ---------------------------
 # Setup
 # ---------------------------
 
-def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot):
     if getattr(bot, "_air_youtube_alerts_loaded", False):
+        print("ℹ️ YouTube Alerts already initialized; skipping duplicate setup.")
         return
 
-    bot._air_youtube_alerts_loaded = True
-    cog = YouTubeAlerts(bot)
-
-    async def add_cog():
-        await bot.add_cog(cog)
-
-    bot.loop.create_task(add_cog())
+    # Register prefix and slash commands before marking the module loaded.
     setup_prefix_commands(bot)
     setup_slash_commands(bot)
 
+    # Await cog registration so the startup loader cannot sync before the cog
+    # has been installed. This setup is async and is awaited by bot.py.
+    await bot.add_cog(YouTubeAlerts(bot))
+
+    bot._air_youtube_alerts_loaded = True
     print("📺 YouTube Alerts system initialized (RSS + advanced alert controls).")
