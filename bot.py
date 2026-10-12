@@ -2571,7 +2571,7 @@ async def on_ready():
             bot._air_final_sync_done = False
             print(f"❌ Final slash sync failed: {type(exc).__name__}: {exc}", flush=True)
 
-async def _air_startup_loader(bot):async def _air_startup_loader(bot):
+async def _air_startup_loader(bot):
     """Main startup loader called only from AirCommanderBot.setup_hook."""
 
     print("\n" + "=" * 60)
@@ -2691,52 +2691,25 @@ async def _air_startup_loader(bot):async def _air_startup_loader(bot):
     print("=" * 60)
 
     try:
-
+        # Keep commands global so every server gets one copy, then remove
+        # stale guild-scoped copies left by earlier guild syncs.
+        synced = await bot.tree.sync()
         if GUILD_ID:
-
-            guild_id = int(GUILD_ID)
-            guild = discord.Object(id=guild_id)
-
-            # Copy all registered commands to the test guild
-            bot.tree.copy_global_to(guild=guild)
-
-            synced = await bot.tree.sync(guild=guild)
-
-            print(
-                f"⚡ Guild slash sync complete: "
-                f"{len(synced)} commands"
-            )
-
-            print(f"🏠 Guild ID: {guild_id}")
-
-        else:
-
-            synced = await bot.tree.sync()
-
-            print(
-                f"🌐 Global slash sync complete: "
-                f"{len(synced)} commands"
-            )
-
-        # -------------------------------------------------
-        # PRINT COMMAND LIST
-        # -------------------------------------------------
-
+            guild = discord.Object(id=int(GUILD_ID))
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+            print(f"🧹 Cleared stale guild command copies for {GUILD_ID}.")
+        print(f"🌍 Global slash sync complete: {len(synced)} commands")
         if synced:
-
             print("\n📋 REGISTERED SLASH COMMANDS:")
-
-            for command in sorted(
-                synced,
-                key=lambda command: command.name
-            ):
-                print(f"   └─ /{command.name}")
-
+            for command in sorted(synced, key=lambda command: command.name):
+                if command.name == "youtube" and getattr(command, "options", None):
+                    children = ", ".join(option.name for option in command.options)
+                    print(f"   └─ /youtube ({children})")
+                else:
+                    print(f"   └─ /{command.name}")
         else:
-
-            print(
-                "⚠️ Discord received 0 slash commands."
-            )
+            print("⚠️ Discord received 0 slash commands.")
 
     except Exception as exc:
 
