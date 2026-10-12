@@ -1,4 +1,3 @@
-```python
 # ============================================================
 # AIR COMMANDER — OWNER PREFIXLESS SYSTEM
 # File: owner_prefix.py
@@ -98,4 +97,4 @@ def setup_owner_prefixless(bot: commands.Bot):
         await bot.invoke(ctx)
 
     log.info("Air Commander owner prefixless system loaded.")
-```
+
