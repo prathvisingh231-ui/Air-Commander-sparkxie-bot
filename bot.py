@@ -2584,14 +2584,22 @@ async def _air_startup_loader(bot):async def _air_startup_loader(bot):
     # =================================================
     if not getattr(bot, "_air_db_initialized", False):
         try:
-            await db.init_db()
-            bot._air_db_initialized = True
-            print("🗄️ Database initialized.")
+            db_ok = await db.init_db()
+            bot._air_db_initialized = bool(db_ok)
+            if db_ok:
+                print("🗄️ Database initialized.")
+                try:
+                    await db.restore_json_snapshots()
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                        importlib.reload(module)
+                    print("♻️ JSON module state restored before feature setup.")
+                except Exception as restore_exc:
+                    print(f"⚠️ JSON restore/reload warning: {type(restore_exc).__name__}: {restore_exc}", flush=True)
+            else:
+                print("⚠️ Database initialization returned False; DB-backed features will report unavailable.", flush=True)
         except Exception as exc:
-            print(
-                f"⚠️ Database initialization error: "
-                f"{type(exc).__name__}: {exc}"
-            )
+            bot._air_db_initialized = False
+            print(f"⚠️ Database initialization error: {type(exc).__name__}: {exc}", flush=True)
     else:
         print("ℹ️ Database already initialized.")
 
