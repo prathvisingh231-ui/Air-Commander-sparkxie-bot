@@ -28,6 +28,8 @@ import os
 import json
 import time
 import asyncio
+import traceback
+from pathlib import Path
 from urllib.parse import urlparse
 from functools import wraps
 
@@ -122,11 +124,20 @@ async def init_db():
     if _pool:
         return True
 
-    if not DATABASE_URL:
-        print("⚠️ DATABASE_URL is not set; database features are disabled.")
+    database_url = (os.getenv("DATABASE_URL") or DATABASE_URL or "").strip()
+    if not database_url:
+        print("❌ DATABASE_URL is missing/empty in the running Render service environment.")
+        print("   Add the Render Postgres INTERNAL connection URL to the bot service's DATABASE_URL variable.")
         return False
 
-    parsed = urlparse(DATABASE_URL)
+    # Accept both common PostgreSQL URL schemes.
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql://" + database_url[len("postgres://"):]
+
+    parsed = urlparse(database_url)
+    if not parsed.hostname or not parsed.path.strip("/"):
+        print("❌ DATABASE_URL format is invalid. Expected postgresql://USER:PASSWORD@HOST:PORT/DATABASE.")
+        return False
     host = (parsed.hostname or "").lower()
 
     if host.startswith("db.") and host.endswith(".supabase.co"):
@@ -141,7 +152,7 @@ async def init_db():
             print(f"🗄️ Connecting to PostgreSQL... attempt {attempt}/3")
 
             _pool = await asyncpg.create_pool(
-                DATABASE_URL,
+                database_url,
                 min_size=1,
                 max_size=8,
                 command_timeout=30,
@@ -785,14 +796,29 @@ async def init_db():
                     );
                 """)
 
+                # ====================================================
+                # JSON SNAPSHOTS — PERSIST LEGACY MODULE CONFIGS
+                # ====================================================
+                # Several older modules still write JSON files. Snapshot
+                # their JSON state into PostgreSQL so redeploys don't erase it.
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS air_json_snapshots(
+                        file_name TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                """)
+
             print("✅ Air Commander PostgreSQL database initialized.")
             return True
 
         except Exception as exc:
             print(
                 f"❌ Database initialization attempt {attempt} failed: "
-                f"{type(exc).__name__}: {exc}"
+                f"{type(exc).__name__}: {exc}",
+                flush=True,
             )
+            print(traceback.format_exc(), flush=True)
 
             if _pool:
                 try:
@@ -845,6 +871,114 @@ async def delete_guild_data(guild_id, key):
         DELETE FROM guild_data
         WHERE guild_id=$1 AND data_key=$2
     """, guild_id, key)
+
+# ============================================================
+# LEGACY JSON FILE PERSISTENCE
+# ============================================================
+
+def _json_files(root="."):
+    """Find module JSON data/config files, excluding secrets and cache folders."""
+    root_path = Path(root).resolve()
+    files = []
+    for pattern in ("*.json", "data/**/*.json"):
+        files.extend(root_path.glob(pattern))
+    result = []
+    seen = set()
+    for path in files:
+        try:
+            resolved = path.resolve()
+            relative = resolved.relative_to(root_path).as_posix()
+            if relative not in seen and resolved.is_file():
+                seen.add(relative)
+                result.append((relative, resolved))
+        except (OSError, ValueError):
+            continue
+    return result
+
+
+async def save_json_snapshots(root="."):
+    """Persist every valid JSON config/data file without exposing its contents in logs."""
+    if not _pool:
+        return 0
+    saved = 0
+    for relative, path in _json_files(root):
+        try:
+            raw = path.read_text(encoding="utf-8")
+            parsed = json.loads(raw)
+            await _pool.execute(
+                """
+                INSERT INTO air_json_snapshots(file_name, data, updated_at)
+                VALUES($1, $2::jsonb, NOW())
+                ON CONFLICT(file_name) DO UPDATE
+                SET data=EXCLUDED.data, updated_at=NOW()
+                """,
+                relative, json.dumps(parsed, ensure_ascii=False),
+            )
+            saved += 1
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"⚠️ JSON snapshot skipped for {relative}: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            print(f"⚠️ JSON snapshot save failed for {relative}: {type(exc).__name__}: {exc}")
+            break
+    return saved
+
+
+async def restore_json_snapshots(root="."):
+    """
+    Restore previously saved JSON files first. If PostgreSQL has no snapshot
+    for a file, import its current on-disk contents as the initial backup.
+    """
+    if not _pool:
+        return {"restored": 0, "imported": 0}
+    root_path = Path(root).resolve()
+    rows = await _pool.fetch("SELECT file_name, data FROM air_json_snapshots")
+    stored = {str(row["file_name"]): row["data"] for row in rows}
+    restored = 0
+    imported = 0
+
+    for relative, value in stored.items():
+        # Prevent absolute paths or parent traversal from database values.
+        target = (root_path / relative).resolve()
+        try:
+            target.relative_to(root_path)
+        except ValueError:
+            print(f"⚠️ Ignoring unsafe JSON snapshot path: {relative}")
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            decoded = json_load(value, {})
+            temp = target.with_suffix(target.suffix + ".restore.tmp")
+            temp.write_text(json.dumps(decoded, indent=4, ensure_ascii=False), encoding="utf-8")
+            os.replace(temp, target)
+            restored += 1
+        except Exception as exc:
+            print(f"⚠️ JSON snapshot restore failed for {relative}: {type(exc).__name__}: {exc}")
+
+    # Seed PostgreSQL with files that pre-date the snapshot system.
+    for relative, path in _json_files(root_path):
+        if relative in stored:
+            continue
+        try:
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+            await _pool.execute(
+                """
+                INSERT INTO air_json_snapshots(file_name, data, updated_at)
+                VALUES($1, $2::jsonb, NOW())
+                ON CONFLICT(file_name) DO NOTHING
+                """,
+                relative, json.dumps(parsed, ensure_ascii=False),
+            )
+            imported += 1
+        except (OSError, json.JSONDecodeError):
+            continue
+        except Exception as exc:
+            print(f"⚠️ JSON snapshot import failed for {relative}: {type(exc).__name__}: {exc}")
+            break
+
+    print(f"💾 JSON persistence ready: restored {restored}, imported {imported} file(s).")
+    return {"restored": restored, "imported": imported}
+
+
 
 
 async def save_feature_config(guild_id, feature, config):
