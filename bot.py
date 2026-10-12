@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict, deque
 
 import asyncpg
+from openai import AsyncOpenAI
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -102,6 +103,77 @@ bot._air_start_time = start_time
 
 games.setup(bot)
 basic_commands.setup(bot)
+
+
+# =========================================================
+# AI CHAT COMMAND
+# =========================================================
+
+@bot.tree.command(
+    name="ai",
+    description="Ask Air Commander AI a question",
+)
+@app_commands.describe(prompt="Your question or message for the AI")
+async def ai_chat(interaction: discord.Interaction, prompt: str):
+    """Private AI response using the OpenAI Responses API."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return await interaction.response.send_message(
+            "AI chat is not configured yet. The bot owner must set "
+            "OPENAI_API_KEY in the hosting environment.",
+            ephemeral=True,
+        )
+
+    prompt = prompt.strip()
+    if not prompt:
+        return await interaction.response.send_message(
+            "Please enter a question for the AI.",
+            ephemeral=True,
+        )
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    try:
+        client = AsyncOpenAI(api_key=api_key)
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        response = await client.responses.create(
+            model=model,
+            instructions=(
+                "You are Air Commander AI, a helpful assistant inside a "
+                "Discord bot. Be accurate, clear, and concise. Do not claim "
+                "to have performed Discord actions unless a tool actually did so."
+            ),
+            input=prompt[:12000],
+            max_output_tokens=900,
+        )
+        answer = (response.output_text or "").strip()
+        if not answer:
+            answer = "I couldn't generate a text response. Please try again."
+
+        # Discord message content limit is 2000 characters.
+        chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)]
+        await interaction.followup.send(
+            chunks[0],
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        for chunk in chunks[1:]:
+            await interaction.followup.send(
+                chunk,
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+    except Exception as exc:
+        print(f"AI command failed: {type(exc).__name__}: {exc}")
+        message = (
+            "AI request failed. Please try again later. If this keeps happening, "
+            "check the Render logs, API key, model setting, and OpenAI API account access."
+        )
+        if interaction.is_expired():
+            print("AI interaction expired before the error could be reported.")
+        else:
+            await interaction.followup.send(message, ephemeral=True)
 
 
 # =========================================================
