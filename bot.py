@@ -5,6 +5,7 @@ import asyncio
 import io
 import re
 import random
+import importlib
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict, deque
@@ -2457,22 +2458,36 @@ async def _air_special_activity_listener(message):
 @bot.event
 async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
+    if not getattr(bot, "_air_json_snapshot_worker_started", False):
+        bot._air_json_snapshot_worker_started = True
+        asyncio.create_task(_air_json_snapshot_worker(), name="air-json-snapshot-worker")
 
     # =========================
     # DATABASE
     # =========================
     if not getattr(bot, "_air_db_initialized", False):
         try:
-            await db.init_db()
-            bot._air_db_initialized = True
-            print("🗄️ Database initialized.")
+            db_ok = await db.init_db()
+            bot._air_db_initialized = bool(db_ok)
+            if db_ok:
+                print("🗄️ Database initialized.")
+                try:
+                    await db.restore_json_snapshots()
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                        importlib.reload(module)
+                    print("♻️ File-backed modules reloaded from persistent PostgreSQL state.")
+                except Exception as restore_exc:
+                    print(f"⚠️ JSON restore/reload warning: {type(restore_exc).__name__}: {restore_exc}", flush=True)
+            else:
+                print("⚠️ Database is not ready; see the PostgreSQL error above.", flush=True)
         except Exception as exc:
-            print(f"⚠️ Database error: {type(exc).__name__}: {exc}")
+            bot._air_db_initialized = False
+            print(f"⚠️ Database initialization error: {type(exc).__name__}: {exc}", flush=True)
     else:
         print("ℹ️ Database already initialized.")
 
-    # =========================
-    # PREFIX SETTINGS
+    # =====================================================
+    # PREFIX SETTINGS    # PREFIX SETTINGS
     # =========================
     if not getattr(bot, "_air_prefixes_loaded_once", False):
         try:
@@ -2533,41 +2548,30 @@ async def on_ready():
     # =====================================================
     if not getattr(bot, "_air_final_sync_done", False):
         try:
+            # Publish one GLOBAL command set for every server.
+            global_synced = await bot.tree.sync()
+            print(f"🌍 Final global slash sync: {len(global_synced)} commands.")
+            # Remove stale guild-scoped copies to prevent duplicates.
             if GUILD_ID:
-                guild_id = int(GUILD_ID)
-                guild = discord.Object(id=guild_id)
-                bot.tree.copy_global_to(guild=guild)
-                guild_synced = await bot.tree.sync(guild=guild)
-                remote = await bot.tree.fetch_commands(guild=guild)
-                print(
-                    f"⚡ Final guild slash sync: {len(guild_synced)} commands "
-                    f"(Guild ID: {guild_id})"
-                )
-                print("📋 Commands confirmed on Discord:")
-                for command in sorted(remote, key=lambda item: item.name):
-                    if command.name == "youtube" and getattr(command, "options", None):
-                        children = ", ".join(option.name for option in command.options)
-                        print(f"   └─ /youtube ({children})")
-                    else:
-                        print(f"   └─ /{command.name}")
-            else:
-                global_synced = await bot.tree.sync()
-                print(
-                    f"🌍 Final global slash sync: {len(global_synced)} commands. "
-                    "Set GUILD_ID in Render for immediate guild sync."
-                )
-
+                guild = discord.Object(id=int(GUILD_ID))
+                bot.tree.clear_commands(guild=guild)
+                await bot.tree.sync(guild=guild)
+                print(f"🧹 Cleared stale guild command copies for {GUILD_ID}.")
+            remote = await bot.tree.fetch_commands()
+            print(f"📋 Commands confirmed by Discord globally: {len(remote)}")
+            for command in sorted(remote, key=lambda item: item.name):
+                if command.name == "youtube" and getattr(command, "options", None):
+                    children = ", ".join(option.name for option in command.options)
+                    print(f"   └─ /youtube ({children})")
+                else:
+                    print(f"   └─ /{command.name}")
             print(f"✅ Final local slash roots: {len(bot.tree.get_commands())}")
             bot._air_final_sync_done = True
-
         except Exception as exc:
             bot._air_final_sync_done = False
-            print(
-                f"❌ Final slash sync failed: {type(exc).__name__}: {exc}",
-                flush=True,
-            )
+            print(f"❌ Final slash sync failed: {type(exc).__name__}: {exc}", flush=True)
 
-async def _air_startup_loader(bot):
+async def _air_startup_loader(bot):async def _air_startup_loader(bot):
     """Main startup loader called only from AirCommanderBot.setup_hook."""
 
     print("\n" + "=" * 60)
@@ -2749,8 +2753,8 @@ async def _air_startup_loader(bot):
 
 
 # =========================================================
-# OWNER DIAGNOSTIC: FORCE SLASH COMMAND SYNC
-# Usage: ,syncslash  (inside the target server)
+# OWNER DIAGNOSTIC: FORCE GLOBAL SLASH COMMAND SYNC
+# Usage: ,syncslash
 # =========================================================
 
 @bot.command(name="syncslash")
@@ -2758,41 +2762,71 @@ async def _air_startup_loader(bot):
 async def sync_slash_commands_prefix(ctx):
     if not ctx.guild:
         return await ctx.send("❌ Is command ko target Discord server ke andar use karo.")
-
-    status = await ctx.send("🔄 Air Commander ke slash commands sync kar raha hoon...")
+    status = await ctx.send("🔄 Global slash commands sync ho rahe hain...")
     try:
+        synced = await bot.tree.sync()
         target = discord.Object(id=ctx.guild.id)
-        bot.tree.copy_global_to(guild=target)
-        synced = await bot.tree.sync(guild=target)
-        remote = await bot.tree.fetch_commands(guild=target)
-
+        bot.tree.clear_commands(guild=target)
+        await bot.tree.sync(guild=target)
+        remote = await bot.tree.fetch_commands()
         lines = []
         for command in sorted(remote, key=lambda item: item.name):
             if command.name == "youtube" and getattr(command, "options", None):
                 children = ", ".join(option.name for option in command.options)
-                lines.append(f"• `/youtube` — {children}")
+                lines.append(f"• /youtube — {children}")
             else:
-                lines.append(f"• `/{command.name}`")
-
+                lines.append(f"• /{command.name}")
         summary = (
-            f"✅ **Sync successful**\n"
-            f"Commands sent: **{len(synced)}**\n"
-            f"Commands confirmed by Discord: **{len(remote)}**\n\n"
-            + ("\n".join(lines[:35]) if lines else "Discord returned no commands.")
+            f"✅ Global sync successful\nCommands sent globally: {len(synced)}\n"
+            f"Commands confirmed by Discord: {len(remote)}\n"
+            "Old guild-only copies cleared for this server.\n\n"
+            + ("\n".join(lines[:35]) if lines else "Discord returned no global commands.")
         )
         await status.edit(content=summary[:1900])
-        print(f"🛠️ Manual slash sync successful for guild {ctx.guild.id}: {len(remote)} remote commands")
+        bot._air_final_sync_done = True
+        print(f"🛠️ Manual global slash sync successful: {len(remote)} remote commands", flush=True)
     except Exception as exc:
         print(f"❌ Manual slash sync failed for guild {ctx.guild.id}: {type(exc).__name__}: {exc}", flush=True)
-        await status.edit(
-            content=(
-                f"❌ **Slash sync failed**\n"
-                f"Error: `{type(exc).__name__}`\n"
-                f"`{str(exc)[:900]}`\n\n"
-                "Check Render logs for the full error."
-            )
-        )
+        await status.edit(content=f"❌ Slash sync failed: {type(exc).__name__}: {str(exc)[:900]}")
 
+
+# =========================================================
+# OWNER DIAGNOSTIC: DATABASE STATUS
+# Usage: ,dbstatus
+# =========================================================
+
+@bot.command(name="dbstatus")
+@commands.is_owner()
+async def database_status_prefix(ctx):
+    configured = bool((os.getenv("DATABASE_URL") or "").strip())
+    connected = bool(getattr(db, "_pool", None))
+    snapshot_count = "unavailable"
+    if connected:
+        try:
+            snapshot_count = await db._pool.fetchval("SELECT COUNT(*) FROM air_json_snapshots")
+        except Exception as exc:
+            snapshot_count = f"query failed: {type(exc).__name__}"
+    await ctx.send(
+        "🗄️ **Air Commander Database Status**\n"
+        f"• DATABASE_URL configured: **{'yes' if configured else 'NO'}**\n"
+        f"• PostgreSQL pool connected: **{'yes' if connected else 'NO'}**\n"
+        f"• Saved JSON snapshots: **{snapshot_count}**\n"
+        "Connection credentials are never displayed."
+    )
+
+
+async def _air_json_snapshot_worker():
+    """Periodically back up legacy JSON configs to PostgreSQL."""
+    while not bot.is_closed():
+        await asyncio.sleep(10)
+        if not getattr(db, "_pool", None):
+            continue
+        try:
+            count = await db.save_json_snapshots()
+            if count:
+                print(f"💾 PostgreSQL JSON snapshot checkpoint: {count} file(s).")
+        except Exception as exc:
+            print(f"⚠️ JSON snapshot checkpoint failed: {type(exc).__name__}: {exc}", flush=True)
 
 # =========================================================
 # PREFIX COMMANDS — MISSING COMMANDS
