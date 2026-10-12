@@ -7,37 +7,29 @@ import re
 from pathlib import Path
 from datetime import datetime, timezone
 
-from flask import Flask
 import discord
+from discord import app_commands
+from discord.ext import commands
+from flask import Flask
+
 import db
 import games
 import basic_commands
 from owner_prefix import setup_owner_prefixless
-from discord import app_commands
-from discord.ext import commands
 
 # =========================================================
-# AIR COMMANDER FEATURE MODULES
+# CURRENT AIR COMMANDER MODULES (files present on main)
 # =========================================================
-import snipe
-import youtube_alerts
-import mention_response
+import autorolesetup
 import automation
-import analytics
-import embed_builder
-import welcome_autorole
-import role_system
-import giveaways
-import applications
-import voice_jtc
-import backup_recovery
-import ai_utils
-import leveling
-import server_config
+import cmdmaker
 import command_permissions
-import custom_commands
-import interactive_help
-import diagnostics
+import embed_builder
+import giveaways
+import leveling
+import snipe
+import welcome_autorole
+import youtube_alerts
 
 # =========================================================
 # CONFIGURATION
@@ -2475,25 +2467,16 @@ async def _air_startup_loader(bot):
     if not getattr(bot, "_air_feature_modules_loaded", False):
 
         feature_modules = [
-            ("snipe", snipe),
-            ("youtube_alerts", youtube_alerts),
-            ("mention_response", mention_response),
+            ("autorolesetup", autorolesetup),
             ("automation", automation),
-            ("analytics", analytics),
-            ("embed_builder", embed_builder),
-            ("welcome_autorole", welcome_autorole),
-            ("role_system", role_system),
-            ("giveaways", giveaways),
-            ("applications", applications),
-            ("voice_jtc", voice_jtc),
-            ("backup_recovery", backup_recovery),
-            ("ai_utils", ai_utils),
-            ("leveling", leveling),
-            ("server_config", server_config),
+            ("cmdmaker", cmdmaker),
             ("command_permissions", command_permissions),
-            ("custom_commands", custom_commands),
-            ("interactive_help", interactive_help),
-            ("diagnostics", diagnostics),
+            ("embed_builder", embed_builder),
+            ("giveaways", giveaways),
+            ("leveling", leveling),
+            ("snipe", snipe),
+            ("welcome_autorole", welcome_autorole),
+            ("youtube_alerts", youtube_alerts),
         ]
 
         loaded = 0
@@ -2617,26 +2600,6 @@ async def _air_startup_loader(bot):
     print("✅ AIR COMMANDER STARTUP COMPLETE")
     print("=" * 60)
     
-    # =========================
-    # TICKET
-    # =========================
-    if not getattr(bot, "_air_ticket_initialized", False):
-        try:
-            ticket_cog = await ticket.setup(bot)
-            bot._air_ticket_cog = ticket_cog
-
-            if hasattr(ticket, "restore_panels"):
-                await ticket.restore_panels(bot, ticket_cog)
-
-            bot._air_ticket_initialized = True
-
-            print("🎫 Advanced ticket system initialized.")
-
-        except Exception as exc:
-            print(
-                f"⚠️ Ticket initialization error: "
-                f"{type(exc).__name__}: {exc}"
-            )
 
 
 
