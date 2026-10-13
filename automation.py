@@ -1465,69 +1465,6 @@ automode_group = app_commands.Group(
 
 
 @automode_group.command(
-    name="enable",
-    description="Enable AutoMode"
-)
-@app_commands.checks.has_permissions(
-    administrator=True
-)
-async def automode_enable(
-    interaction: discord.Interaction
-):
-    config = get_automode_config(
-        interaction.guild.id
-    )
-
-    config["enabled"] = True
-
-    automode_save_all()
-
-    embed = make_embed(
-        "🛡️ AutoMode Enabled",
-        (
-            "Air Commander AutoMode is now **enabled**.\n\n"
-            "Protection systems are active."
-        ),
-        discord.Color.green()
-    )
-
-    await public_send(
-        interaction,
-        embed=embed
-    )
-
-
-@automode_group.command(
-    name="disable",
-    description="Disable AutoMode"
-)
-@app_commands.checks.has_permissions(
-    administrator=True
-)
-async def automode_disable(
-    interaction: discord.Interaction
-):
-    config = get_automode_config(
-        interaction.guild.id
-    )
-
-    config["enabled"] = False
-
-    automode_save_all()
-
-    embed = make_embed(
-        "🛡️ AutoMode Disabled",
-        "AutoMode protection has been disabled.",
-        discord.Color.red()
-    )
-
-    await public_send(
-        interaction,
-        embed=embed
-    )
-
-
-@automode_group.command(
     name="status",
     description="View AutoMode status"
 )
@@ -1853,8 +1790,6 @@ async def automode_prefix(
         (
             f"Status: {status_text(config['enabled'])}\n\n"
             "Use:\n"
-            "`,automode enable`\n"
-            "`,automode disable`\n"
             "`,automode status`\n"
             "`,automode config`\n"
             "`,automode spam <messages> <seconds>`\n"
@@ -1868,44 +1803,6 @@ async def automode_prefix(
 
     await ctx.send(
         embed=embed
-    )
-
-
-@automode_prefix.command(
-    name="enable"
-)
-@commands.has_permissions(
-    administrator=True
-)
-async def automode_prefix_enable(ctx):
-    config = get_automode_config(
-        ctx.guild.id
-    )
-
-    config["enabled"] = True
-    automode_save_all()
-
-    await ctx.send(
-        "🟢 **AutoMode enabled.**"
-    )
-
-
-@automode_prefix.command(
-    name="disable"
-)
-@commands.has_permissions(
-    administrator=True
-)
-async def automode_prefix_disable(ctx):
-    config = get_automode_config(
-        ctx.guild.id
-    )
-
-    config["enabled"] = False
-    automode_save_all()
-
-    await ctx.send(
-        "🔴 **AutoMode disabled.**"
     )
 
 
@@ -3627,32 +3524,6 @@ def _antilink_type_choice(value):
     return app_commands.Choice(name=ANTILINK_TYPE_LABELS.get(value, value), value=value)
 
 
-@antilink_group.command(name="enable", description="Enable Anti-Link")
-@app_commands.checks.has_permissions(administrator=True)
-async def antilink_enable(interaction: discord.Interaction):
-    config = get_antilink_config(interaction.guild.id)
-    config["enabled"] = True
-    antilink_save_all()
-    await public_send(interaction, embed=make_embed(
-        "🔗 Anti-Link Enabled",
-        "Type-specific link protection is now **enabled**.",
-        discord.Color.green()
-    ))
-
-
-@antilink_group.command(name="disable", description="Disable Anti-Link")
-@app_commands.checks.has_permissions(administrator=True)
-async def antilink_disable(interaction: discord.Interaction):
-    config = get_antilink_config(interaction.guild.id)
-    config["enabled"] = False
-    antilink_save_all()
-    await public_send(interaction, embed=make_embed(
-        "🔗 Anti-Link Disabled",
-        "Type-specific link protection is now **disabled**.",
-        discord.Color.red()
-    ))
-
-
 @antilink_group.command(name="status", description="View Anti-Link status")
 @app_commands.checks.has_permissions(administrator=True)
 async def antilink_status(interaction: discord.Interaction):
@@ -3792,8 +3663,6 @@ async def antilink_prefix(ctx):
         "🔗 Air Commander Anti-Link",
         (
             f"Status: {status_text(config['enabled'])}\n\n"
-            "`,antilink enable`\n"
-            "`,antilink disable`\n"
             "`,antilink status`\n"
             "`,antilink config`\n"
             "`,antilink type <gif/youtube/discord/website/image/other> <on/off>`\n"
@@ -3804,24 +3673,6 @@ async def antilink_prefix(ctx):
         )
     )
     await ctx.send(embed=embed)
-
-
-@antilink_prefix.command(name="enable")
-@commands.has_permissions(administrator=True)
-async def antilink_prefix_enable(ctx):
-    config = get_antilink_config(ctx.guild.id)
-    config["enabled"] = True
-    antilink_save_all()
-    await ctx.send("🟢 **Anti-Link enabled.**")
-
-
-@antilink_prefix.command(name="disable")
-@commands.has_permissions(administrator=True)
-async def antilink_prefix_disable(ctx):
-    config = get_antilink_config(ctx.guild.id)
-    config["enabled"] = False
-    antilink_save_all()
-    await ctx.send("🔴 **Anti-Link disabled.**")
 
 
 @antilink_prefix.command(name="status")
