@@ -77,3 +77,17 @@ In the configured channel, members can mention **Air Commander** or reply to one
 - Slash commands are synced globally so the same command set is available across servers.
 - `,syncslash` is an owner-only manual global sync and clears old guild-scoped copies in the server where it is run to prevent duplicate entries.
 - On startup, the bot also cleans stale guild-scoped copies across servers it has joined.
+
+
+## New maintenance commands
+
+- `/config status` shows the server setup dashboard.
+- `/diagnostics status` and `/diagnostics modules` are owner-only health reports.
+- `/backup create` creates a ZIP of JSON configuration and, when PostgreSQL is connected, database table data. Save the downloaded ZIP outside Render.
+- `/backup list` lists local archives. `/backup restore` accepts an Air Commander ZIP and requires explicit confirmation; database rows are merged by primary key rather than deleting unrelated rows.
+- If PostgreSQL is disconnected, backup is marked PARTIAL and does not contain database records. Fix DATABASE_URL before relying on a full backup.
+- `/modlog setup #channel`, `/modlog status`, and `/modlog recent` configure and inspect moderation events.
+
+## Ticket close behavior
+
+Closing a ticket generates a transcript when enabled, sends it to the configured ticket log channel when available, logs the close event, and then attempts to delete the ticket channel after 3 seconds. The bot needs Manage Channels permission. A failed delete is reported in Render logs.
