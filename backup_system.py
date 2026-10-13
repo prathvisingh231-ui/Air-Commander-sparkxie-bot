@@ -225,11 +225,20 @@ async def _restore_archive(raw_bytes):
         written += 1
     return manifest, db_result, written
 
+def _prune_backups(keep=10):
+    files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old_path in files[keep:]:
+        try:
+            old_path.unlink()
+        except OSError as exc:
+            print(f"[Backup] Could not prune {old_path.name}: {exc}", flush=True)
+
 async def _create_response(interaction=None, ctx=None):
     memory, manifest = await _build_backup()
     stamp = discord.utils.utcnow().strftime("%Y%m%d-%H%M%S")
     path = BACKUP_DIR / f"air-commander-{stamp}.zip"
     path.write_bytes(memory.getvalue())
+    _prune_backups(keep=10)
     note = "FULL backup" if manifest["database_included"] and not manifest.get("warning") else "PARTIAL backup — review the warning; some or all database records may be missing"
     description = f"{note}\nConfig files: {manifest['json_files']}\nDatabase tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes"
     if manifest.get("warning"):
@@ -259,6 +268,18 @@ def setup(bot):
         files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:15]
         text = "\n".join(f"• {p.name} — {p.stat().st_size:,} bytes" for p in files)
         await interaction.response.send_message(text or "No local backups found. Save downloaded backups outside Render because local disk may reset.", ephemeral=True)
+
+    @group.command(name="download", description="Download a backup already stored on this running instance")
+    @app_commands.describe(filename="Exact ZIP filename shown by /backup list")
+    async def backup_download(interaction: discord.Interaction, filename: str):
+        if not await _is_owner(bot, interaction.user):
+            return await interaction.response.send_message("Bot owner only.", ephemeral=True)
+        if Path(filename).name != filename or not filename.lower().endswith(".zip"):
+            return await interaction.response.send_message("Use the exact ZIP filename from /backup list.", ephemeral=True)
+        path = BACKUP_DIR / filename
+        if not path.is_file():
+            return await interaction.response.send_message("Backup file not found on this running instance. Upload your saved ZIP with /backup restore instead.", ephemeral=True)
+        await interaction.response.send_message(f"Sending backup: {filename}", file=discord.File(path, filename=filename), ephemeral=True)
 
     @group.command(name="restore", description="Merge a backup archive into the current bot data")
     @app_commands.describe(backup_file="A ZIP created by /backup create", confirm="Confirm that you want to merge this backup")
@@ -300,6 +321,17 @@ def setup(bot):
         files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:15]
         text = "\n".join(f"• {p.name} — {p.stat().st_size:,} bytes" for p in files)
         await ctx.send(text or "No local backups found. Save downloaded backups outside Render.")
+
+    @prefix_backup.command(name="download")
+    async def prefix_backup_download(ctx, *, filename: str):
+        if not await _is_owner(bot, ctx.author):
+            return await ctx.send("Bot owner only.")
+        if Path(filename).name != filename or not filename.lower().endswith(".zip"):
+            return await ctx.send("Use the exact ZIP filename from ,backup list.")
+        path = BACKUP_DIR / filename
+        if not path.is_file():
+            return await ctx.send("Backup file not found on this running instance. Upload your saved ZIP with ,backup restore yes.")
+        await ctx.send(f"Sending backup: {filename}", file=discord.File(path, filename=filename))
 
     @prefix_backup.command(name="restore")
     async def prefix_backup_restore(ctx, confirm: str = "no"):
