@@ -136,9 +136,6 @@ async def _restore_database(payload):
         for table in pending:
             pk = pks.get(table, [])
             rows = tables.get(table, [])
-            if not pk:
-                skipped += len(rows)
-                continue
             try:
                 qtable = _quote_ident(table)
                 columns = sorted({key for row in rows for key in row.keys()})
@@ -146,27 +143,43 @@ async def _restore_database(payload):
                     continue
                 qcolumns = ", ".join(_quote_ident(c) for c in columns)
                 placeholders = ", ".join("$" + str(i + 1) for i in range(len(columns)))
-                conflict = ", ".join(_quote_ident(c) for c in pk)
-                updates = [c for c in columns if c not in pk]
-                action = "DO UPDATE SET " + ", ".join(f"{_quote_ident(c)}=EXCLUDED.{_quote_ident(c)}" for c in updates) if updates else "DO NOTHING"
-                query = f"INSERT INTO {qtable} ({qcolumns}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
                 table_failed = False
-                for row in rows:
-                    try:
-                        await pool.execute(query, *[_restore_value(row.get(column)) for column in columns])
-                        restored += 1
-                    except Exception as exc:
-                        table_failed = True
-                        failures[table] = f"{type(exc).__name__}: {exc}"[:250]
+                if pk:
+                    conflict = ", ".join(_quote_ident(c) for c in pk)
+                    updates = [c for c in columns if c not in pk]
+                    action = "DO UPDATE SET " + ", ".join(f"{_quote_ident(c)}=EXCLUDED.{_quote_ident(c)}" for c in updates) if updates else "DO NOTHING"
+                    query = f"INSERT INTO {qtable} ({qcolumns}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
+                    for row in rows:
+                        try:
+                            await pool.execute(query, *[_restore_value(row.get(column)) for column in columns])
+                            restored += 1
+                        except Exception as exc:
+                            table_failed = True
+                            failures[table] = f"{type(exc).__name__}: {exc}"[:250]
+                else:
+                    # Tables without a primary key are merged by exact-row matching
+                    # so repeating a restore does not normally duplicate existing rows.
+                    predicates = " AND ".join(f"{_quote_ident(column)} IS NOT DISTINCT FROM $" + str(len(columns) + i + 1) for i, column in enumerate(columns))
+                    query = f"INSERT INTO {qtable} ({qcolumns}) SELECT {placeholders} WHERE NOT EXISTS (SELECT 1 FROM {qtable} WHERE {predicates})"
+                    for row in rows:
+                        try:
+                            values = [_restore_value(row.get(column)) for column in columns]
+                            await pool.execute(query, *(values + values))
+                            restored += 1
+                        except Exception as exc:
+                            table_failed = True
+                            failures[table] = f"{type(exc).__name__}: {exc}"[:250]
                 if table_failed:
                     still_pending.append(table)
+                else:
+                    failures.pop(table, None)
             except Exception as exc:
                 failures[table] = f"{type(exc).__name__}: {exc}"[:250]
                 still_pending.append(table)
         if not still_pending or restored == before_pass:
             break
         pending = still_pending
-    return f"Rows restored/merged: {restored}. Rows skipped (tables without primary keys): {skipped}. Tables with errors: {len(failures)}."
+    return f"Rows restored/merged: {restored}. Rows skipped: {skipped}. Tables with errors: {len(failures)}."
 
 def _safe_json_path(relative):
     candidate = Path(relative)
