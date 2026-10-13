@@ -3304,6 +3304,11 @@ class TicketSystem(commands.Cog):
             discord.Interaction
         ):
 
+            # Transcript generation can take longer than Discord's initial
+            # interaction deadline, so acknowledge the close click immediately.
+            if not source.response.is_done():
+                await source.response.defer(thinking=True)
+
             guild = source.guild
             channel = source.channel
             user = source.user
