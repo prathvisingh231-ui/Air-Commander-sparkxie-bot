@@ -1264,7 +1264,6 @@ class AutoModeSettingsModal(discord.ui.Modal, title="AutoMode Settings"):
     warn_after = discord.ui.TextInput(label="Warnings before escalation", default="3", max_length=2)
     timeout_after = discord.ui.TextInput(label="Warnings before timeout", default="5", max_length=2)
     timeout_minutes = discord.ui.TextInput(label="Timeout duration minutes", default="10", max_length=5)
-    badwords = discord.ui.TextInput(label="Bad words, comma-separated", required=False, style=discord.TextStyle.paragraph, max_length=900)
 
     def __init__(self, guild_id):
         super().__init__()
@@ -1272,7 +1271,6 @@ class AutoModeSettingsModal(discord.ui.Modal, title="AutoMode Settings"):
         cfg = get_automode_config(guild_id)
         for field, key, fallback in ((self.spam_messages, "spam_messages", 5), (self.spam_window, "spam_window", 7), (self.warn_after, "warn_after", 3), (self.timeout_after, "timeout_after", 5), (self.timeout_minutes, "timeout_minutes", 10)):
             field.default = str(cfg.get(key, fallback))
-        self.badwords.default = ", ".join(cfg.get("badwords", []))
 
     async def on_submit(self, interaction):
         cfg = get_automode_config(self.guild_id)
@@ -1285,7 +1283,6 @@ class AutoModeSettingsModal(discord.ui.Modal, title="AutoMode Settings"):
         except ValueError:
             await public_send(interaction, content="Settings must be valid numbers.", ephemeral=True)
             return
-        cfg["badwords"] = list(dict.fromkeys(w.strip() for w in parse_word_list(self.badwords.value) if w.strip()))[:100]
         automode_save_all()
         await public_send(interaction, content="AutoMode settings saved.", embed=automode_dashboard_embed(self.guild_id), view=AutoModeDashboardView(self.guild_id), ephemeral=True)
 
@@ -1355,6 +1352,25 @@ class AutoModeDashboardView(discord.ui.View):
     @discord.ui.button(label="Toggle Bad Words", style=discord.ButtonStyle.secondary, row=1)
     async def badwords_toggle_button(self, interaction, button):
         cfg = get_automode_config(self.guild_id); cfg["badword_protection"] = not cfg.get("badword_protection", True); automode_save_all()
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.select(
+        cls=discord.ui.Select,
+        placeholder="Choose escalation punishment",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(label="Timeout", value="timeout", description="Timeout after the configured warning threshold"),
+            discord.SelectOption(label="Kick", value="kick", description="Kick after the configured warning threshold"),
+            discord.SelectOption(label="Ban", value="ban", description="Ban after the configured warning threshold"),
+        ],
+        row=2
+    )
+    async def punishment_select(self, interaction, select):
+        cfg = get_automode_config(self.guild_id)
+        cfg["punishment_action"] = select.values[0]
+        cfg["timeout_enabled"] = True
+        automode_save_all()
         await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
 
     @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
