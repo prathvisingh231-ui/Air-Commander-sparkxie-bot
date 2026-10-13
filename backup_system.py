@@ -73,6 +73,7 @@ async def _database_dump():
         return {}, {}, "PostgreSQL disconnected; database tables were not included."
     tables = await pool.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
     table_data, primary_keys = {}, {}
+    table_errors = []
     for item in tables:
         table = item["tablename"]
         try:
@@ -87,9 +88,11 @@ async def _database_dump():
             primary_keys[table] = [row["attname"] for row in pk_rows]
         except Exception as exc:
             print(f"[Backup] Could not dump table {table}: {type(exc).__name__}: {exc}", flush=True)
+            table_errors.append(table)
             table_data[table] = []
             primary_keys[table] = []
-    return table_data, primary_keys, None
+    warning = ("Some tables could not be backed up: " + ", ".join(table_errors[:20])) if table_errors else None
+    return table_data, primary_keys, warning
 
 async def _build_backup():
     files = {}
@@ -184,6 +187,8 @@ async def _restore_archive(raw_bytes):
     except Exception as exc:
         raise ValueError("This is not a valid Air Commander ZIP backup.") from exc
     names = archive.namelist()
+    if sum(item.file_size for item in archive.infolist()) > MAX_ARCHIVE_BYTES:
+        raise ValueError("Backup expands beyond the 100 MB safety limit.")
     if len(names) > MAX_FILES + 3:
         raise ValueError("Backup contains too many files.")
     required = {"manifest.json", "config_json_files.json", "database_tables.json"}
@@ -212,7 +217,7 @@ async def _create_response(interaction=None, ctx=None):
     stamp = discord.utils.utcnow().strftime("%Y%m%d-%H%M%S")
     path = BACKUP_DIR / f"air-commander-{stamp}.zip"
     path.write_bytes(memory.getvalue())
-    note = "FULL backup" if manifest["database_included"] else "PARTIAL backup — PostgreSQL unavailable; database records were not included"
+    note = "FULL backup" if manifest["database_included"] and not manifest.get("warning") else "PARTIAL backup — review the warning; some or all database records may be missing"
     description = f"{note}\nConfig files: {manifest['json_files']}\nDatabase tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes"
     if manifest.get("warning"):
         description += f"\nWarning: {manifest['warning']}"
