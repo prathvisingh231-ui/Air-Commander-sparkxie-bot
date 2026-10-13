@@ -117,10 +117,30 @@ def setup(bot):
         except (discord.Forbidden, discord.HTTPException):
             pass
 
+    async def on_command_completion(ctx):
+        if not ctx.guild or not ctx.command:
+            return
+        qualified = str(getattr(ctx.command, "qualified_name", ctx.command.name)).lower()
+        tracked = {"ban", "unban", "kick", "warn", "unwarn", "purge", "clear", "timeout", "untimeout", "slowmode", "lock", "unlock", "nick", "modcase"}
+        parts = qualified.split()
+        if any(part in tracked for part in parts):
+            await _send_log(bot, ctx.guild, f"Moderation command: ,{qualified}\nModerator: {ctx.author} ({ctx.author.id})\nInvocation: {ctx.message.content[:900]}")
+
+    async def on_app_command_completion(interaction, command):
+        if not interaction.guild:
+            return
+        qualified = str(getattr(command, "qualified_name", getattr(command, "name", "unknown"))).lower()
+        tracked = {"ban", "unban", "kick", "warn", "unwarn", "purge", "clear", "timeout", "untimeout", "slowmode", "lock", "unlock", "nick", "modcase"}
+        parts = qualified.replace("/", " ").split()
+        if any(part in tracked for part in parts):
+            await _send_log(bot, interaction.guild, f"Moderation slash command: /{qualified}\nModerator: {interaction.user} ({interaction.user.id})")
+
     bot.add_listener(on_ban, "on_member_ban")
     bot.add_listener(on_unban, "on_member_unban")
     bot.add_listener(on_member_update, "on_member_update")
     bot.add_listener(on_member_remove, "on_member_remove")
+    bot.add_listener(on_command_completion, "on_command_completion")
+    bot.add_listener(on_app_command_completion, "on_app_command_completion")
 
     existing = bot.tree.get_command("modlog")
     if existing is None:
