@@ -2463,6 +2463,40 @@ async def _air_special_activity_listener(message):
         await _special_update_activity(message.guild.id, message.author.id)
     except Exception:
         pass
+async def _air_cleanup_stale_feature_guild_overrides():
+    """Remove outdated guild-specific copies that can shadow the current global feature groups."""
+    feature_roots = {"youtube", "welcome", "selfrole", "automode", "antilink"}
+    for connected_guild in bot.guilds:
+        target_guild = discord.Object(id=connected_guild.id)
+        try:
+            remote_commands = await bot.tree.fetch_commands(guild=target_guild)
+            for remote_command in remote_commands:
+                if remote_command.name in feature_roots:
+                    try:
+                        await bot.tree.delete_command(remote_command.id, guild=target_guild)
+                        print(
+                            f"🧹 Removed stale guild override /{remote_command.name} "
+                            f"from {connected_guild.name}; global command will be used.",
+                            flush=True,
+                        )
+                    except Exception as delete_exc:
+                        print(
+                            f"⚠️ Could not remove stale /{remote_command.name} override "
+                            f"in {connected_guild.id}: {type(delete_exc).__name__}: {delete_exc}",
+                            flush=True,
+                        )
+            # Prevent local legacy guild commands from being re-published by the guild sync below.
+            for local_command in list(bot.tree.get_commands(guild=target_guild)):
+                if local_command.name in feature_roots:
+                    bot.tree.remove_command(local_command.name, guild=target_guild)
+        except Exception as cleanup_exc:
+            print(
+                f"⚠️ Legacy guild command cleanup failed for {connected_guild.id}: "
+                f"{type(cleanup_exc).__name__}: {cleanup_exc}",
+                flush=True,
+            )
+
+
 @bot.event
 async def on_ready():
     print(f"✈️ Logged in as {bot.user} (ID: {bot.user.id})")
@@ -2568,6 +2602,7 @@ async def on_ready():
             # Publish one GLOBAL command set for every server.
             global_synced = await bot.tree.sync()
             print(f"🌍 Final global slash sync: {len(global_synced)} commands.")
+            await _air_cleanup_stale_feature_guild_overrides()
             # Sync each guild tree after feature/custom-command loading.
             # discord.py sync publishes the registered guild-specific commands;
             # avoid clear_commands(), which also erases valid custom commands.
@@ -2608,7 +2643,7 @@ async def on_ready():
             local_roots = sorted(command.name for command in bot.tree.get_commands())
             print(
                 "🧪 Local feature roots: "
-                + ", ".join(name for name in ("autoresponder", "youtube", "welcome", "selfrole") if name in local_roots)
+                + ", ".join(name for name in ("autoresponder", "youtube", "welcome", "selfrole", "automode", "antilink", "logs", "antinuke") if name in local_roots)
             )
             missing_roots = [name for name in ("autoresponder", "youtube", "welcome", "selfrole") if name not in local_roots]
             if missing_roots:
@@ -2810,6 +2845,7 @@ async def sync_slash_commands_prefix(ctx):
     status = await ctx.send("🔄 Global slash commands sync ho rahe hain...")
     try:
         synced = await bot.tree.sync()
+        await _air_cleanup_stale_feature_guild_overrides()
         # Sync registered guild commands without clearing the local guild tree;
         # this preserves custom commands restored from PostgreSQL.
         guild_synced = 0
