@@ -1373,7 +1373,7 @@ class AutoModeDashboardView(discord.ui.View):
         automode_save_all()
         await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=3)
     async def refresh_button(self, interaction, button):
         await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
 
