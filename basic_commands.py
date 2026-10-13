@@ -37,7 +37,7 @@ def format_count(number: int) -> str:
 # AIR COMMANDER — PREMIUM MASTER HELP MENU
 # =========================================================
 
-HELP_PAGE_SIZE = 8
+HELP_PAGE_SIZE = 7
 HELP_CATEGORIES = [
     ("⚡", "Hosting & Bot Utilities"),
     ("🛡️", "Moderation & Security"),
@@ -84,7 +84,7 @@ def _help_category(command_name: str) -> str:
 
 def _command_description(command, mode: str) -> str:
     description = getattr(command, "description", None) if mode == "slash" else (getattr(command, "help", None) or getattr(command, "brief", None))
-    return str(description or "No description added yet.").replace("\n", " ").strip()[:180]
+    return str(description or "No description added yet.").replace("\n", " ").strip()[:100]
 
 
 def _collect_commands(bot, mode="prefix"):
