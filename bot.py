@@ -34,6 +34,10 @@ import leveling
 import snipe
 import welcome_autorole
 import youtube_alerts
+import config_dashboard
+import diagnostics
+import backup_system
+import modlog
 
 # CONFIGURATION
 # =========================================================
@@ -2477,7 +2481,7 @@ async def on_ready():
                 try:
                     await db.restore_json_snapshots()
                     _air_autoresponder_load()
-                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
                         importlib.reload(module)
                     welcome_cog = bot.get_cog("Welcome")
                     if welcome_cog is not None:
@@ -2646,7 +2650,7 @@ async def _air_startup_loader(bot):
                 try:
                     await db.restore_json_snapshots()
                     _air_autoresponder_load()
-                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
                         importlib.reload(module)
                     print("♻️ JSON module state restored before feature setup.")
                 except Exception as restore_exc:
@@ -2674,6 +2678,10 @@ async def _air_startup_loader(bot):
         ("snipe", snipe),
         ("welcome_autorole", welcome_autorole),
         ("youtube_alerts", youtube_alerts),
+        ("config_dashboard", config_dashboard),
+        ("diagnostics", diagnostics),
+        ("backup_system", backup_system),
+        ("modlog", modlog),
     ]
 
     # Track modules individually: one failed setup must not mark every module loaded.
@@ -2887,7 +2895,7 @@ async def _air_json_snapshot_worker():
                         bot._air_db_initialized = True
                         await db.restore_json_snapshots()
                         _air_autoresponder_load()
-                        for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts):
+                        for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
                             importlib.reload(module)
                         welcome_cog = bot.get_cog("Welcome")
                         if welcome_cog is not None:
