@@ -1355,7 +1355,6 @@ class AutoModeDashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
 
     @discord.ui.select(
-        cls=discord.ui.Select,
         placeholder="Choose escalation punishment",
         min_values=1,
         max_values=1,
