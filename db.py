@@ -818,21 +818,59 @@ async def init_db():
             return True
 
         except Exception as exc:
-            _last_init_error = f"{type(exc).__name__}: {str(exc)[:500]}"
-            print(
-                f"❌ Database initialization attempt {attempt} failed: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
+            error_text = str(exc)
+            _last_init_error = f"{type(exc).__name__}: {error_text[:500]}"
+
+            # Supabase's pooler reports this when the project/tenant portion
+            # of the username is invalid or belongs to a different project.
+            # Retrying the same URL cannot repair a bad Render secret.
+            tenant_not_found = (
+                "ENOTFOUND" in error_text.upper()
+                or "TENANT/USER" in error_text.upper()
+                or "TENANT OR USER" in error_text.upper()
             )
-            print(traceback.format_exc(), flush=True)
+            is_supabase_pooler = (
+                "supabase.com" in host
+                or "supabase.co" in host
+            )
+
+            if tenant_not_found and is_supabase_pooler:
+                _last_init_error = (
+                    "Supabase pooler rejected the tenant/user. The DATABASE_URL "
+                    "username/project reference does not match the Supabase project, "
+                    "or the pooler host/credentials are stale."
+                )
+                print(
+                    "❌ Supabase rejected the database tenant/user (ENOTFOUND). "
+                    "This is a connection-string/configuration problem, not a bot-code "
+                    "or schema problem. In Supabase, copy the current Session Pooler "
+                    "connection string for this exact project. In Render, replace the "
+                    "bot service's DATABASE_URL with that full URI, preserving the "
+                    "generated username, password, host, port, and database name. "
+                    "The username and pooler host must belong to the same project. "
+                    "Do not use the direct db.<project-ref>.supabase.co host. "
+                    "Do not post the URI publicly.",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"❌ Database initialization attempt {attempt} failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                print(traceback.format_exc(), flush=True)
 
             if _pool:
                 try:
                     await _pool.close()
                 except Exception:
                     pass
-
                 _pool = None
+
+            # A tenant/user lookup failure is deterministic: retrying the same
+            # credentials only delays startup and repeats a misleading traceback.
+            if tenant_not_found and is_supabase_pooler:
+                break
 
             if attempt < 3:
                 await asyncio.sleep(3)
