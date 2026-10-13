@@ -2568,8 +2568,9 @@ async def on_ready():
                 try:
                     await db.restore_json_snapshots()
                     _air_autoresponder_load()
-                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
-                        importlib.reload(module)
+                    # Do not reload feature modules after setup_hook has registered
+                    # their commands/cogs. Reloading here replaces module globals/classes
+                    # while the command tree still holds callbacks from previous module objects.
                     welcome_cog = bot.get_cog("Welcome")
                     if welcome_cog is not None:
                         try:
@@ -2578,7 +2579,7 @@ async def on_ready():
                             print("🎭 Persistent self-role panels re-registered after DB restore.", flush=True)
                         except Exception as view_exc:
                             print(f"⚠️ Self-role restore warning: {type(view_exc).__name__}: {view_exc}", flush=True)
-                    print("♻️ File-backed modules reloaded from persistent PostgreSQL state.")
+                    print("♻️ PostgreSQL JSON snapshots restored; registered feature modules left intact.", flush=True)
                 except Exception as restore_exc:
                     print(f"⚠️ JSON restore/reload warning: {type(restore_exc).__name__}: {restore_exc}", flush=True)
             else:
