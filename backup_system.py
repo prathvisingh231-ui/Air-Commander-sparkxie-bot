@@ -369,6 +369,17 @@ def setup(bot):
             print(f"[Backup] Restore failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}", flush=True)
             await interaction.followup.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:350]}", ephemeral=True)
 
+    # Publish slash commands before registering prefix commands. This ensures
+    # /backup remains available even if an old duplicate prefix command exists.
+    existing = bot.tree.get_command("backup")
+    if existing is None:
+        bot.tree.add_command(group)
+    elif isinstance(existing, app_commands.Group):
+        for child in group.commands:
+            if existing.get_command(child.name) is None:
+                existing.add_command(child)
+    print("Guild backup registered: admins create/list; only each server owner can restore.", flush=True)
+
     @bot.group(name="backup", invoke_without_command=True)
     @commands.guild_only()
     async def prefix_backup(ctx):
@@ -413,11 +424,3 @@ def setup(bot):
             print(f"[Backup] Restore failed for guild {ctx.guild.id}: {type(exc).__name__}: {exc}", flush=True)
             await ctx.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:350]}")
 
-    existing = bot.tree.get_command("backup")
-    if existing is None:
-        bot.tree.add_command(group)
-    elif isinstance(existing, app_commands.Group):
-        for child in group.commands:
-            if existing.get_command(child.name) is None:
-                existing.add_command(child)
-    print("Guild backup registered: admins create/list; only each server owner can restore.", flush=True)
