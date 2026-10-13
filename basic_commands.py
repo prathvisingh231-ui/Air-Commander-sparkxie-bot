@@ -180,7 +180,7 @@ class HelpSearchModal(discord.ui.Modal, title="Search Air Commander Commands"):
     async def on_submit(self, interaction: discord.Interaction):
         query = str(self.query.value).strip()
         result, _ = _help_embed(self.bot, self.mode, search_query=query)
-        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode, search_query=query))
+        await interaction.response.send_message(embed=result, view=HelpView(self.bot, self.mode, search_query=query), ephemeral=True)
 
 
 class HelpCategorySelect(discord.ui.Select):
