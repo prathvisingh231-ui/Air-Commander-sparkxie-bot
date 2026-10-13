@@ -2464,36 +2464,52 @@ async def _air_special_activity_listener(message):
     except Exception:
         pass
 async def _air_sync_feature_commands_to_guilds():
-    """Publish key feature groups to each guild for immediate Discord command visibility."""
-    feature_roots = {"youtube", "welcome", "selfrole", "automode", "antilink"}
+    """Publish every registered global slash command to each guild for immediate visibility.
+
+    copy_global_to() mirrors the complete global command tree into a guild tree.
+    It does not clear unrelated guild-specific commands, so custom guild commands
+    already registered locally are retained.
+    """
     for connected_guild in bot.guilds:
         target_guild = discord.Object(id=connected_guild.id)
-        copied = []
         try:
-            for root_name in sorted(feature_roots):
-                global_command = bot.tree.get_command(root_name)
-                if global_command is None:
+            global_roots = sorted(command.name for command in bot.tree.get_commands())
+            if not global_roots:
+                print(
+                    f"⚠️ Cannot guild-sync {connected_guild.name}: local global slash tree is empty.",
+                    flush=True,
+                )
+                continue
+
+            # Copy ALL global commands/groups, not just a short allow-list.
+            bot.tree.copy_global_to(guild=target_guild)
+            synced = await bot.tree.sync(guild=target_guild)
+
+            try:
+                remote = await bot.tree.fetch_commands(guild=target_guild)
+                remote_names = sorted(command.name for command in remote)
+                missing = [name for name in global_roots if name not in remote_names]
+                print(
+                    f"⚡ Full guild slash sync for {connected_guild.name}: "
+                    f"{len(synced)} published; {len(remote)} confirmed remotely; "
+                    f"{len(global_roots)} global roots copied.",
+                    flush=True,
+                )
+                if missing:
                     print(
-                        f"⚠️ Cannot guild-sync /{root_name}: not registered globally in local tree.",
+                        f"⚠️ {connected_guild.name}: global roots not confirmed remotely: "
+                        + ", ".join(missing),
                         flush=True,
                     )
-                    continue
-                # A copied command becomes a guild override without removing unrelated
-                # guild-specific custom commands already registered in the tree.
-                local_guild_command = bot.tree.get_command(root_name, guild=target_guild)
-                if local_guild_command is not None:
-                    bot.tree.remove_command(root_name, guild=target_guild)
-                bot.tree.add_command(global_command.copy(), guild=target_guild)
-                copied.append(root_name)
-            synced = await bot.tree.sync(guild=target_guild)
-            print(
-                f"⚡ {connected_guild.name}: immediate feature sync published "
-                f"{len(synced)} guild command(s); feature roots copied: {', '.join(copied) or 'none'}.",
-                flush=True,
-            )
+            except Exception as verify_exc:
+                print(
+                    f"⚠️ Guild sync succeeded but verification failed for "
+                    f"{connected_guild.id}: {type(verify_exc).__name__}: {verify_exc}",
+                    flush=True,
+                )
         except Exception as sync_exc:
             print(
-                f"❌ Immediate feature sync failed for {connected_guild.id}: "
+                f"❌ Immediate full slash sync failed for {connected_guild.id}: "
                 f"{type(sync_exc).__name__}: {sync_exc}",
                 flush=True,
             )
