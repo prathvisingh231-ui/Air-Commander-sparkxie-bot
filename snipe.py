@@ -3457,8 +3457,8 @@ class TicketSystem(commands.Cog):
             f"Channel: {channel.mention}\nClosed by: {user.mention}\nDeletion scheduled: 3 seconds"
         )
 
-        # Save the transcript to the configured ticket log channel before deleting
-        # the ticket channel, otherwise the in-channel transcript disappears too.
+        # Preserve the transcript outside the ticket channel before deletion.
+        transcript_saved = False
         log_channel_id = guild_data["config"].get("log_channel_id")
         if transcript_text and log_channel_id:
             log_channel = guild.get_channel(int(log_channel_id))
@@ -3472,8 +3472,30 @@ class TicketSystem(commands.Cog):
                         ),
                         allowed_mentions=discord.AllowedMentions.none()
                     )
+                    transcript_saved = True
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     print(f"[Ticket] Transcript log upload failed: {type(exc).__name__}: {exc}", flush=True)
+
+        # If no log channel is configured or its upload fails, DM the ticket
+        # creator as a fallback so the transcript is not lost with the channel.
+        if transcript_text and not transcript_saved:
+            transcript_owner = guild.get_member(int(ticket["user_id"]))
+            if transcript_owner:
+                try:
+                    await transcript_owner.send(
+                        content=f"📄 Transcript for your closed ticket #{channel.name} in {guild.name}.",
+                        file=discord.File(
+                            fp=io.BytesIO(transcript_text.encode("utf-8", errors="replace")),
+                            filename=f"{channel.name}-transcript.txt"
+                        ),
+                        allowed_mentions=discord.AllowedMentions.none()
+                    )
+                    transcript_saved = True
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"[Ticket] Transcript DM fallback failed: {type(exc).__name__}: {exc}", flush=True)
+
+        if transcript_text and not transcript_saved:
+            print(f"[Ticket] Warning: transcript for {channel.id} could not be delivered to log channel or ticket owner.", flush=True)
 
         await asyncio.sleep(3)
         try:
