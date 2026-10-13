@@ -351,8 +351,8 @@ class GiveawayCog(commands.Cog):
                 return
             await interaction.response.send_modal(GiveawayEditModal(self, gid, row))
         elif action == "end":
-            if status != "active":
-                await interaction.response.send_message("Only an active giveaway can be ended.", ephemeral=True)
+            if status not in ("active", "paused"):
+                await interaction.response.send_message("This giveaway is not active.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             ok = await self.finish_giveaway(gid, force=True)
@@ -564,7 +564,7 @@ class GiveawayCog(commands.Cog):
         self._closing_ids.add(giveaway_id)
         try:
             row = await self._fetch_giveaway(giveaway_id)
-            if not row or _row_value(row, "status", "active") != "active":
+            if not row or _row_value(row, "status", "active") not in (("active", "paused") if force else ("active",)):
                 return False
             ends_at = _row_value(row, "ends_at")
             if not force and ends_at and ends_at > _utcnow():
@@ -662,9 +662,9 @@ class GiveawayCog(commands.Cog):
     async def giveaway_create(
         self,
         ctx: commands.Context,
-        prize: str,
-        duration_hours: app_commands.Range[int, 1, 720],
-        winners: app_commands.Range[int, 1, 20] = 1,
+        prize: str = "Giveaway",
+        duration_hours: app_commands.Range[int, 1, 720] = 24,
+        winners: app_commands.Range[int, 1, 25] = 1,
         required_role: Optional[discord.Role] = None,
         bonus_role: Optional[discord.Role] = None,
         bonus_entries: app_commands.Range[int, 1, 100] = 2,
