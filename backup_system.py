@@ -218,7 +218,9 @@ async def _restore_db(payload, guild_id):
                 conflict = ", ".join(_qid(k) for k in pk)
                 updates = [c for c in columns if c not in pk]
                 action = "DO UPDATE SET " + ", ".join(f"{_qid(c)}=EXCLUDED.{_qid(c)}" for c in updates) if updates else "DO NOTHING"
-                query = f"INSERT INTO {qtable} ({qcols}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
+                if updates:
+                    action += f" WHERE {qtable}.{_qid(scope)}=EXCLUDED.{_qid(scope)}"
+                query = f"INSERT INTO {qtable} AS target ({qcols}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
             else:
                 predicates = " AND ".join(f"{_qid(c)} IS NOT DISTINCT FROM $" + str(len(columns) + i + 1) for i, c in enumerate(columns))
                 query = f"INSERT INTO {qtable} ({qcols}) SELECT {placeholders} WHERE NOT EXISTS (SELECT 1 FROM {qtable} WHERE {predicates})"
@@ -295,7 +297,8 @@ def _prune(guild_id, keep=10):
             print(f"[Backup] Could not remove old backup {path.name}: {exc}", flush=True)
 
 def _admin(member):
-    return bool(getattr(member, "guild_permissions", None) and member.guild_permissions.manage_guild)
+    permissions = getattr(member, "guild_permissions", None)
+    return bool(permissions and (permissions.administrator or permissions.manage_guild))
 
 def _server_owner(guild, user):
     return bool(guild and user and guild.owner_id == user.id)
