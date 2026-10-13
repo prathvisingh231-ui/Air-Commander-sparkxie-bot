@@ -54,6 +54,7 @@ async def _status_embed(bot, guild):
     yt_channel = f"<#{youtube.get('default_channel')}>" if youtube.get("default_channel") else "not set"
     e.add_field(name="YouTube alerts", value=f"{yt_status}; tracked: {len(youtube.get('channels', {}))}; alert channel: {yt_channel}", inline=False)
     e.add_field(name="Tickets", value=f"Panel: {'set' if panel.get('channel_id') else 'not set'}; categories: {len(ticket.get('categories', {}))}; log channel: {'set' if ticket_cfg.get('log_channel_id') else 'not set'}", inline=False)
+    e.add_field(name="Giveaways / custom commands", value="PostgreSQL connected" if db_status.get("connected") else "PostgreSQL disconnected — DB-backed data may not persist", inline=True)
     e.add_field(name="Leveling", value=f"{_enabled(level.get('enabled', False))}; XP/message: {level.get('xp_per_message', 'default')}", inline=True)
     e.add_field(name="AutoMode / AntiNuke / AntiLink", value=f"AutoMode: {_enabled(automode.get('enabled', False))}\nAntiNuke: {_enabled(antinuke.get('enabled', False))}\nAntiLink: {_enabled(antilink.get('enabled', False))}", inline=True)
     e.add_field(name="Autoresponder / Modlog", value=f"Autoresponder: {_enabled(autoresponder.get('enabled', False))}; rules: {len(autoresponder.get('rules', {}))}\nModlog channel: <#{modlog.get('channel_id')}>" if modlog.get("channel_id") else f"Autoresponder: {_enabled(autoresponder.get('enabled', False))}; rules: {len(autoresponder.get('rules', {}))}\nModlog: not configured", inline=False)
