@@ -349,13 +349,16 @@ def setup(bot):
       "pirate":("Pirate Crew 🏴‍☠️","Build a crew, upgrade a ship and hunt fictional treasure."),
       "dungeon":("Dungeon 🏰","Multiplayer adventure with classes, loot, enemies and bosses.")
     }
-    for name,(title,desc) in games.items():
-        async def game_command(i, _title: str = title, _desc: str = desc):
+    def make_prefix_game(_title, _desc):
+        async def prefix_game(ctx):
             e=embed(_title,_desc,discord.Color.blurple())
             e.add_field(name="🎮 Status",value="Game module initialized — ready for the next turn.",inline=False)
             e.add_field(name="🪙 Economy",value="Virtual points only; no real-money value.",inline=False)
             e.set_footer(text="AirCommander Games • Friendly fictional gameplay")
-            await i.response.send_message(embed=e)
-        game_command.__name__=name
-        game_command.__qualname__=name
-        bot.tree.add_command(app_commands.Command(name=name,description=desc[:100],callback=game_command))
+            await ctx.send(embed=e)
+        return prefix_game
+
+    # These 15 game launch/info commands are prefix-only to free global
+    # application-command slots for essential feature groups.
+    for name,(title,desc) in games.items():
+        bot.command(name=name)(make_prefix_game(title, desc))
