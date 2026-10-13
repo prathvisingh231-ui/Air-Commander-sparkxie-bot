@@ -2473,7 +2473,7 @@ async def _air_cleanup_stale_feature_guild_overrides():
             for remote_command in remote_commands:
                 if remote_command.name in feature_roots:
                     try:
-                        await bot.tree.delete_command(remote_command.id, guild=target_guild)
+                        await remote_command.delete()
                         print(
                             f"🧹 Removed stale guild override /{remote_command.name} "
                             f"from {connected_guild.name}; global command will be used.",
