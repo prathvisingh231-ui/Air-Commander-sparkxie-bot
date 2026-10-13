@@ -113,6 +113,8 @@ def giveaway_embed(
     status: str = "active",
     winners: Optional[list] = None,
     giveaway_id: Optional[int] = None,
+    image_url: Optional[str] = None,
+    thumbnail_url: Optional[str] = None,
 ) -> discord.Embed:
     requirements = requirements or {}
     winners = winners or []
@@ -158,6 +160,10 @@ def giveaway_embed(
     embed.set_footer(
         text=f"{BRAND} • ID: {giveaway_id if giveaway_id is not None else 'pending'}"
     )
+    if image_url:
+        embed.set_image(url=image_url)
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
     embed.timestamp = _utcnow()
     return embed
 
@@ -260,6 +266,8 @@ class GiveawayCog(commands.Cog):
             status=status,
             winners=winners or [],
             giveaway_id=int(_row_value(row, "id", 0)),
+            image_url=requirements.get("image_url"),
+            thumbnail_url=requirements.get("thumbnail_url"),
         )
         view = GiveawayView(self) if status == "active" else None
         try:
@@ -535,6 +543,11 @@ class GiveawayCog(commands.Cog):
         required_role="Optional role members must have to enter",
         bonus_role="Optional role that receives extra draw entries",
         bonus_entries="Ticket weight for the bonus role (1–100; 1 means no bonus)",
+        channel="Channel where the giveaway will be posted",
+        image_url="Optional image URL (HTTPS)",
+        thumbnail_url="Optional thumbnail URL (HTTPS)",
+        image_attachment="Optional image upload from your device/gallery",
+        thumbnail_attachment="Optional thumbnail upload from your device/gallery",
     )
     async def giveaway_create(
         self,
@@ -545,6 +558,11 @@ class GiveawayCog(commands.Cog):
         required_role: Optional[discord.Role] = None,
         bonus_role: Optional[discord.Role] = None,
         bonus_entries: app_commands.Range[int, 1, 100] = 2,
+        channel: Optional[discord.TextChannel] = None,
+        image_url: Optional[str] = None,
+        thumbnail_url: Optional[str] = None,
+        image_attachment: Optional[discord.Attachment] = None,
+        thumbnail_attachment: Optional[discord.Attachment] = None,
     ):
         if not await self._require_manager(ctx):
             return
@@ -556,9 +574,31 @@ class GiveawayCog(commands.Cog):
             await ctx.send("Set bonus entries to at least **2** to give that role a bonus.")
             return
 
-        channel = ctx.channel
-        if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel, discord.StageChannel)):
-            await ctx.send("Please run this command in a text channel.")
+        target_channel = channel or ctx.channel
+        if not isinstance(target_channel, (discord.TextChannel, discord.Thread)):
+            await ctx.send("Please select a text channel for the giveaway.")
+            return
+
+        def valid_image_url(value: Optional[str]) -> Optional[str]:
+            if not value:
+                return None
+            value = value.strip()
+            if not value.startswith(("https://", "http://")) or len(value) > 1000:
+                raise ValueError("Image and thumbnail links must be valid HTTP(S) URLs.")
+            return value
+
+        try:
+            # A file uploaded from the Discord attachment/gallery picker takes
+            # precedence over a pasted URL. Discord CDN URLs remain usable later.
+            final_image_url = (
+                str(image_attachment.url) if image_attachment else valid_image_url(image_url)
+            )
+            final_thumbnail_url = (
+                str(thumbnail_attachment.url)
+                if thumbnail_attachment else valid_image_url(thumbnail_url)
+            )
+        except ValueError as exc:
+            await ctx.send(f"❌ {exc}")
             return
 
         ends_at = _utcnow() + timedelta(hours=int(duration_hours))
@@ -566,6 +606,8 @@ class GiveawayCog(commands.Cog):
             "required_role_id": required_role.id if required_role else None,
             "bonus_role_id": bonus_role.id if bonus_role else None,
             "bonus_entries": int(bonus_entries),
+            "image_url": final_image_url,
+            "thumbnail_url": final_thumbnail_url,
         }
 
         # Send the visible message first to get its message_id, then persist
@@ -579,12 +621,14 @@ class GiveawayCog(commands.Cog):
             requirements=requirements,
             status="active",
             giveaway_id=None,
+            image_url=final_image_url,
+            thumbnail_url=final_thumbnail_url,
         )
-        message = await ctx.send(embed=preview, view=GiveawayView(self))
+        message = await target_channel.send(embed=preview, view=GiveawayView(self))
         try:
             row = await db.create_giveaway(
                 guild_id=ctx.guild.id,
-                channel_id=channel.id,
+                channel_id=target_channel.id,
                 message_id=message.id,
                 host_id=ctx.author.id,
                 prize=prize,
@@ -603,6 +647,8 @@ class GiveawayCog(commands.Cog):
                 entries=0,
                 requirements=requirements,
                 giveaway_id=giveaway_id,
+                image_url=final_image_url,
+                thumbnail_url=final_thumbnail_url,
             )
             await message.edit(embed=embed, view=GiveawayView(self))
             await ctx.send(f"✅ Giveaway created! ID: `{giveaway_id}` • Ends {_timestamp(ends_at)}")
