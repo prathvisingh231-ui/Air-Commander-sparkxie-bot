@@ -86,6 +86,7 @@ def run_web():
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.invites = True  # Required for invite create/delete log events
 
 class AirCommanderBot(commands.Bot):
     async def setup_hook(self):
