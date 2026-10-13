@@ -219,7 +219,7 @@ async def _restore_db(payload, guild_id):
                 updates = [c for c in columns if c not in pk]
                 action = "DO UPDATE SET " + ", ".join(f"{_qid(c)}=EXCLUDED.{_qid(c)}" for c in updates) if updates else "DO NOTHING"
                 if updates:
-                    action += f" WHERE {qtable}.{_qid(scope)}=EXCLUDED.{_qid(scope)}"
+                    action += f" WHERE target.{_qid(scope)}=EXCLUDED.{_qid(scope)}"
                 query = f"INSERT INTO {qtable} AS target ({qcols}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
             else:
                 predicates = " AND ".join(f"{_qid(c)} IS NOT DISTINCT FROM $" + str(len(columns) + i + 1) for i, c in enumerate(columns))
