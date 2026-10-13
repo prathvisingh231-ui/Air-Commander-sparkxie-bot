@@ -1,7 +1,7 @@
-import base64
 import io
 import json
-import os
+import re
+import secrets
 import zipfile
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -13,343 +13,402 @@ from discord import app_commands
 from discord.ext import commands
 import db
 
-ROOT = Path(".").resolve()
 BACKUP_DIR = Path("data/backups")
-BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
-MAX_FILES = 3000
-OWNER_IDS = {int(v.strip()) for v in os.getenv("DISCORD_OWNER_ID", "").split(",") if v.strip().isdigit()}
+BACKUP_ID_RE = re.compile(r"^AC-(\d{5,25})-(\d{8}-\d{6})-([A-F0-9]{4})$")
+EXCLUDED = {".git", ".venv", "venv", "__pycache__", "node_modules", "backups"}
 
-async def _is_owner(bot, user):
-    if user.id in OWNER_IDS:
-        return True
-    try:
-        return await bot.is_owner(user)
-    except Exception:
-        return False
+def _qid(name):
+    if not isinstance(name, str) or not name or not name.replace("_", "").isalnum():
+        raise ValueError("Unsafe SQL identifier")
+    return '"' + name.replace('"', '""') + '"'
 
-def _json_default(value):
-    if isinstance(value, (datetime, date, time)):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, UUID):
-        return str(value)
-    if isinstance(value, bytes):
-        return {"__air_bytes_b64__": base64.b64encode(value).decode("ascii")}
-    if hasattr(value, "items"):
-        return dict(value)
-    return str(value)
+def _json_default(v):
+    if isinstance(v, (datetime, date, time)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return str(v)
+    if isinstance(v, UUID):
+        return str(v)
+    if isinstance(v, bytes):
+        return {"__air_bytes_hex__": v.hex()}
+    if hasattr(v, "items"):
+        return dict(v)
+    return str(v)
 
-def _restore_value(value):
-    if isinstance(value, dict) and set(value) == {"__air_bytes_b64__"}:
-        return base64.b64decode(value["__air_bytes_b64__"])
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False)
-    return value
+def _restore_value(v):
+    if isinstance(v, dict) and set(v) == {"__air_bytes_hex__"}:
+        return bytes.fromhex(v["__air_bytes_hex__"])
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return v
 
-def _quote_ident(value):
-    if not isinstance(value, str) or not value or not value.replace("_", "").isalnum():
-        raise ValueError("Unsafe database identifier in backup.")
-    return '"' + value.replace('"', '""') + '"'
+def _guild_folder(guild_id):
+    path = BACKUP_DIR / str(int(guild_id))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
-def _json_files():
-    excluded = {".git", ".venv", "venv", "__pycache__", "node_modules", "backups"}
-    results = []
-    for path in ROOT.rglob("*.json"):
+def _make_id(guild_id):
+    return f"AC-{guild_id}-{discord.utils.utcnow().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2).upper()}"
+
+def _find_fragments(value, guild_id, path=()):
+    """Only extract JSON branches explicitly keyed by this guild ID."""
+    key = str(guild_id)
+    found = []
+    if isinstance(value, dict):
+        if key in value and isinstance(value[key], (dict, list)):
+            found.append({"path": list(path + (key,)), "value": value[key]})
+        for k, child in value.items():
+            if k != key:
+                found.extend(_find_fragments(child, guild_id, path + (k,)))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found.extend(_find_fragments(child, guild_id, path + (index,)))
+    return found
+
+def _get_json_fragments(guild_id):
+    results = {}
+    root = Path(".").resolve()
+    for path in root.rglob("*.json"):
         try:
-            relative = path.relative_to(ROOT)
-            if any(part in excluded for part in relative.parts):
+            rel = path.relative_to(root)
+            if any(part in EXCLUDED for part in rel.parts) or not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
                 continue
-            if path.is_file() and path.stat().st_size <= 20 * 1024 * 1024:
-                results.append((path, relative.as_posix()))
-        except (OSError, ValueError):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            fragments = _find_fragments(data, guild_id)
+            if fragments:
+                results[rel.as_posix()] = fragments
+        except (OSError, UnicodeError, ValueError, TypeError):
             continue
-    return results[:MAX_FILES]
+    return results
 
-async def _database_dump():
+async def _dump_guild_db(guild_id):
     pool = getattr(db, "_pool", None)
     if pool is None:
-        return {}, {}, "PostgreSQL disconnected; database tables were not included."
-    tables = await pool.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
-    table_data, primary_keys = {}, {}
-    table_errors = []
-    for item in tables:
-        table = item["tablename"]
+        return {}, {}, "PostgreSQL is disconnected; database rows were not included."
+    rows = await pool.fetch(
+        """SELECT c.table_name, c.column_name
+           FROM information_schema.columns c
+           JOIN information_schema.tables t ON t.table_name=c.table_name
+           WHERE c.table_schema='public' AND t.table_type='BASE TABLE'
+           ORDER BY c.table_name, c.ordinal_position"""
+    )
+    cols = {}
+    for row in rows:
+        cols.setdefault(row["table_name"], []).append(row["column_name"])
+    data, pks, skipped = {}, {}, []
+    for table, columns in cols.items():
+        scope = "guild_id" if "guild_id" in columns else ("server_id" if "server_id" in columns else None)
+        if not scope:
+            skipped.append(table)
+            continue
         try:
-            rows = await pool.fetch(f"SELECT * FROM {_quote_ident(table)}")
-            table_data[table] = [dict(row) for row in rows]
+            table_rows = await pool.fetch(
+                f"SELECT * FROM {_qid(table)} WHERE {_qid(scope)}=$1",
+                int(guild_id),
+            )
+            data[table] = [dict(row) for row in table_rows]
             pk_rows = await pool.fetch(
                 """SELECT a.attname
-                   FROM pg_index i
-                   JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
+                   FROM pg_index i JOIN pg_attribute a
+                   ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
                    WHERE i.indrelid=$1::regclass AND i.indisprimary
-                   ORDER BY a.attnum""", table)
-            primary_keys[table] = [row["attname"] for row in pk_rows]
+                   ORDER BY array_position(i.indkey, a.attnum)""",
+                table,
+            )
+            pks[table] = [row["attname"] for row in pk_rows]
         except Exception as exc:
-            print(f"[Backup] Could not dump table {table}: {type(exc).__name__}: {exc}", flush=True)
-            table_errors.append(table)
-            table_data[table] = []
-            primary_keys[table] = []
-    warning = ("Some tables could not be backed up: " + ", ".join(table_errors[:20])) if table_errors else None
-    return table_data, primary_keys, warning
+            print(f"[Backup] Failed to read guild-scoped table {table}: {type(exc).__name__}: {exc}", flush=True)
+            data.pop(table, None)
+            pks.pop(table, None)
+            skipped.append(table)
+    warning = ("Skipped tables without guild scope or with read errors: " + ", ".join(skipped[:25])) if skipped else None
+    return data, pks, warning
 
-async def _build_backup():
-    files = {}
-    for path, relative in _json_files():
-        try:
-            files[relative] = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
-            continue
-    tables, primary_keys, warning = await _database_dump()
+async def _build_backup(guild):
+    configs = _get_json_fragments(guild.id)
+    tables, pks, warning = await _dump_guild_db(guild.id)
     manifest = {
-        "format": "air-commander-backup-v1",
+        "format": "air-commander-guild-backup-v2",
+        "guild_id": guild.id,
+        "guild_name": guild.name,
         "created_at": discord.utils.utcnow().isoformat(),
         "database_included": bool(getattr(db, "_pool", None)),
         "database_tables": len(tables),
-        "json_files": len(files),
+        "json_files_with_guild_data": len(configs),
         "warning": warning,
-        "restore_mode": "merge/upsert; existing rows not present in the archive are not deleted",
+        "scope": "Only data explicitly associated with this guild ID.",
+        "restore_mode": "Merge/upsert scoped rows; unrelated guild data is never intentionally changed or deleted.",
     }
     memory = io.BytesIO()
-    with zipfile.ZipFile(memory, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
-        archive.writestr("config_json_files.json", json.dumps(files, ensure_ascii=False))
-        archive.writestr("database_tables.json", json.dumps({"tables": tables, "primary_keys": primary_keys}, default=_json_default, ensure_ascii=False))
+    with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        z.writestr("manifest.json", json.dumps(manifest, indent=2))
+        z.writestr("guild_json_fragments.json", json.dumps(configs, ensure_ascii=False))
+        z.writestr("database_tables.json", json.dumps({"tables": tables, "primary_keys": pks}, default=_json_default, ensure_ascii=False))
     memory.seek(0)
     return memory, manifest
 
-async def _restore_database(payload):
+def _set_fragment(root, path, value):
+    if not path:
+        return False
+    current = root
+    for idx, part in enumerate(path[:-1]):
+        nxt = path[idx + 1]
+        if isinstance(current, dict) and isinstance(part, str):
+            if part not in current or not isinstance(current[part], (dict, list)):
+                current[part] = {} if isinstance(nxt, str) else []
+            current = current[part]
+        elif isinstance(current, list) and isinstance(part, int):
+            while len(current) <= part:
+                current.append({} if isinstance(nxt, str) else [])
+            current = current[part]
+        else:
+            return False
+    last = path[-1]
+    if isinstance(current, dict) and isinstance(last, str):
+        current[last] = value
+        return True
+    if isinstance(current, list) and isinstance(last, int):
+        while len(current) < last:
+            current.append(None)
+        if last == len(current):
+            current.append(value)
+        else:
+            current[last] = value
+        return True
+    return False
+
+async def _restore_db(payload, guild_id):
     pool = getattr(db, "_pool", None)
-    if payload.get("tables") and pool is None:
-        raise RuntimeError("PostgreSQL is disconnected. Database restore was stopped before changing files.")
     tables = payload.get("tables", {})
-    pks = payload.get("primary_keys", {})
+    if tables and pool is None:
+        raise RuntimeError("PostgreSQL is disconnected. Restore stopped before modifying config files.")
     if not tables:
-        return "No database tables were present in this archive."
-    known = {row["tablename"] for row in await pool.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'")}
-    pending = [name for name in tables if name in known]
-    restored, skipped, failures = 0, 0, {}
-    for _pass in range(3):
-        still_pending = []
-        before_pass = restored
-        for table in pending:
-            pk = pks.get(table, [])
-            rows = tables.get(table, [])
+        return "No database rows were included."
+    col_rows = await pool.fetch(
+        """SELECT c.table_name, c.column_name
+           FROM information_schema.columns c
+           JOIN information_schema.tables t ON t.table_name=c.table_name
+           WHERE c.table_schema='public' AND t.table_type='BASE TABLE'"""
+    )
+    available = {}
+    for row in col_rows:
+        available.setdefault(row["table_name"], set()).add(row["column_name"])
+    restored, errors = 0, []
+    for table, table_rows in tables.items():
+        if table not in available:
+            errors.append(table + " (table missing)")
+            continue
+        scope = "guild_id" if "guild_id" in available[table] else ("server_id" if "server_id" in available[table] else None)
+        if not scope:
+            errors.append(table + " (not guild-scoped)")
+            continue
+        for row in table_rows:
+            if int(row.get(scope, -1) or -1) != int(guild_id):
+                raise ValueError("Backup contains another server's database row; restore blocked.")
+            columns = sorted(row.keys())
+            if not columns:
+                continue
+            qtable = _qid(table)
+            qcols = ", ".join(_qid(c) for c in columns)
+            placeholders = ", ".join("$" + str(i + 1) for i in range(len(columns)))
+            vals = [_restore_value(row.get(c)) for c in columns]
+            pk = payload.get("primary_keys", {}).get(table, [])
+            if pk and all(k in columns for k in pk):
+                conflict = ", ".join(_qid(k) for k in pk)
+                updates = [c for c in columns if c not in pk]
+                action = "DO UPDATE SET " + ", ".join(f"{_qid(c)}=EXCLUDED.{_qid(c)}" for c in updates) if updates else "DO NOTHING"
+                query = f"INSERT INTO {qtable} ({qcols}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
+            else:
+                predicates = " AND ".join(f"{_qid(c)} IS NOT DISTINCT FROM $" + str(len(columns) + i + 1) for i, c in enumerate(columns))
+                query = f"INSERT INTO {qtable} ({qcols}) SELECT {placeholders} WHERE NOT EXISTS (SELECT 1 FROM {qtable} WHERE {predicates})"
+                vals += vals
             try:
-                qtable = _quote_ident(table)
-                columns = sorted({key for row in rows for key in row.keys()})
-                if not columns:
-                    continue
-                qcolumns = ", ".join(_quote_ident(c) for c in columns)
-                placeholders = ", ".join("$" + str(i + 1) for i in range(len(columns)))
-                table_failed = False
-                if pk:
-                    conflict = ", ".join(_quote_ident(c) for c in pk)
-                    updates = [c for c in columns if c not in pk]
-                    action = "DO UPDATE SET " + ", ".join(f"{_quote_ident(c)}=EXCLUDED.{_quote_ident(c)}" for c in updates) if updates else "DO NOTHING"
-                    query = f"INSERT INTO {qtable} ({qcolumns}) VALUES ({placeholders}) ON CONFLICT ({conflict}) {action}"
-                    for row in rows:
-                        try:
-                            await pool.execute(query, *[_restore_value(row.get(column)) for column in columns])
-                            restored += 1
-                        except Exception as exc:
-                            table_failed = True
-                            failures[table] = f"{type(exc).__name__}: {exc}"[:250]
-                else:
-                    # Tables without a primary key are merged by exact-row matching
-                    # so repeating a restore does not normally duplicate existing rows.
-                    predicates = " AND ".join(f"{_quote_ident(column)} IS NOT DISTINCT FROM $" + str(len(columns) + i + 1) for i, column in enumerate(columns))
-                    query = f"INSERT INTO {qtable} ({qcolumns}) SELECT {placeholders} WHERE NOT EXISTS (SELECT 1 FROM {qtable} WHERE {predicates})"
-                    for row in rows:
-                        try:
-                            values = [_restore_value(row.get(column)) for column in columns]
-                            await pool.execute(query, *(values + values))
-                            restored += 1
-                        except Exception as exc:
-                            table_failed = True
-                            failures[table] = f"{type(exc).__name__}: {exc}"[:250]
-                if table_failed:
-                    still_pending.append(table)
-                else:
-                    failures.pop(table, None)
+                await pool.execute(query, *vals)
+                restored += 1
             except Exception as exc:
-                failures[table] = f"{type(exc).__name__}: {exc}"[:250]
-                still_pending.append(table)
-        if not still_pending or restored == before_pass:
-            break
-        pending = still_pending
-    return f"Rows restored/merged: {restored}. Rows skipped: {skipped}. Tables with errors: {len(failures)}."
+                errors.append(f"{table}: {type(exc).__name__}")
+                print(f"[Backup] Restore failed in {table}: {type(exc).__name__}: {exc}", flush=True)
+    return f"Rows merged: {restored}; errors: {len(errors)}" + (f" ({', '.join(errors[:8])})" if errors else "")
 
-def _safe_json_path(relative):
-    candidate = Path(relative)
-    if candidate.is_absolute() or ".." in candidate.parts or candidate.suffix.lower() != ".json":
-        raise ValueError("Backup contains an unsafe configuration path.")
-    if any(part in {".git", ".venv", "venv", "__pycache__", "node_modules", "backups"} for part in candidate.parts):
-        raise ValueError("Backup contains a blocked path.")
-    full = (ROOT / candidate).resolve()
-    if ROOT != full and ROOT not in full.parents:
-        raise ValueError("Backup path escapes the project folder.")
-    return full
-
-async def _restore_archive(raw_bytes):
-    if len(raw_bytes) > MAX_ARCHIVE_BYTES:
-        raise ValueError("Backup archive is too large (100 MB limit).")
+async def _restore_archive(raw, guild_id):
+    if len(raw) > MAX_ARCHIVE_BYTES:
+        raise ValueError("Backup exceeds the 100 MB limit.")
     try:
-        archive = zipfile.ZipFile(io.BytesIO(raw_bytes))
+        z = zipfile.ZipFile(io.BytesIO(raw))
     except Exception as exc:
-        raise ValueError("This is not a valid Air Commander ZIP backup.") from exc
-    names = archive.namelist()
-    if sum(item.file_size for item in archive.infolist()) > MAX_ARCHIVE_BYTES:
-        raise ValueError("Backup expands beyond the 100 MB safety limit.")
-    if len(names) > MAX_FILES + 3:
-        raise ValueError("Backup contains too many files.")
-    required = {"manifest.json", "config_json_files.json", "database_tables.json"}
-    if not required.issubset(names):
-        raise ValueError("Required Air Commander backup metadata is missing.")
-    manifest = json.loads(archive.read("manifest.json"))
-    if manifest.get("format") != "air-commander-backup-v1":
-        raise ValueError("Unsupported backup format.")
-    configs = json.loads(archive.read("config_json_files.json"))
-    db_payload = json.loads(archive.read("database_tables.json"))
+        raise ValueError("Invalid ZIP backup.") from exc
+    if sum(x.file_size for x in z.infolist()) > MAX_ARCHIVE_BYTES or len(z.namelist()) > 3003:
+        raise ValueError("Backup exceeds safety limits.")
+    required = {"manifest.json", "guild_json_fragments.json", "database_tables.json"}
+    if not required.issubset(z.namelist()):
+        raise ValueError("Backup metadata is missing.")
+    manifest = json.loads(z.read("manifest.json"))
+    if manifest.get("format") != "air-commander-guild-backup-v2":
+        raise ValueError("This is not a guild-scoped backup.")
+    if int(manifest.get("guild_id", 0)) != int(guild_id):
+        raise PermissionError("Cross-server restore is blocked; this backup belongs to another server.")
+    configs = json.loads(z.read("guild_json_fragments.json"))
+    db_payload = json.loads(z.read("database_tables.json"))
     if db_payload.get("tables") and not getattr(db, "_pool", None):
         raise RuntimeError("PostgreSQL is disconnected. No restore changes were applied.")
-    db_result = await _restore_database(db_payload)
+    db_result = await _restore_db(db_payload, guild_id)
     written = 0
-    for relative, text in configs.items():
-        target = _safe_json_path(relative)
+    root_dir = Path(".").resolve()
+    for relative, fragments in configs.items():
+        rel = Path(relative)
+        if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".json" or any(p in EXCLUDED for p in rel.parts):
+            raise ValueError("Unsafe config path in backup.")
+        target = (root_dir / rel).resolve()
+        if target != root_dir and root_dir not in target.parents:
+            raise ValueError("Config path escapes the project.")
+        if target.exists():
+            current = json.loads(target.read_text(encoding="utf-8"))
+        else:
+            current = {}
+        for fragment in fragments:
+            path = fragment.get("path", [])
+            if str(guild_id) not in [str(part) for part in path]:
+                raise ValueError("Config fragment does not match this guild.")
+            if not _set_fragment(current, path, fragment.get("value")):
+                raise ValueError("Could not safely merge a guild config fragment.")
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix(target.suffix + ".restore-tmp")
-        temp.write_text(text, encoding="utf-8")
+        temp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(target)
         written += 1
     return manifest, db_result, written
 
-def _prune_backups(keep=10):
-    files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for old_path in files[keep:]:
-        try:
-            old_path.unlink()
-        except OSError as exc:
-            print(f"[Backup] Could not prune {old_path.name}: {exc}", flush=True)
+def _local_backups(guild_id):
+    folder = _guild_folder(guild_id)
+    return sorted(
+        [p for p in folder.glob("*.zip") if BACKUP_ID_RE.fullmatch(p.stem) and p.stem.split("-")[1] == str(guild_id)],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
 
-async def _create_response(interaction=None, ctx=None):
-    memory, manifest = await _build_backup()
-    stamp = discord.utils.utcnow().strftime("%Y%m%d-%H%M%S")
-    path = BACKUP_DIR / f"air-commander-{stamp}.zip"
+def _prune(guild_id, keep=10):
+    for path in _local_backups(guild_id)[keep:]:
+        try:
+            path.unlink()
+        except OSError as exc:
+            print(f"[Backup] Could not remove old backup {path.name}: {exc}", flush=True)
+
+def _admin(member):
+    return bool(getattr(member, "guild_permissions", None) and member.guild_permissions.manage_guild)
+
+def _server_owner(guild, user):
+    return bool(guild and user and guild.owner_id == user.id)
+
+async def _send_create(guild, interaction=None, ctx=None):
+    memory, manifest = await _build_backup(guild)
+    backup_id = _make_id(guild.id)
+    path = _guild_folder(guild.id) / (backup_id + ".zip")
     path.write_bytes(memory.getvalue())
-    _prune_backups(keep=10)
-    note = "FULL backup" if manifest["database_included"] and not manifest.get("warning") else "PARTIAL backup — review the warning; some or all database records may be missing"
-    description = f"{note}\nConfig files: {manifest['json_files']}\nDatabase tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes"
+    _prune(guild.id)
+    complete = manifest["database_included"] and not manifest.get("warning")
+    status = "COMPLETE" if complete else "PARTIAL — read warning"
+    msg = (
+        f"Backup ID: {backup_id}\nServer: {guild.name} ({guild.id})\nStatus: {status}\n"
+        f"Guild-scoped JSON files: {manifest['json_files_with_guild_data']}\n"
+        f"Database tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes\n"
+        "Use /backup list to see IDs. Only this server's owner can restore."
+    )
     if manifest.get("warning"):
-        description += f"\nWarning: {manifest['warning']}"
+        msg += "\nWarning: " + manifest["warning"][:900]
     if interaction:
-        await interaction.followup.send(description, file=discord.File(path, filename=path.name), ephemeral=True)
+        await interaction.followup.send(msg, file=discord.File(path, filename=path.name), ephemeral=True)
     else:
-        await ctx.send(description, file=discord.File(path, filename=path.name))
+        await ctx.send(msg, file=discord.File(path, filename=path.name))
 
 def setup(bot):
-    group = app_commands.Group(name="backup", description="Owner-only Air Commander backup and restore")
-    @group.command(name="create", description="Create and download a backup archive")
-    async def backup_create(interaction: discord.Interaction):
-        if not await _is_owner(bot, interaction.user):
-            return await interaction.response.send_message("Bot owner only.", ephemeral=True)
+    group = app_commands.Group(name="backup", description="Guild-scoped backup tools")
+    @group.command(name="create", description="Create a backup ID (Manage Server required)")
+    async def slash_create(interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        if not _admin(interaction.user):
+            return await interaction.response.send_message("Manage Server permission required.", ephemeral=True)
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            await _create_response(interaction=interaction)
+            await _send_create(interaction.guild, interaction=interaction)
         except Exception as exc:
             print(f"[Backup] Create failed: {type(exc).__name__}: {exc}", flush=True)
-            await interaction.followup.send(f"Backup failed: {type(exc).__name__}: {str(exc)[:500]}", ephemeral=True)
+            await interaction.followup.send(f"Backup failed: {type(exc).__name__}: {str(exc)[:350]}", ephemeral=True)
 
-    @group.command(name="list", description="List backup archives stored on this running instance")
-    async def backup_list(interaction: discord.Interaction):
-        if not await _is_owner(bot, interaction.user):
-            return await interaction.response.send_message("Bot owner only.", ephemeral=True)
-        files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:15]
-        text = "\n".join(f"• {p.name} — {p.stat().st_size:,} bytes" for p in files)
-        await interaction.response.send_message(text or "No local backups found. Save downloaded backups outside Render because local disk may reset.", ephemeral=True)
+    @group.command(name="list", description="List backup IDs for this server (Manage Server required)")
+    async def slash_list(interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        if not _admin(interaction.user):
+            return await interaction.response.send_message("Manage Server permission required.", ephemeral=True)
+        files = _local_backups(interaction.guild.id)[:15]
+        lines = [f"{p.stem} — {p.stat().st_size:,} bytes" for p in files]
+        await interaction.response.send_message("\n".join(lines) if lines else "No backups found on this running instance. Render local files can reset after redeploy.", ephemeral=True)
 
-    @group.command(name="download", description="Download a backup already stored on this running instance")
-    @app_commands.describe(filename="Exact ZIP filename shown by /backup list")
-    async def backup_download(interaction: discord.Interaction, filename: str):
-        if not await _is_owner(bot, interaction.user):
-            return await interaction.response.send_message("Bot owner only.", ephemeral=True)
-        if Path(filename).name != filename or not filename.lower().endswith(".zip"):
-            return await interaction.response.send_message("Use the exact ZIP filename from /backup list.", ephemeral=True)
-        path = BACKUP_DIR / filename
+    @group.command(name="restore", description="Restore a backup ID (server owner only)")
+    @app_commands.describe(backup_id="Backup ID from /backup list for this server")
+    async def slash_restore(interaction: discord.Interaction, backup_id: str):
+        if not interaction.guild:
+            return await interaction.response.send_message("Use this in a server.", ephemeral=True)
+        if not _server_owner(interaction.guild, interaction.user):
+            return await interaction.response.send_message("Only this server's actual owner can restore backups.", ephemeral=True)
+        if not BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != str(interaction.guild.id):
+            return await interaction.response.send_message("Invalid backup ID or it belongs to another server.", ephemeral=True)
+        path = _guild_folder(interaction.guild.id) / (backup_id + ".zip")
         if not path.is_file():
-            return await interaction.response.send_message("Backup file not found on this running instance. Upload your saved ZIP with /backup restore instead.", ephemeral=True)
-        await interaction.response.send_message(f"Sending backup: {filename}", file=discord.File(path, filename=filename), ephemeral=True)
-
-    @group.command(name="restore", description="Merge a backup archive into the current bot data")
-    @app_commands.describe(backup_file="A ZIP created by /backup create", confirm="Confirm that you want to merge this backup")
-    async def backup_restore(interaction: discord.Interaction, backup_file: discord.Attachment, confirm: bool):
-        if not await _is_owner(bot, interaction.user):
-            return await interaction.response.send_message("Bot owner only.", ephemeral=True)
-        if not confirm:
-            return await interaction.response.send_message("Restore cancelled. Set confirm to true to continue.", ephemeral=True)
-        if not backup_file.filename.lower().endswith(".zip"):
-            return await interaction.response.send_message("Please attach an Air Commander ZIP backup.", ephemeral=True)
+            return await interaction.response.send_message("Backup ID not found on this instance. Render local storage may reset after redeploy.", ephemeral=True)
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            manifest, db_result, written = await _restore_archive(await backup_file.read())
-            await interaction.followup.send(f"Restore finished. Config files restored: {written}. {db_result}\nArchive created at: {manifest.get('created_at')}\nDatabase rows are merged/upserted; unrelated current rows are not deleted.", ephemeral=True)
+            manifest, result, count = await _restore_archive(path.read_bytes(), interaction.guild.id)
+            await interaction.followup.send(f"Restore finished for {interaction.guild.name}. Config files: {count}. {result}\nCreated at: {manifest.get('created_at')}", ephemeral=True)
         except Exception as exc:
-            print(f"[Backup] Restore failed: {type(exc).__name__}: {exc}", flush=True)
-            await interaction.followup.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:500]}", ephemeral=True)
+            print(f"[Backup] Restore failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}", flush=True)
+            await interaction.followup.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:350]}", ephemeral=True)
 
     @bot.group(name="backup", invoke_without_command=True)
+    @commands.guild_only()
     async def prefix_backup(ctx):
-        if not await _is_owner(bot, ctx.author):
-            return await ctx.send("Bot owner only.")
-        await ctx.send("Owner-only commands: ,backup create | ,backup list | attach ZIP then use ,backup restore yes")
+        if not _admin(ctx.author):
+            return await ctx.send("Manage Server required for create/list. Restore is server-owner only.")
+        await ctx.send("Commands: ,backup create | ,backup list | ,backup restore <BACKUP_ID> (server owner only)")
 
     @prefix_backup.command(name="create")
-    async def prefix_backup_create(ctx):
-        if not await _is_owner(bot, ctx.author):
-            return await ctx.send("Bot owner only.")
+    @commands.guild_only()
+    async def prefix_create(ctx):
+        if not _admin(ctx.author):
+            return await ctx.send("Manage Server permission required.")
         try:
-            await _create_response(ctx=ctx)
+            await _send_create(ctx.guild, ctx=ctx)
         except Exception as exc:
             print(f"[Backup] Create failed: {type(exc).__name__}: {exc}", flush=True)
-            await ctx.send(f"Backup failed: {type(exc).__name__}: {str(exc)[:400]}")
+            await ctx.send(f"Backup failed: {type(exc).__name__}: {str(exc)[:350]}")
 
     @prefix_backup.command(name="list")
-    async def prefix_backup_list(ctx):
-        if not await _is_owner(bot, ctx.author):
-            return await ctx.send("Bot owner only.")
-        files = sorted(BACKUP_DIR.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)[:15]
-        text = "\n".join(f"• {p.name} — {p.stat().st_size:,} bytes" for p in files)
-        await ctx.send(text or "No local backups found. Save downloaded backups outside Render.")
-
-    @prefix_backup.command(name="download")
-    async def prefix_backup_download(ctx, *, filename: str):
-        if not await _is_owner(bot, ctx.author):
-            return await ctx.send("Bot owner only.")
-        if Path(filename).name != filename or not filename.lower().endswith(".zip"):
-            return await ctx.send("Use the exact ZIP filename from ,backup list.")
-        path = BACKUP_DIR / filename
-        if not path.is_file():
-            return await ctx.send("Backup file not found on this running instance. Upload your saved ZIP with ,backup restore yes.")
-        await ctx.send(f"Sending backup: {filename}", file=discord.File(path, filename=filename))
+    @commands.guild_only()
+    async def prefix_list(ctx):
+        if not _admin(ctx.author):
+            return await ctx.send("Manage Server permission required.")
+        files = _local_backups(ctx.guild.id)[:15]
+        lines = [f"{p.stem} — {p.stat().st_size:,} bytes" for p in files]
+        await ctx.send("\n".join(lines) if lines else "No backups found on this running instance. Keep downloaded copies outside Render.")
 
     @prefix_backup.command(name="restore")
-    async def prefix_backup_restore(ctx, confirm: str = "no"):
-        if not await _is_owner(bot, ctx.author):
-            return await ctx.send("Bot owner only.")
-        if confirm.lower() not in {"yes", "confirm"}:
-            return await ctx.send("Restore cancelled. Attach the ZIP and run ,backup restore yes.")
-        if not ctx.message.attachments:
-            return await ctx.send("Attach the ZIP backup to the same message: ,backup restore yes")
-        attachment = ctx.message.attachments[0]
-        if not attachment.filename.lower().endswith(".zip"):
-            return await ctx.send("Please attach an Air Commander ZIP backup.")
+    @commands.guild_only()
+    async def prefix_restore(ctx, backup_id: str):
+        if not _server_owner(ctx.guild, ctx.author):
+            return await ctx.send("Only this server's actual owner can restore backups.")
+        if not BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != str(ctx.guild.id):
+            return await ctx.send("Invalid backup ID or it belongs to another server.")
+        path = _guild_folder(ctx.guild.id) / (backup_id + ".zip")
+        if not path.is_file():
+            return await ctx.send("Backup ID not found on this instance. Render local storage may reset after redeploy.")
         try:
-            manifest, db_result, written = await _restore_archive(await attachment.read())
-            await ctx.send(f"Restore finished. Config files restored: {written}. {db_result}\nArchive created at: {manifest.get('created_at')}\nCurrent rows not present in the archive are not deleted.")
+            manifest, result, count = await _restore_archive(path.read_bytes(), ctx.guild.id)
+            await ctx.send(f"Restore finished for {ctx.guild.name}. Config files: {count}. {result}\nCreated at: {manifest.get('created_at')}")
         except Exception as exc:
-            print(f"[Backup] Restore failed: {type(exc).__name__}: {exc}", flush=True)
-            await ctx.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:400]}")
+            print(f"[Backup] Restore failed for guild {ctx.guild.id}: {type(exc).__name__}: {exc}", flush=True)
+            await ctx.send(f"Restore failed: {type(exc).__name__}: {str(exc)[:350]}")
 
     existing = bot.tree.get_command("backup")
     if existing is None:
@@ -358,4 +417,4 @@ def setup(bot):
         for child in group.commands:
             if existing.get_command(child.name) is None:
                 existing.add_command(child)
-    print("Owner-only backup system registered.", flush=True)
+    print("Guild backup registered: admins create/list; only each server owner can restore.", flush=True)
