@@ -2793,6 +2793,61 @@ async def _air_startup_loader(bot):
                 f"{type(exc).__name__}: {exc}"
             )
 
+    # Final idempotent registration audit for the four feature groups
+    # that have historically gone missing from the published slash menu.
+    # Do this before the global sync, and never clear or replace other commands.
+    try:
+        if bot.tree.get_command("youtube") is None:
+            youtube_alerts.setup_slash_commands(bot)
+            print("🛠️ Repaired missing /youtube command group before sync.", flush=True)
+    except Exception as exc:
+        print(f"❌ /youtube registration repair failed: {type(exc).__name__}: {exc}", flush=True)
+
+    try:
+        welcome_cog = bot.get_cog("Welcome")
+        if welcome_cog is not None:
+            for attr in ("welcome_group", "selfrole_group"):
+                group = getattr(welcome_cog, attr, None)
+                if not isinstance(group, app_commands.Group):
+                    print(f"❌ Slash audit: Welcome cog has no valid {attr}.", flush=True)
+                    continue
+                existing = bot.tree.get_command(group.name)
+                if existing is None:
+                    for child in group.commands:
+                        child.binding = welcome_cog
+                    bot.tree.add_command(group)
+                    print(f"🛠️ Repaired missing /{group.name} command group before sync.", flush=True)
+                elif isinstance(existing, app_commands.Group):
+                    added = 0
+                    for child in group.commands:
+                        if existing.get_command(child.name) is None:
+                            child.binding = welcome_cog
+                            existing.add_command(child)
+                            added += 1
+                    print(f"🔎 Slash audit /{group.name}: {len(existing.commands)} subcommands; merged {added}.", flush=True)
+                else:
+                    print(f"❌ Slash audit /{group.name}: root name is occupied by a non-group command.", flush=True)
+        else:
+            print("❌ Slash audit: Welcome cog is not loaded; /welcome and /selfrole cannot register.", flush=True)
+    except Exception as exc:
+        print(f"❌ Welcome/SelfRole registration repair failed: {type(exc).__name__}: {exc}", flush=True)
+
+    try:
+        if bot.tree.get_command("backup") is None:
+            backup_system.setup(bot)
+            print("🛠️ Repaired missing /backup command group before sync.", flush=True)
+    except Exception as exc:
+        print(f"❌ /backup registration repair failed: {type(exc).__name__}: {exc}", flush=True)
+
+    expected_feature_roots = ("youtube", "welcome", "selfrole", "backup")
+    missing_feature_roots = [name for name in expected_feature_roots if bot.tree.get_command(name) is None]
+    print(
+        "🧪 Feature slash-root audit: "
+        + (", ".join("/" + name for name in expected_feature_roots if bot.tree.get_command(name) is not None) or "none")
+        + (f"; MISSING: {', '.join('/' + name for name in missing_feature_roots)}" if missing_feature_roots else "; all four present"),
+        flush=True,
+    )
+
     bot._air_loaded_feature_modules = loaded_modules
     bot._air_feature_modules_loaded = (
         len(loaded_modules) == len(feature_modules)
