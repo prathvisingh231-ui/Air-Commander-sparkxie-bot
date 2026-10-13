@@ -34,812 +34,204 @@ def format_count(number: int) -> str:
 
 
 # =========================================================
-# AIR COMMANDER — ADVANCED HELP CENTER DATA
+# AIR COMMANDER — PREMIUM MASTER HELP MENU
 # =========================================================
 
+HELP_PAGE_SIZE = 8
 HELP_CATEGORIES = [
-    ("⚙️", "Setup"),
-    ("🛠️", "Moderation"),
-    ("🛡️", "Security"),
-    ("📢", "Channels"),
-    ("🚫", "Restrictions"),
-    ("🔧", "Utility"),
-    ("📈", "Leveling"),
-    ("🎭", "Roles"),
-    ("🎫", "Tickets"),
-    ("💰", "Economy"),
-    ("🎮", "Games"),
-    ("🎉", "Fun"),
-    ("🎁", "Giveaways"),
-    ("🎵", "Music"),
-    ("🌐", "Social"),
-    ("🍎", "Blox Fruits"),
-    ("🤖", "AI"),
-    ("✨", "Other"),
+    ("⚡", "Hosting & Bot Utilities"),
+    ("🛡️", "Moderation & Security"),
+    ("🎉", "Giveaways"),
+    ("📈", "Leveling & XP"),
+    ("📺", "YouTube Alerts"),
+    ("🤖", "AI Assistant"),
+    ("⚙️", "Server Setup & Automation"),
+    ("🎫", "Ticket System"),
+    ("🎮", "Games & Economy"),
+    ("🎨", "Embeds & Custom Commands"),
+    ("👑", "Owner Master Suite"),
+    ("✨", "Other Commands"),
 ]
 
 
-# =========================================================
-# COMMAND CATEGORY MAPPING
-# =========================================================
-
-HELP_COMMAND_MAP = {
-
-    "⚙️ Setup": {
-        "setup",
-        "config",
-        "settings",
-        "serverconfig",
-        "prefix",
-        "automode",
-        "antinuke",
-        "antilink",
-    },
-
-    "🛠️ Moderation": {
-        "clear",
-        "purge",
-        "kick",
-        "ban",
-        "unban",
-        "timeout",
-        "untimeout",
-        "warn",
-        "warnings",
-        "unwarn",
-        "mute",
-        "unmute",
-        "slowmode",
-        "lock",
-        "unlock",
-        "nick",
-        "role",
-    },
-
-    "🛡️ Security": {
-        "antinuke",
-        "automode",
-        "antilink",
-        "security",
-        "securitycenter",
-        "airscan",
-        "snipe",
-        "diagnostics",
-        "backup",
-        "restore",
-    },
-
-    "📢 Channels": {
-        "channel",
-        "channelinfo",
-        "announce",
-        "announcement",
-        "say",
-        "poll",
-        "welcome",
-        "log",
-        "logs",
-        "modlog",
-    },
-
-    "🚫 Restrictions": {
-        "restriction",
-        "restrictions",
-        "commandpermissions",
-        "permissions",
-        "blacklist",
-        "whitelist",
-        "badword",
-        "filter",
-    },
-
-    "🔧 Utility": {
-        "ping",
-        "help",
-        "about",
-        "uptime",
-        "botinfo",
-        "serverinfo",
-        "userinfo",
-        "membercount",
-        "membercard",
-        "avatar",
-        "servericon",
-        "banner",
-        "roleinfo",
-        "channelinfo",
-        "calculator",
-        "translate",
-        "weather",
-        "remind",
-        "reminder",
-    },
-
-    "📈 Leveling": {
-        "level",
-        "levels",
-        "rank",
-        "xp",
-        "leveling",
-        "leaderboard",
-        "levelrole",
-    },
-
-    "🎭 Roles": {
-        "role",
-        "roles",
-        "selfrole",
-        "reactionrole",
-        "autorole",
-        "welcome",
-        "rolepanel",
-    },
-
-    "🎫 Tickets": {
-        "ticket",
-        "tickets",
-        "close",
-        "reopen",
-        "claim",
-        "add",
-        "remove",
-        "rename",
-    },
-
-    "💰 Economy": {
-        "balance",
-        "bal",
-        "cash",
-        "money",
-        "pay",
-        "daily",
-        "work",
-        "shop",
-        "buy",
-        "sell",
-        "deposit",
-        "withdraw",
-    },
-
-    "🎮 Games": {
-        "game",
-        "games",
-        "8ball",
-        "coinflip",
-        "dice",
-        "rps",
-    },
-
-    "🎉 Fun": {
-        "fun",
-        "meme",
-        "joke",
-        "hug",
-        "ship",
-        "roast",
-        "say",
-        "poll",
-    },
-
-    "🎁 Giveaways": {
-        "giveaway",
-        "giveaways",
-        "gstart",
-        "gend",
-        "greroll",
-    },
-
-    "🎵 Music": {
-        "play",
-        "pause",
-        "resume",
-        "skip",
-        "stop",
-        "queue",
-        "volume",
-        "loop",
-        "music",
-    },
-
-    "🌐 Social": {
-        "social",
-        "profile",
-        "bio",
-        "friend",
-        "friends",
-        "youtube",
-        "youtubealert",
-    },
-
-    "🍎 Blox Fruits": {
-        "blox",
-        "bloxfruits",
-        "fruit",
-        "fruits",
-        "stock",
-        "raid",
-        "race",
-    },
-
-    "🤖 AI": {
-        "ai",
-        "ask",
-        "chat",
-        "search",
-        "summarize",
-        "translate",
-        "image",
-    },
-}
-
-
-# =========================================================
-# HELP CATEGORY DETECTOR
-# =========================================================
-
 def _help_category(command_name: str) -> str:
     name = command_name.lower().strip()
-
-    for category, names in HELP_COMMAND_MAP.items():
-        if name in names:
-            return category
-
-    if "ticket" in name:
-        return "🎫 Tickets"
-
-    if "level" in name or "xp" in name or "rank" in name:
-        return "📈 Leveling"
-
-    if "role" in name:
-        return "🎭 Roles"
-
-    if any(x in name for x in (
-        "ban",
-        "kick",
-        "warn",
-        "mute",
-        "timeout",
-        "purge",
-        "clear",
-        "lock",
-        "unlock"
-    )):
-        return "🛠️ Moderation"
-
-    if any(x in name for x in (
-        "security",
-        "antinuke",
-        "automode",
-        "antilink",
-        "protect",
-        "scan"
-    )):
-        return "🛡️ Security"
-
-    if any(x in name for x in (
-        "giveaway",
-        "giveaways"
-    )):
-        return "🎁 Giveaways"
-
-    if any(x in name for x in (
-        "music",
-        "play",
-        "pause",
-        "skip",
-        "queue"
-    )):
-        return "🎵 Music"
-
-    if any(x in name for x in (
-        "game",
-        "dice",
-        "coin",
-        "rps"
-    )):
-        return "🎮 Games"
-
-    if any(x in name for x in (
-        "ai",
-        "ask",
-        "chat",
-        "search"
-    )):
-        return "🤖 AI"
-
-    return "✨ Other"
+    compact = name.replace("_", "").replace("-", "")
+    if any(x in compact for x in ("giveaway", "gstart", "gend", "greroll")):
+        return "Giveaways"
+    if any(x in compact for x in ("level", "rank", "xp", "leaderboard", "quest", "airlevel")):
+        return "Leveling & XP"
+    if any(x in compact for x in ("youtube", "ytalert", "youtubealert")):
+        return "YouTube Alerts"
+    if any(x in compact for x in ("ticket", "transcript", "supportpanel")):
+        return "Ticket System"
+    if any(x in compact for x in ("ai", "chat", "askai", "mentionresponse")):
+        return "AI Assistant"
+    if any(x in compact for x in ("antinuke", "automode", "security", "airscan", "snipe", "warn", "ban", "kick", "purge", "clear", "timeout", "mute", "unmute", "lock", "unlock", "unwarn", "modcase")):
+        return "Moderation & Security"
+    if any(x in compact for x in ("welcome", "autorole", "automati", "config", "setup", "serverconfig", "log", "backup", "restore", "voice", "jtc")):
+        return "Server Setup & Automation"
+    if any(x in compact for x in ("embed", "customcommand", "cmdmaker", "autoresponder")):
+        return "Embeds & Custom Commands"
+    if any(x in compact for x in ("game", "coinflip", "dice", "rps", "blox", "fruit", "inventory", "balance", "daily", "work", "shop", "pay")):
+        return "Games & Economy"
+    if any(x in compact for x in ("owner", "syncslash", "prefixless", "shutdown", "restart", "global")):
+        return "Owner Master Suite"
+    if any(x in compact for x in ("ping", "uptime", "botinfo", "dbstatus", "diagnostic", "status", "help", "serverinfo", "userinfo", "avatar", "membercount")):
+        return "Hosting & Bot Utilities"
+    return "Other Commands"
 
 
-# =========================================================
-# GET PREFIX COMMANDS
-# =========================================================
-
-def _get_prefix_commands(bot):
-    result = {}
-
-    for cmd in bot.commands:
-        if getattr(cmd, "hidden", False):
-            continue
-
-        name = cmd.name.lower()
-
-        if name not in result:
-            result[name] = cmd
-
-    return result
+def _command_description(command, mode: str) -> str:
+    description = getattr(command, "description", None) if mode == "slash" else (getattr(command, "help", None) or getattr(command, "brief", None))
+    return str(description or "No description added yet.").replace("\n", " ").strip()[:180]
 
 
-# =========================================================
-# GET SLASH COMMANDS
-# =========================================================
-
-def _get_slash_commands(bot):
-    result = {}
-
-    try:
-        for cmd in bot.tree.get_commands():
-
-            if cmd.name.lower() not in result:
-                result[cmd.name.lower()] = cmd
-
-    except Exception as exc:
-        print(
-            f"⚠️ Help slash command collection error: {exc}"
-        )
-
-    return result
-
-
-# =========================================================
-# BUILD HELP COMMAND MAP
-# =========================================================
-
-def _build_help_command_map(bot, mode="prefix"):
-
+def _collect_commands(bot, mode="prefix"):
+    entries, seen = [], set()
     if mode == "slash":
-        commands_map = _get_slash_commands(bot)
+        def add_slash(command, parent=""):
+            full_name = f"{parent} {command.name}".strip()
+            children = getattr(command, "commands", None)
+            if children:
+                for child in children:
+                    add_slash(child, full_name)
+                return
+            key = full_name.lower()
+            if key not in seen:
+                seen.add(key)
+                entries.append((_help_category(full_name), "/" + full_name, _command_description(command, "slash"), command))
+        try:
+            for command in bot.tree.get_commands():
+                add_slash(command)
+        except Exception as exc:
+            print(f"Help slash command collection error: {type(exc).__name__}: {exc}", flush=True)
     else:
-        commands_map = _get_prefix_commands(bot)
-
-    categories = {
-        category: []
-        for _, category in HELP_CATEGORIES
-    }
-
-    for name, command in commands_map.items():
-
-        category = _help_category(name)
-
-        categories.setdefault(
-            category,
-            []
-        ).append(command)
-
-    for category in categories:
-        categories[category].sort(
-            key=lambda command: command.name.lower()
-        )
-
-    return categories
-
-
-def _command_count(categories):
-    return sum(
-        len(commands_list)
-        for commands_list in categories.values()
-    )
-
-
-# =========================================================
-# HELP HOME EMBED
-# =========================================================
-
-def _help_home_embed(bot, mode="prefix"):
-
-    categories = _build_help_command_map(
-        bot,
-        mode
-    )
-
-    total = _command_count(categories)
-
-    prefix_text = "," if mode == "prefix" else "/"
-
-    e = discord.Embed(
-        title="✈️ Air Commander Help Center",
-        description=(
-            "✨ **Welcome to Air Commander**\n\n"
-            "Your complete command directory, "
-            "organized by category.\n\n"
-            f"**Prefix:** `{prefix_text}`\n"
-            f"**Command entries:** **{total}**\n\n"
-        ),
-        color=discord.Color.blurple(),
-        timestamp=discord.utils.utcnow()
-    )
-
-    lines = []
-
-    for emoji, category in HELP_CATEGORIES:
-
-        amount = len(
-            categories.get(
-                category,
-                []
-            )
-        )
-
-        if amount > 0:
-            lines.append(
-                f"{emoji} **{category}** — **{amount}**"
-            )
-
-    e.description += (
-        "\n".join(lines)
-        + "\n\n"
-        f"Use `{prefix_text}help <command>` "
-        "or select a category below."
-    )
-
-    e.set_footer(
-        text="✈️ Air Commander • Complete Command Directory"
-    )
-
-    return e
-
-
-# =========================================================
-# HELP CATEGORY EMBED
-# =========================================================
-
-def _help_category_embed(
-    bot,
-    category,
-    mode="prefix"
-):
-
-    categories = _build_help_command_map(
-        bot,
-        mode
-    )
-
-    commands_list = categories.get(
-        category,
-        []
-    )
-
-    if not commands_list:
-
-        return discord.Embed(
-            title=f"✈️ {category}",
-            description=(
-                "No commands are currently "
-                "registered in this category."
-            ),
-            color=discord.Color.orange(),
-            timestamp=discord.utils.utcnow()
-        )
-
-    command_lines = []
-
-    for command in commands_list:
-
-        name = command.name
-
-        if mode == "slash":
-
-            description = getattr(
-                command,
-                "description",
-                ""
-            ) or "No description."
-
-            command_lines.append(
-                f"`/{name}` — {description}"
-            )
-
-        else:
-
-            description = (
-                getattr(
-                    command,
-                    "help",
-                    None
-                )
-                or
-                getattr(
-                    command,
-                    "brief",
-                    None
-                )
-                or
-                "No description."
-            )
-
-            command_lines.append(
-                f"`,{name}` — {description}"
-            )
-
-    chunks = []
-    current = []
-
-    for line in command_lines:
-
-        test_text = "\n".join(
-            current + [line]
-        )
-
-        if len(test_text) > 1000:
-
-            if current:
-                chunks.append(
-                    "\n".join(current)
-                )
-
-            current = [line]
-
-        else:
-            current.append(line)
-
-    if current:
-        chunks.append(
-            "\n".join(current)
-        )
-
-    e = discord.Embed(
-        title=f"✈️ Air Commander • {category}",
-        description=(
-            f"**{len(commands_list)} command(s)** "
-            "available in this category."
-        ),
-        color=discord.Color.blurple(),
-        timestamp=discord.utils.utcnow()
-    )
-
-    for index, chunk in enumerate(chunks):
-
-        field_name = (
-            "Commands"
-            if index == 0
-            else f"Commands • Page {index + 1}"
-        )
-
-        e.add_field(
-            name=field_name,
-            value=chunk,
-            inline=False
-        )
-
-    e.set_footer(
-        text="✈️ Air Commander • Command Directory"
-    )
-
-    return e
-
-
-# =========================================================
-# ALL COMMANDS EMBED
-# =========================================================
-
-def _help_all_embed(bot, mode="prefix"):
-
-    categories = _build_help_command_map(
-        bot,
-        mode
-    )
-
-    prefix_text = "," if mode == "prefix" else "/"
-
-    all_commands = []
-
-    for _, category in HELP_CATEGORIES:
-
-        for command in categories.get(
-            category,
-            []
-        ):
-
-            all_commands.append(
-                (
-                    category,
-                    command
-                )
-            )
-
-    known_categories = {
-        category
-        for _, category in HELP_CATEGORIES
-    }
-
-    for category, commands_list in categories.items():
-
-        if category in known_categories:
-            continue
-
-        for command in commands_list:
-            all_commands.append(
-                (
-                    category,
-                    command
-                )
-            )
-
-    e = discord.Embed(
-        title="📚 Air Commander • All Commands",
-        description=(
-            f"**{len(all_commands)} command(s)**\n\n"
-            "Complete command directory."
-        ),
-        color=discord.Color.blurple(),
-        timestamp=discord.utils.utcnow()
-    )
-
-    lines = []
-
-    for category, command in all_commands:
-
-        lines.append(
-            f"`{prefix_text}{command.name}`"
-        )
-
-    chunks = []
-    current = []
-
-    for line in lines:
-
-        test = " • ".join(
-            current + [line]
-        )
-
-        if len(test) > 3800:
-
-            if current:
-                chunks.append(
-                    " • ".join(current)
-                )
-
-            current = [line]
-
-        else:
-            current.append(line)
-
-    if current:
-        chunks.append(
-            " • ".join(current)
-        )
-
-    if not chunks:
-        chunks = ["No commands are currently registered."]
-
-    for index, chunk in enumerate(chunks):
-
-        e.add_field(
-            name=(
-                "Commands"
-                if index == 0
-                else f"Commands • Page {index + 1}"
-            ),
-            value=chunk,
-            inline=False
-        )
-
-    e.set_footer(
-        text="✈️ Air Commander • All Commands"
-    )
-
-    return e
-
-
-# =========================================================
-# HELP SELECT MENU
-# =========================================================
-
-class HelpCategorySelect(discord.ui.Select):
+        def add_prefix(command, parent=""):
+            if getattr(command, "hidden", False):
+                return
+            full_name = f"{parent} {command.name}".strip()
+            children = getattr(command, "commands", None)
+            key = full_name.lower()
+            if key in seen:
+                return
+            seen.add(key)
+            entries.append((_help_category(full_name), "," + full_name, _command_description(command, "prefix"), command))
+            if children:
+                for child in children:
+                    add_prefix(child, full_name)
+        try:
+            for command in bot.commands:
+                add_prefix(command)
+        except Exception as exc:
+            print(f"Help prefix command collection error: {type(exc).__name__}: {exc}", flush=True)
+    entries.sort(key=lambda item: (item[0].lower(), item[1].lower()))
+    return entries
+
+
+def _help_embed(bot, mode="prefix", category=None, page=0, search_query=None):
+    all_entries = _collect_commands(bot, mode)
+    if search_query:
+        query = search_query.casefold().strip()
+        entries = [item for item in all_entries if query in item[1].casefold() or query in item[2].casefold() or query in item[0].casefold()]
+        title = "🔎 Air Commander • Search Results"
+        intro = f"Search: **{discord.utils.escape_markdown(search_query)}** • **{len(entries)} result(s)**"
+    elif category:
+        entries = [item for item in all_entries if item[0] == category]
+        emoji = next((e for e, name in HELP_CATEGORIES if name == category), "📚")
+        title = f"{emoji} Air Commander • {category}"
+        intro = f"**{len(entries)} command(s)** in this category."
+    else:
+        entries = []
+        title = "✦ A I R   C O M M A N D E R ✦"
+        intro = ("💎 **Premium Discord Bot Infrastructure**\n"
+                 "Moderation, security, giveaways, leveling, YouTube alerts, AI, tickets and automation — all in one command center.\n\n"
+                 f"**Command entries:** {len(all_entries)} • **Mode:** {('comma prefix' if mode == 'prefix' else 'slash commands')}\n\n"
+                 "✨ **Select a category from the dropdown below:**")
+
+    pages = max(1, (len(entries) + HELP_PAGE_SIZE - 1) // HELP_PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    current = entries[page * HELP_PAGE_SIZE:(page + 1) * HELP_PAGE_SIZE]
+    result = discord.Embed(title=title, description=intro, color=discord.Color.from_rgb(64, 137, 255), timestamp=discord.utils.utcnow())
+
+    if category is None and not search_query:
+        counts = {name: 0 for _, name in HELP_CATEGORIES}
+        for item in all_entries:
+            counts[item[0]] = counts.get(item[0], 0) + 1
+        lines = [f"{emoji} **{name}** — {counts.get(name, 0)} commands" for emoji, name in HELP_CATEGORIES if counts.get(name, 0)]
+        result.add_field(name="📚 Command Categories", value="\n".join(lines)[:1024] or "Commands are being indexed.", inline=False)
+        result.add_field(name="⌨️ Quick Guide", value=",help — open this menu\n,help <command> — command details\nUse the dropdown, page buttons, or Search.", inline=False)
+    elif current:
+        lines = [f"**{name}**\n> {description}" for _, name, description, _ in current]
+        result.add_field(name=f"📖 Commands • Page {page + 1}/{pages}", value="\n".join(lines)[:1024], inline=False)
+    else:
+        result.add_field(name="No matching commands", value="Try a shorter search or select another category.", inline=False)
+    result.set_footer(text=f"✈️ Air Commander • Master Menu • {len(all_entries)} commands")
+    return result, pages
+
+
+class HelpSearchModal(discord.ui.Modal, title="Search Air Commander Commands"):
+    query = discord.ui.TextInput(label="Command name or keyword", placeholder="Try: leveling, youtube, warn, giveaway...", min_length=1, max_length=80, required=True)
 
     def __init__(self, bot, mode="prefix"):
+        super().__init__()
+        self.bot, self.mode = bot, mode
 
-        self.bot = bot
-        self.mode = mode
-
-        options = [
-            discord.SelectOption(
-                label="All Commands",
-                value="__all__",
-                emoji="📚",
-                description="Show every available command"
-            )
-        ]
-
-        categories = _build_help_command_map(
-            bot,
-            mode
-        )
-
-        for emoji, category in HELP_CATEGORIES:
-
-            count = len(
-                categories.get(
-                    category,
-                    []
-                )
-            )
-
-            if count <= 0:
-                continue
-
-            options.append(
-                discord.SelectOption(
-                    label=category,
-                    value=category,
-                    emoji=emoji,
-                    description=f"{count} command(s)"
-                )
-            )
-
-        # Discord maximum = 25 options
-        options = options[:25]
-
-        super().__init__(
-            placeholder="📚 Select a command category...",
-            min_values=1,
-            max_values=1,
-            options=options,
-            custom_id=f"aircommander:help:{mode}"
-        )
-
-    async def callback(
-        self,
-        interaction: discord.Interaction
-    ):
-
-        selected = self.values[0]
-
-        if selected == "__all__":
-
-            result_embed = _help_all_embed(
-                self.bot,
-                self.mode
-            )
-
-        else:
-
-            result_embed = _help_category_embed(
-                self.bot,
-                selected,
-                self.mode
-            )
-
-        await interaction.response.edit_message(
-            embed=result_embed,
-            view=HelpView(
-                self.bot,
-                self.mode
-            )
-        )
+    async def on_submit(self, interaction: discord.Interaction):
+        query = str(self.query.value).strip()
+        result, _ = _help_embed(self.bot, self.mode, search_query=query)
+        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode, search_query=query))
 
 
-# =========================================================
-# HELP VIEW
-# =========================================================
+class HelpCategorySelect(discord.ui.Select):
+    def __init__(self, bot, mode="prefix", category=None, page=0, search_query=None):
+        self.bot, self.mode = bot, mode
+        options = [discord.SelectOption(label="Master Menu", value="__home__", emoji="✈️", description="Return to the main menu", default=category is None and search_query is None)]
+        counts = {}
+        for cat, _, _, _ in _collect_commands(bot, mode):
+            counts[cat] = counts.get(cat, 0) + 1
+        for emoji, name in HELP_CATEGORIES:
+            count = counts.get(name, 0)
+            if count:
+                options.append(discord.SelectOption(label=name[:100], value=name, emoji=emoji, description=f"{count} command(s)", default=category == name))
+        super().__init__(placeholder="✨ Select a command category...", min_values=1, max_values=1, options=options[:25], custom_id=f"aircommander:masterhelp:{mode}")
+
+    async def callback(self, interaction: discord.Interaction):
+        category = None if self.values[0] == "__home__" else self.values[0]
+        result, _ = _help_embed(self.bot, self.mode, category=category)
+        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode, category=category))
+
 
 class HelpView(discord.ui.View):
+    def __init__(self, bot, mode="prefix", category=None, page=0, search_query=None):
+        super().__init__(timeout=300)
+        self.bot, self.mode, self.category, self.page, self.search_query = bot, mode, category, page, search_query
+        self.add_item(HelpCategorySelect(bot, mode, category, page, search_query))
+        _, pages = _help_embed(bot, mode, category=category, page=page, search_query=search_query)
+        self.previous_page.disabled = page <= 0
+        self.next_page.disabled = page >= pages - 1
 
-    def __init__(
-        self,
-        bot,
-        mode="prefix"
-    ):
+    @discord.ui.button(label="Previous", emoji="◀️", style=discord.ButtonStyle.secondary, custom_id="aircommander:help:previous")
+    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        new_page = max(0, self.page - 1)
+        result, _ = _help_embed(self.bot, self.mode, category=self.category, page=new_page, search_query=self.search_query)
+        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode, self.category, new_page, self.search_query))
 
-        super().__init__(
-            timeout=300
-        )
+    @discord.ui.button(label="Next", emoji="▶️", style=discord.ButtonStyle.primary, custom_id="aircommander:help:next")
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        _, pages = _help_embed(self.bot, self.mode, category=self.category, page=self.page, search_query=self.search_query)
+        new_page = min(pages - 1, self.page + 1)
+        result, _ = _help_embed(self.bot, self.mode, category=self.category, page=new_page, search_query=self.search_query)
+        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode, self.category, new_page, self.search_query))
 
-        self.add_item(
-            HelpCategorySelect(
-                bot,
-                mode
-            )
-        )
+    @discord.ui.button(label="Search", emoji="🔎", style=discord.ButtonStyle.success, custom_id="aircommander:help:search")
+    async def search_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(HelpSearchModal(self.bot, self.mode))
+
+    @discord.ui.button(label="Home", emoji="🏠", style=discord.ButtonStyle.secondary, custom_id="aircommander:help:home")
+    async def home(self, interaction: discord.Interaction, button: discord.ui.Button):
+        result, _ = _help_embed(self.bot, self.mode)
+        await interaction.response.edit_message(embed=result, view=HelpView(self.bot, self.mode))
 
 
 # =========================================================
@@ -2713,10 +2105,7 @@ def setup(bot: commands.Bot):
             )
 
         await ctx.send(
-            embed=_help_home_embed(
-                bot,
-                "prefix"
-            ),
+            embed=_help_embed(bot, "prefix")[0],
             view=HelpView(
                 bot,
                 "prefix"
@@ -2747,10 +2136,7 @@ def setup(bot: commands.Bot):
     ):
 
         await i.response.send_message(
-            embed=_help_home_embed(
-                bot,
-                "slash"
-            ),
+            embed=_help_embed(bot, "slash")[0],
             view=HelpView(
                 bot,
                 "slash"
