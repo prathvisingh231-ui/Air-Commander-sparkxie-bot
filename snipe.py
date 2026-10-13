@@ -3417,73 +3417,36 @@ class TicketSystem(commands.Cog):
 
         save_data(data)
 
-        transcript_file = None
-
-        if guild_data[
-            "config"
-        ].get(
-            "transcript",
-            True
-        ):
-
-            transcript = await self.create_transcript(
-                channel
-            )
-
-            transcript_file = discord.File(
-                fp=io.BytesIO(
-                    transcript.encode(
-                        "utf-8",
-                        errors="replace"
-                    )
-                ),
-                filename=(
-                    f"{channel.name}-transcript.txt"
-                )
-            )
+        transcript_text = None
+        if guild_data["config"].get("transcript", True):
+            transcript_text = await self.create_transcript(channel)
 
         embed = discord.Embed(
             title="🔒 Ticket Closed",
             description=(
-                f"This ticket has been closed by "
-                f"{user.mention}.\n\n"
-                "Staff can reopen it if needed."
+                f"This ticket has been closed by {user.mention}.\n\n"
+                "The transcript and close log will be saved where configured. "
+                "This channel will be permanently deleted in 3 seconds."
             ),
             color=0xED4245,
-            timestamp=datetime.now(
-                timezone.utc
-            )
+            timestamp=datetime.now(timezone.utc)
         )
 
-        if transcript_file:
-
+        if transcript_text is not None:
             await send(
                 embed=embed,
-                file=transcript_file
-            )
-
-        else:
-
-            await send(
-                embed=embed
-            )
-
-        owner = guild.get_member(
-            int(
-                ticket["user_id"]
-            )
-        )
-
-        if owner:
-
-            try:
-
-                await channel.set_permissions(
-                    owner,
-                    view_channel=False,
-                    send_messages=False
+                file=discord.File(
+                    fp=io.BytesIO(transcript_text.encode("utf-8", errors="replace")),
+                    filename=f"{channel.name}-transcript.txt"
                 )
+            )
+        else:
+            await send(embed=embed)
 
+        owner = guild.get_member(int(ticket["user_id"]))
+        if owner:
+            try:
+                await channel.set_permissions(owner, view_channel=False, send_messages=False)
             except Exception:
                 pass
 
@@ -3491,11 +3454,37 @@ class TicketSystem(commands.Cog):
             guild,
             guild_data,
             "🔒 Ticket Closed",
-            (
-                f"Channel: {channel.mention}\n"
-                f"Closed by: {user.mention}"
-            )
+            f"Channel: {channel.mention}\nClosed by: {user.mention}\nDeletion scheduled: 3 seconds"
         )
+
+        # Save the transcript to the configured ticket log channel before deleting
+        # the ticket channel, otherwise the in-channel transcript disappears too.
+        log_channel_id = guild_data["config"].get("log_channel_id")
+        if transcript_text and log_channel_id:
+            log_channel = guild.get_channel(int(log_channel_id))
+            if log_channel:
+                try:
+                    await log_channel.send(
+                        content=f"📄 Transcript for closed ticket #{channel.name} (closed by {user}).",
+                        file=discord.File(
+                            fp=io.BytesIO(transcript_text.encode("utf-8", errors="replace")),
+                            filename=f"{channel.name}-transcript.txt"
+                        ),
+                        allowed_mentions=discord.AllowedMentions.none()
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(f"[Ticket] Transcript log upload failed: {type(exc).__name__}: {exc}", flush=True)
+
+        await asyncio.sleep(3)
+        try:
+            await channel.delete(reason=f"Air Commander ticket auto-delete after close by {user}")
+            ticket_id, _ticket = find_ticket(guild_data, channel.id)
+            if ticket_id is not None:
+                guild_data["tickets"].pop(ticket_id, None)
+                save_data(data)
+            print(f"[Ticket] Deleted closed ticket channel {channel.id} after 3 seconds.", flush=True)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[Ticket] Auto-delete failed for channel {channel.id}: {type(exc).__name__}: {exc}", flush=True)
 
     # ========================================================
     # PREFIX ERROR
