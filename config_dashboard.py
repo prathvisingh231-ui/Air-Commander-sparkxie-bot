@@ -51,7 +51,8 @@ async def _status_embed(bot, guild):
     e.add_field(name="Welcome", value=f"<#{welcome.get('channel_id')}>" if welcome.get("channel_id") else "Not configured", inline=True)
     e.add_field(name="Self-role panels", value=str(len(welcome.get("selfroles", {}))), inline=True)
     yt_status = "Enabled" if youtube.get("enabled", False) else "Disabled / not configured"
-    e.add_field(name="YouTube alerts", value=f"{yt_status}; tracked: {len(youtube.get('channels', {}))}; alert channel: {f'<#{youtube.get('default_channel')}>' if youtube.get('default_channel') else 'not set'}", inline=False)
+    yt_channel = f"<#{youtube.get('default_channel')}>" if youtube.get("default_channel") else "not set"
+    e.add_field(name="YouTube alerts", value=f"{yt_status}; tracked: {len(youtube.get('channels', {}))}; alert channel: {yt_channel}", inline=False)
     e.add_field(name="Tickets", value=f"Panel: {'set' if panel.get('channel_id') else 'not set'}; categories: {len(ticket.get('categories', {}))}; log channel: {'set' if ticket_cfg.get('log_channel_id') else 'not set'}", inline=False)
     e.add_field(name="Leveling", value=f"{_enabled(level.get('enabled', False))}; XP/message: {level.get('xp_per_message', 'default')}", inline=True)
     e.add_field(name="AutoMode / AntiNuke / AntiLink", value=f"AutoMode: {_enabled(automode.get('enabled', False))}\nAntiNuke: {_enabled(antinuke.get('enabled', False))}\nAntiLink: {_enabled(antilink.get('enabled', False))}", inline=True)
