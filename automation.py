@@ -473,7 +473,7 @@ def find_badword(content, badwords):
         if not word:
             continue
 
-        if re.search(r"(?<!\\w)" + re.escape(word.lower()) + r"(?!\\w)", lowered, re.IGNORECASE):
+        if re.search(r"(?<!\w)" + re.escape(word.lower()) + r"(?!\w)", lowered, re.IGNORECASE):
             return word
 
     return None
