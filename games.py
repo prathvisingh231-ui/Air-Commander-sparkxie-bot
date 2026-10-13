@@ -106,8 +106,6 @@ def setup(bot):
         e=embed("Game Lobby 🎮",f"{i.user.mention} joined session **#{session_id}**.",discord.Color.green())
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="whatif", description="Preview the possible result of an action")
-    @app_commands.describe(action="Action to preview")
     async def whatif(i, action: str):
         outcomes=[("🟢 Low risk","Likely smooth; little disruption."),("🟡 Medium risk","Could affect members or channels; review permissions first."),("🔴 High risk","Potentially disruptive; verify target, permissions and rollback before applying.")]
         r=random.Random(seed(i.guild_id,action.lower())).choice(outcomes)
@@ -115,8 +113,6 @@ def setup(bot):
         e.add_field(name="Safety",value="No Discord state was modified.",inline=False)
         await i.response.send_message(embed=e,ephemeral=True)
 
-    @bot.tree.command(name="impact", description="Estimate the server impact of an action")
-    @app_commands.describe(action="Action to evaluate")
     async def impact(i, action: str):
         a=action.lower(); risk="Low"; score=20
         if any(x in a for x in ("ban","delete","remove","reset","lock","everyone")): risk="High"; score=85
@@ -127,14 +123,11 @@ def setup(bot):
         e.add_field(name="↩️ Recovery",value="Use /sandbox to preview before applying.",inline=False)
         await i.response.send_message(embed=e,ephemeral=True)
 
-    @bot.tree.command(name="sandbox", description="Preview a change without applying it")
-    @app_commands.describe(change="Change to simulate")
     async def sandbox(i, change: str):
         e=embed("Sandbox • Dry Run",f"**Requested change:** {change}\n\n🧪 **Simulation complete.**\nNo members, roles, channels, permissions or messages were changed.",discord.Color.teal())
         e.add_field(name="Result",value="Preview generated successfully.",inline=False)
         await i.response.send_message(embed=e,ephemeral=True)
 
-    @bot.tree.command(name="blindspot", description="Find potential hidden configuration and security blind spots")
     async def blindspot(i):
         g=i.guild
         admins=[r for r in g.roles if r!=g.default_role and r.permissions.administrator]
@@ -146,8 +139,6 @@ def setup(bot):
         e.set_footer(text="BlindSpot reports observable configuration; it cannot inspect third-party bot internals.")
         await i.response.send_message(embed=e,ephemeral=True)
 
-    @bot.tree.command(name="sequence", description="Build a preview workflow from multiple actions")
-    @app_commands.describe(actions="Actions separated by commas")
     async def sequence(i, actions: str):
         steps=[x.strip() for x in actions.split(",") if x.strip()][:10]
         e=embed("Sequence • Workflow Preview","Automated workflow plan — **preview only**.",discord.Color.purple())
@@ -155,15 +146,11 @@ def setup(bot):
         e.add_field(name="Safety",value="No actions are executed by this command.",inline=False)
         await i.response.send_message(embed=e,ephemeral=True)
 
-    @bot.tree.command(name="roast", description="Give a playful fictional AI-style roast")
-    @app_commands.describe(member="Member to roast")
     async def roast(i, member: discord.Member):
         lines=["has the confidence of a final boss and the aim of a tutorial bot.","could turn a 2-minute task into a three-season series.","is running on 2% battery and 98% audacity.","would lose a hide-and-seek match in an empty room.","has officially been diagnosed with terminal skill issue™."]
         e=embed("Roast Engine 🔥",f"{member.mention}, {random.choice(lines)}\n\n*Playful fictional roast — just for fun.*",discord.Color.orange())
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="ship", description="Calculate a funny compatibility percentage")
-    @app_commands.describe(first="First member", second="Second member")
     async def ship(i, first: discord.Member, second: discord.Member):
         pct=seed(first.id,second.id)%101
         e=embed("Ship • Compatibility Scan",f"{first.mention} 💞 {second.mention}",discord.Color.magenta())
@@ -171,30 +158,23 @@ def setup(bot):
         e.add_field(name="🔮 Verdict",value=random.Random(pct).choice(["Chaotic duo","Power couple","Besties energy","Rivals with chemistry","Absolutely unpredictable"]),inline=True)
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="chaos", description="Give a random safe challenge")
     async def chaos(i):
         challenges=["Compliment the next person who speaks.","Use only emojis for your next message.","Change your status to something funny for 10 minutes.","Ask the server a ridiculous but harmless question.","Send a wholesome meme."]
         e=embed("Chaos Challenge 🎲",random.choice(challenges),discord.Color.gold())
         e.set_footer(text="Safe challenge • No real-world or harmful actions")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="bounty", description="Place a virtual fun bounty on a member")
-    @app_commands.describe(member="Target member", challenge="Bounty challenge", reward="Virtual reward points")
     async def bounty(i, member: discord.Member, challenge: str, reward: app_commands.Range[int,1,10000]=100):
         e=embed("Bounty Board 🎯",f"**Target:** {member.mention}\n**Challenge:** {challenge}\n**Reward:** 🪙 {reward} points",discord.Color.gold())
         e.set_footer(text="Virtual fun only • No real money or prizes")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="duel", description="Run a random stat-based virtual battle")
-    @app_commands.describe(first="First fighter", second="Second fighter")
     async def duel(i, first: discord.Member, second: discord.Member):
         r=random.Random(seed(first.id,second.id)); a=r.randint(40,100); b=r.randint(40,100); winner=first if a>=b else second
         e=embed("Duel Arena ⚔️",f"{first.mention} **{a}**  VS  **{b}** {second.mention}",discord.Color.red())
         e.add_field(name="🏆 Winner",value=winner.mention,inline=False)
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="liecheck", description="Give a funny fictional truth probability")
-    @app_commands.describe(statement="Statement to score")
     async def liecheck(i, statement: str):
         pct=seed(statement,i.user.id)%101
         e=embed("LieCheck 🕵️",f"**Statement:** {statement}",discord.Color.dark_teal())
@@ -203,7 +183,6 @@ def setup(bot):
         e.set_footer(text="For entertainment only — not a real lie detector.")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="plot", description="Cast random server members into a funny story")
     async def plot(i):
         ms=[m for m in i.guild.members if not m.bot]
         random.shuffle(ms); ms=ms[:4]
@@ -213,8 +192,6 @@ def setup(bot):
         e.add_field(name="Cast",value=story or "Not enough members.",inline=False)
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="clone", description="Generate a funny fictional clone profile")
-    @app_commands.describe(member="Member to clone")
     async def clone(i, member: discord.Member):
         traits=["+99 confidence","+80 snack detection","+100 chaos resistance","+42 tactical wisdom","-7 sleep schedule"]
         e=embed(f"Clone Lab 🧬 • {member.display_name}",f"**Fictional Clone Profile**\n\n"+ "\n".join(f"• {x}" for x in random.sample(traits,3)),discord.Color.teal())
@@ -222,54 +199,138 @@ def setup(bot):
         e.set_footer(text="Fictional parody profile — not an impersonation tool.")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="wanted", description="Create a Wild-West style wanted profile")
-    @app_commands.describe(member="Wanted member")
     async def wanted(i, member: discord.Member):
         e=embed("WANTED 🤠",f"**{member.display_name}**\n\nWanted for: **Being suspiciously funny**\nReward: **{seed(member.id)%5000+500} virtual coins**",discord.Color.dark_gold())
         e.set_thumbnail(url=member.display_avatar.url)
         e.set_footer(text="Fictional server game • Not a real accusation")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="fortune", description="Generate a funny future prediction")
     async def fortune(i):
         e=embed("Fortune Oracle 🔮",random.choice(["A legendary ping will arrive soon.","You will find unexpected virtual treasure.","Someone will reply with exactly one emoji.","Your next message will start a chain of chaos.","The server's luck is watching you."]),discord.Color.purple())
         e.set_footer(text="For entertainment only")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="rival", description="Create a fictional rivalry between two members")
-    @app_commands.describe(first="First member", second="Second member")
     async def rival(i, first: discord.Member, second: discord.Member):
         e=embed("Rivalry Generator ⚔️",f"{first.mention} 🆚 {second.mention}",discord.Color.red())
         e.add_field(name="Rivalry",value=random.choice(["Who owns the best profile?","Who can win the next challenge?","Who has superior meme energy?","Who will dominate the leaderboard?"]),inline=False)
         e.set_footer(text="Fictional rivalry • Keep it friendly")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="mission", description="Give a random mini-mission")
     async def mission(i):
         missions=["Help a new member.","Share a useful tip.","Win a friendly duel.","Earn three reactions.","Complete a community challenge."]
         m=random.choice(missions); pts=random.randint(10,100)
         e=embed("Mission Briefing 🎯",f"**Mission:** {m}\n**Reward:** 🪙 {pts} points",discord.Color.green())
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="roulette", description="Select a random safe server challenge")
     async def roulette(i):
         choices=["Tell a clean joke.","Use a random emoji in your next message.","Compliment someone.","Ask a fun question.","Post a harmless meme.","Challenge someone to /duel."]
         e=embed("Roulette 🎰",f"**Selected:** {random.choice(choices)}",discord.Color.gold())
         e.set_footer(text="Safe virtual challenge • No gambling or real-money rewards")
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="achievement", description="Check funny achievements")
     async def achievement(i):
         e=embed("Achievement Vault 🏆","Funny server achievements you can unlock.",discord.Color.gold())
         e.add_field(name="Available",value="🏅 First Flight\n🔥 Chaos Agent\n🕵️ Detective\n⚔️ Duelist\n💡 Idea Machine\n👑 Kingdom Builder",inline=False)
         await i.response.send_message(embed=e)
 
-    @bot.tree.command(name="oracle", description="Give a dramatic random server prediction")
     async def oracle(i):
         e=embed("Oracle 🔮","The server whispers of **a great event approaching...**",discord.Color.purple())
         e.add_field(name="Prediction",value=random.choice(["A legendary member will appear.","A channel will become unexpectedly active.","The next challenge will change the leaderboard.","A forgotten role will return to glory."]),inline=False)
         e.set_footer(text="Dramatic fiction • Not a real prediction")
         await i.response.send_message(embed=e)
+
+    # Keep optional/fun game utilities prefix-only to stay within Discord's
+    # global application-command cap. Their logic is shared with the former slash callbacks.
+    class _PrefixInteraction:
+        def __init__(self, ctx):
+            self._ctx = ctx
+            self.guild = ctx.guild
+            self.guild_id = ctx.guild.id if ctx.guild else None
+            self.user = ctx.author
+            self.response = self
+        async def send_message(self, *args, **kwargs):
+            kwargs.pop("ephemeral", None)
+            await self._ctx.send(*args, **kwargs)
+
+    @bot.command(name="whatif")
+    async def prefix_whatif(ctx, *, action: str):
+        await whatif(_PrefixInteraction(ctx), action)
+
+    @bot.command(name="impact")
+    async def prefix_impact(ctx, *, action: str):
+        await impact(_PrefixInteraction(ctx), action)
+
+    @bot.command(name="sandbox")
+    async def prefix_sandbox(ctx, *, change: str):
+        await sandbox(_PrefixInteraction(ctx), change)
+
+    @bot.command(name="blindspot")
+    async def prefix_blindspot(ctx):
+        await blindspot(_PrefixInteraction(ctx))
+
+    @bot.command(name="sequence")
+    async def prefix_sequence(ctx, *, actions: str):
+        await sequence(_PrefixInteraction(ctx), actions)
+
+    @bot.command(name="roast")
+    async def prefix_roast(ctx, member: discord.Member):
+        await roast(_PrefixInteraction(ctx), member)
+
+    @bot.command(name="ship")
+    async def prefix_ship(ctx, first: discord.Member, second: discord.Member):
+        await ship(_PrefixInteraction(ctx), first, second)
+
+    @bot.command(name="chaos")
+    async def prefix_chaos(ctx):
+        await chaos(_PrefixInteraction(ctx))
+
+    @bot.command(name="bounty")
+    async def prefix_bounty(ctx, member: discord.Member, reward: int = 100, *, challenge: str):
+        await bounty(_PrefixInteraction(ctx), member, challenge, reward)
+
+    @bot.command(name="duel")
+    async def prefix_duel(ctx, first: discord.Member, second: discord.Member):
+        await duel(_PrefixInteraction(ctx), first, second)
+
+    @bot.command(name="liecheck")
+    async def prefix_liecheck(ctx, *, statement: str):
+        await liecheck(_PrefixInteraction(ctx), statement)
+
+    @bot.command(name="plot")
+    async def prefix_plot(ctx):
+        await plot(_PrefixInteraction(ctx))
+
+    @bot.command(name="clone")
+    async def prefix_clone(ctx, member: discord.Member):
+        await clone(_PrefixInteraction(ctx), member)
+
+    @bot.command(name="wanted")
+    async def prefix_wanted(ctx, member: discord.Member):
+        await wanted(_PrefixInteraction(ctx), member)
+
+    @bot.command(name="fortune")
+    async def prefix_fortune(ctx):
+        await fortune(_PrefixInteraction(ctx))
+
+    @bot.command(name="rival")
+    async def prefix_rival(ctx, first: discord.Member, second: discord.Member):
+        await rival(_PrefixInteraction(ctx), first, second)
+
+    @bot.command(name="mission")
+    async def prefix_mission(ctx):
+        await mission(_PrefixInteraction(ctx))
+
+    @bot.command(name="roulette")
+    async def prefix_roulette(ctx):
+        await roulette(_PrefixInteraction(ctx))
+
+    @bot.command(name="achievement")
+    async def prefix_achievement(ctx):
+        await achievement(_PrefixInteraction(ctx))
+
+    @bot.command(name="oracle")
+    async def prefix_oracle(ctx):
+        await oracle(_PrefixInteraction(ctx))
 
     games={
       "heist":("Heist 🏦","Build a crew, choose roles, and roll for a fictional heist outcome."),
