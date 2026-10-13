@@ -2463,6 +2463,42 @@ async def _air_special_activity_listener(message):
         await _special_update_activity(message.guild.id, message.author.id)
     except Exception:
         pass
+async def _air_sync_feature_commands_to_guilds():
+    """Publish key feature groups to each guild for immediate Discord command visibility."""
+    feature_roots = {"youtube", "welcome", "selfrole", "automode", "antilink"}
+    for connected_guild in bot.guilds:
+        target_guild = discord.Object(id=connected_guild.id)
+        copied = []
+        try:
+            for root_name in sorted(feature_roots):
+                global_command = bot.tree.get_command(root_name)
+                if global_command is None:
+                    print(
+                        f"⚠️ Cannot guild-sync /{root_name}: not registered globally in local tree.",
+                        flush=True,
+                    )
+                    continue
+                # A copied command becomes a guild override without removing unrelated
+                # guild-specific custom commands already registered in the tree.
+                local_guild_command = bot.tree.get_command(root_name, guild=target_guild)
+                if local_guild_command is not None:
+                    bot.tree.remove_command(root_name, guild=target_guild)
+                bot.tree.add_command(global_command.copy(), guild=target_guild)
+                copied.append(root_name)
+            synced = await bot.tree.sync(guild=target_guild)
+            print(
+                f"⚡ {connected_guild.name}: immediate feature sync published "
+                f"{len(synced)} guild command(s); feature roots copied: {', '.join(copied) or 'none'}.",
+                flush=True,
+            )
+        except Exception as sync_exc:
+            print(
+                f"❌ Immediate feature sync failed for {connected_guild.id}: "
+                f"{type(sync_exc).__name__}: {sync_exc}",
+                flush=True,
+            )
+
+
 async def _air_cleanup_stale_feature_guild_overrides():
     """Remove outdated guild-specific copies that can shadow the current global feature groups."""
     feature_roots = {"youtube", "welcome", "selfrole", "automode", "antilink"}
@@ -2603,6 +2639,7 @@ async def on_ready():
             global_synced = await bot.tree.sync()
             print(f"🌍 Final global slash sync: {len(global_synced)} commands.")
             await _air_cleanup_stale_feature_guild_overrides()
+            await _air_sync_feature_commands_to_guilds()
             # Sync each guild tree after feature/custom-command loading.
             # discord.py sync publishes the registered guild-specific commands;
             # avoid clear_commands(), which also erases valid custom commands.
@@ -2846,6 +2883,7 @@ async def sync_slash_commands_prefix(ctx):
     try:
         synced = await bot.tree.sync()
         await _air_cleanup_stale_feature_guild_overrides()
+        await _air_sync_feature_commands_to_guilds()
         # Sync registered guild commands without clearing the local guild tree;
         # this preserves custom commands restored from PostgreSQL.
         guild_synced = 0
