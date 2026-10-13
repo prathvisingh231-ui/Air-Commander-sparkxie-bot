@@ -83,7 +83,7 @@ async def _database_dump():
                    FROM pg_index i
                    JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
                    WHERE i.indrelid=$1::regclass AND i.indisprimary
-                   ORDER BY array_position(i.indkey, a.attnum)""", table)
+                   ORDER BY a.attnum""", table)
             primary_keys[table] = [row["attname"] for row in pk_rows]
         except Exception as exc:
             print(f"[Backup] Could not dump table {table}: {type(exc).__name__}: {exc}", flush=True)
