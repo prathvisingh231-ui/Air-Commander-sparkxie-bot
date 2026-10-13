@@ -45,6 +45,7 @@ AUTOMODE_DEFAULT = {
     "timeout_enabled": True,
     "timeout_after": 5,
     "timeout_minutes": 10,
+    "punishment_action": "timeout",
 
     "link_protection": True,
 
@@ -472,7 +473,7 @@ def find_badword(content, badwords):
         if not word:
             continue
 
-        if word.lower() in lowered:
+        if re.search(r"(?<!\\w)" + re.escape(word.lower()) + r"(?!\\w)", lowered, re.IGNORECASE):
             return word
 
     return None
@@ -865,28 +866,27 @@ class AutoMode(commands.Cog):
             reason
         )
 
-        if (
-            config.get("timeout_enabled", True)
-            and count >= config.get(
-                "timeout_after",
-                5
-            )
-        ):
-            await self.timeout_member(
-                member,
-                reason,
-                config.get(
-                    "timeout_minutes",
-                    10
-                )
-            )
+        if config.get("warn_enabled", True) and count < config.get("warn_after", 3):
+            return
 
-            # Reset after timeout
-            config.setdefault(
-                "warnings",
-                {}
-            )[str(member.id)] = 0
+        if config.get("timeout_enabled", True) and count >= config.get("timeout_after", 5):
+            action = str(config.get("punishment_action", "timeout")).lower()
+            if action == "kick":
+                try:
+                    await member.kick(reason=f"AutoMode escalation: {reason}")
+                    await self.send_log(member.guild, "AutoMode Kick", f"Member: {member}\\nReason: {reason}", discord.Color.red())
+                except Exception as e:
+                    print(f"[AutoMode] Kick error: {e}")
+            elif action == "ban":
+                try:
+                    await member.ban(reason=f"AutoMode escalation: {reason}", delete_message_days=0)
+                    await self.send_log(member.guild, "AutoMode Ban", f"Member: {member}\\nReason: {reason}", discord.Color.red())
+                except Exception as e:
+                    print(f"[AutoMode] Ban error: {e}")
+            else:
+                await self.timeout_member(member, reason, config.get("timeout_minutes", 10))
 
+            config.setdefault("warnings", {})[str(member.id)] = 0
             automode_save_all()
 
     # ========================================================
@@ -1256,6 +1256,189 @@ class AutoMode(commands.Cog):
             history.clear()
 
 
+
+# Interactive AutoMode / Anti-Link dashboards
+class AutoModeSettingsModal(discord.ui.Modal, title="AutoMode Settings"):
+    spam_messages = discord.ui.TextInput(label="Messages before spam trigger", default="5", max_length=2)
+    spam_window = discord.ui.TextInput(label="Spam window seconds", default="7", max_length=2)
+    warn_after = discord.ui.TextInput(label="Warnings before escalation", default="3", max_length=2)
+    timeout_after = discord.ui.TextInput(label="Warnings before timeout", default="5", max_length=2)
+    timeout_minutes = discord.ui.TextInput(label="Timeout duration minutes", default="10", max_length=5)
+    badwords = discord.ui.TextInput(label="Bad words, comma-separated", required=False, style=discord.TextStyle.paragraph, max_length=900)
+
+    def __init__(self, guild_id):
+        super().__init__()
+        self.guild_id = guild_id
+        cfg = get_automode_config(guild_id)
+        for field, key, fallback in ((self.spam_messages, "spam_messages", 5), (self.spam_window, "spam_window", 7), (self.warn_after, "warn_after", 3), (self.timeout_after, "timeout_after", 5), (self.timeout_minutes, "timeout_minutes", 10)):
+            field.default = str(cfg.get(key, fallback))
+        self.badwords.default = ", ".join(cfg.get("badwords", []))
+
+    async def on_submit(self, interaction):
+        cfg = get_automode_config(self.guild_id)
+        try:
+            cfg["spam_messages"] = max(2, min(int(self.spam_messages.value), 50))
+            cfg["spam_window"] = max(1, min(int(self.spam_window.value), 60))
+            cfg["warn_after"] = max(1, min(int(self.warn_after.value), 20))
+            cfg["timeout_after"] = max(cfg["warn_after"], min(int(self.timeout_after.value), 20))
+            cfg["timeout_minutes"] = max(1, min(int(self.timeout_minutes.value), 40320))
+        except ValueError:
+            await public_send(interaction, content="Settings must be valid numbers.", ephemeral=True)
+            return
+        cfg["badwords"] = list(dict.fromkeys(w.strip() for w in parse_word_list(self.badwords.value) if w.strip()))[:100]
+        automode_save_all()
+        await public_send(interaction, content="AutoMode settings saved.", embed=automode_dashboard_embed(self.guild_id), view=AutoModeDashboardView(self.guild_id), ephemeral=True)
+
+
+class AutoModeBadWordsModal(discord.ui.Modal, title="Manage Bad Words"):
+    words = discord.ui.TextInput(label="Bad words/phrases, comma-separated", style=discord.TextStyle.paragraph, required=False, max_length=900)
+
+    def __init__(self, guild_id):
+        super().__init__()
+        self.guild_id = guild_id
+        self.words.default = ", ".join(get_automode_config(guild_id).get("badwords", []))
+
+    async def on_submit(self, interaction):
+        cfg = get_automode_config(self.guild_id)
+        cfg["badwords"] = list(dict.fromkeys(w.strip() for w in parse_word_list(self.words.value) if w.strip()))[:100]
+        automode_save_all()
+        await public_send(interaction, content=f"Bad-word list saved ({len(cfg['badwords'])} entries).", ephemeral=True)
+
+
+def automode_dashboard_embed(guild_id):
+    cfg = get_automode_config(guild_id)
+    e = make_embed("AutoMode Control Center", "Manage protection, bad words, thresholds and escalation.")
+    e.add_field(name="Status", value=status_text(cfg.get("enabled")), inline=True)
+    e.add_field(name="Spam", value=f"{cfg.get('spam_messages', 5)} messages / {cfg.get('spam_window', 7)} seconds", inline=True)
+    e.add_field(name="Escalation", value=f"Warn at {cfg.get('warn_after', 3)}; timeout at {cfg.get('timeout_after', 5)} warnings for {cfg.get('timeout_minutes', 10)} minutes", inline=False)
+    e.add_field(name="Modules", value=f"Links {status_text(cfg.get('link_protection', True))} | Mentions {status_text(cfg.get('mention_protection', True))} | Duplicates {status_text(cfg.get('duplicate_protection', True))} | Bad words {status_text(cfg.get('badword_protection', True))}", inline=False)
+    e.add_field(name="Bad-word list", value=f"{len(cfg.get('badwords', []))} words/phrases", inline=False)
+    return e
+
+
+class AutoModeDashboardView(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+
+    async def interaction_check(self, interaction):
+        if not interaction.user.guild_permissions.administrator or not interaction.guild or interaction.guild.id != self.guild_id:
+            await interaction.response.send_message("Administrator permission for this server is required.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Enable", style=discord.ButtonStyle.success, row=0)
+    async def enable_button(self, interaction, button):
+        get_automode_config(self.guild_id)["enabled"] = True
+        automode_save_all()
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Disable", style=discord.ButtonStyle.danger, row=0)
+    async def disable_button(self, interaction, button):
+        get_automode_config(self.guild_id)["enabled"] = False
+        automode_save_all()
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Modify Settings", style=discord.ButtonStyle.primary, row=0)
+    async def settings_button(self, interaction, button):
+        await interaction.response.send_modal(AutoModeSettingsModal(self.guild_id))
+
+    @discord.ui.button(label="Bad Words", style=discord.ButtonStyle.secondary, row=1)
+    async def badwords_button(self, interaction, button):
+        await interaction.response.send_modal(AutoModeBadWordsModal(self.guild_id))
+
+    @discord.ui.button(label="Toggle Links", style=discord.ButtonStyle.secondary, row=1)
+    async def links_button(self, interaction, button):
+        cfg = get_automode_config(self.guild_id); cfg["link_protection"] = not cfg.get("link_protection", True); automode_save_all()
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Toggle Bad Words", style=discord.ButtonStyle.secondary, row=1)
+    async def badwords_toggle_button(self, interaction, button):
+        cfg = get_automode_config(self.guild_id); cfg["badword_protection"] = not cfg.get("badword_protection", True); automode_save_all()
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh_button(self, interaction, button):
+        await interaction.response.edit_message(embed=automode_dashboard_embed(self.guild_id), view=self)
+
+
+def antilink_dashboard_embed(guild_id):
+    cfg = get_antilink_config(guild_id)
+    e = make_embed("Anti-Link Control Center", "Green means allowed; red means blocked. Toggle link categories and enforcement actions.")
+    e.add_field(name="Status", value=status_text(cfg.get("enabled")), inline=False)
+    e.add_field(name="Link types", value="\n".join(f"{ANTILINK_TYPE_LABELS[t]}: {status_text(cfg.get('types', {}).get(t, False))}" for t in ANTILINK_TYPES), inline=False)
+    e.add_field(name="Punishment controls", value=f"Delete {status_text(cfg.get('delete_enabled', True))} | Warn {status_text(cfg.get('warning_enabled', True))} | DM {status_text(cfg.get('dm_enabled', True))}", inline=False)
+    return e
+
+
+class AntiLinkDashboardView(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+
+    async def interaction_check(self, interaction):
+        if not interaction.user.guild_permissions.administrator or not interaction.guild or interaction.guild.id != self.guild_id:
+            await interaction.response.send_message("Administrator permission for this server is required.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Enable", style=discord.ButtonStyle.success, row=0)
+    async def enable_button(self, interaction, button):
+        get_antilink_config(self.guild_id)["enabled"] = True; antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Disable", style=discord.ButtonStyle.danger, row=0)
+    async def disable_button(self, interaction, button):
+        get_antilink_config(self.guild_id)["enabled"] = False; antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="GIF", style=discord.ButtonStyle.secondary, row=1)
+    async def gif_button(self, interaction, button):
+        await self.toggle_type(interaction, "gif")
+
+    @discord.ui.button(label="YouTube", style=discord.ButtonStyle.secondary, row=1)
+    async def youtube_button(self, interaction, button):
+        await self.toggle_type(interaction, "youtube")
+
+    @discord.ui.button(label="Discord Invites", style=discord.ButtonStyle.secondary, row=1)
+    async def discord_button(self, interaction, button):
+        await self.toggle_type(interaction, "discord")
+
+    @discord.ui.button(label="Websites", style=discord.ButtonStyle.secondary, row=2)
+    async def website_button(self, interaction, button):
+        await self.toggle_type(interaction, "website")
+
+    @discord.ui.button(label="Images", style=discord.ButtonStyle.secondary, row=2)
+    async def image_button(self, interaction, button):
+        await self.toggle_type(interaction, "image")
+
+    @discord.ui.button(label="Other Links", style=discord.ButtonStyle.secondary, row=2)
+    async def other_button(self, interaction, button):
+        await self.toggle_type(interaction, "other")
+
+    @discord.ui.button(label="Toggle Delete", style=discord.ButtonStyle.secondary, row=3)
+    async def delete_button(self, interaction, button):
+        cfg = get_antilink_config(self.guild_id); cfg["delete_enabled"] = not cfg.get("delete_enabled", True); antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Toggle Warning", style=discord.ButtonStyle.secondary, row=3)
+    async def warning_button(self, interaction, button):
+        cfg = get_antilink_config(self.guild_id); cfg["warning_enabled"] = not cfg.get("warning_enabled", True); antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+    @discord.ui.button(label="Toggle DM", style=discord.ButtonStyle.secondary, row=3)
+    async def dm_button(self, interaction, button):
+        cfg = get_antilink_config(self.guild_id); cfg["dm_enabled"] = not cfg.get("dm_enabled", True); antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+    async def toggle_type(self, interaction, link_type):
+        cfg = get_antilink_config(self.guild_id)
+        cfg.setdefault("types", {})[link_type] = not cfg.get("types", {}).get(link_type, False)
+        antilink_save_all()
+        await interaction.response.edit_message(embed=antilink_dashboard_embed(self.guild_id), view=self)
+
+
+
 # ============================================================
 # AUTOMODE SLASH GROUP
 # ============================================================
@@ -1471,10 +1654,7 @@ async def automode_config(
         inline=False
     )
 
-    await public_send(
-        interaction,
-        embed=embed
-    )
+    await public_send(interaction, embed=automode_dashboard_embed(interaction.guild.id), view=AutoModeDashboardView(interaction.guild.id))
 
 
 # ============================================================
@@ -1775,9 +1955,7 @@ async def automode_prefix_config(ctx):
         inline=True
     )
 
-    await ctx.send(
-        embed=embed
-    )
+    await ctx.send(embed=automode_dashboard_embed(ctx.guild.id), view=AutoModeDashboardView(ctx.guild.id))
 
 
 @automode_prefix.command(
@@ -3506,7 +3684,7 @@ async def antilink_config_command(interaction: discord.Interaction):
         ),
         inline=True
     )
-    await public_send(interaction, embed=embed)
+    await public_send(interaction, embed=antilink_dashboard_embed(interaction.guild.id), view=AntiLinkDashboardView(interaction.guild.id))
 
 
 @antilink_group.command(name="type", description="Allow or block a link type")
@@ -3652,7 +3830,7 @@ async def antilink_prefix_config(ctx):
         value="\n".join(f"{ANTILINK_TYPE_LABELS[t]}: {status_text(config['types'].get(t, False))}" for t in ANTILINK_TYPES),
         inline=False
     )
-    await ctx.send(embed=embed)
+    await ctx.send(embed=antilink_dashboard_embed(ctx.guild.id), view=AntiLinkDashboardView(ctx.guild.id))
 
 
 @antilink_prefix.command(name="type")
