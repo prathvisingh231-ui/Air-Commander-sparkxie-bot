@@ -123,6 +123,10 @@ def giveaway_embed(
         color = PURPLE
         title = "🎉 GIVEAWAY"
         state = "🟢 **Status:** Active"
+    elif status == "paused":
+        color = discord.Color.orange()
+        title = "⏸️ GIVEAWAY PAUSED"
+        state = "🟠 **Status:** Paused by staff"
     elif status == "cancelled":
         color = RED
         title = "🛑 GIVEAWAY CANCELLED"
@@ -182,13 +186,65 @@ class GiveawayJoinButton(discord.ui.Button):
         await cog.handle_entry(interaction)
 
 
-class GiveawayView(discord.ui.View):
-    """Persistent view: works for giveaway messages after bot restarts."""
+class GiveawayEditModal(discord.ui.Modal, title="Edit Giveaway"):
+    prize = discord.ui.TextInput(label="Prize", max_length=200)
+    winners = discord.ui.TextInput(label="Number of winners (1–25)", max_length=2)
+    duration_hours = discord.ui.TextInput(label="Remaining duration in hours (1–720)", max_length=3)
 
-    def __init__(self, cog: "GiveawayCog"):
+    def __init__(self, cog: "GiveawayCog", giveaway_id: int, row: Any):
+        super().__init__(timeout=300)
+        self.cog = cog
+        self.giveaway_id = int(giveaway_id)
+        self.prize.default = str(_row_value(row, "prize", "Giveaway"))[:200]
+        self.winners.default = str(_row_value(row, "winner_count", 1))
+        ends_at = _row_value(row, "ends_at")
+        remaining = max(1, int(((ends_at or _utcnow()) - _utcnow()).total_seconds() // 3600) + 1)
+        self.duration_hours.default = str(min(720, remaining))
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Use this in the server.", ephemeral=True)
+            return
+        if not (interaction.user.guild_permissions.manage_guild or interaction.user.guild_permissions.manage_messages or interaction.user.guild_permissions.administrator):
+            await interaction.response.send_message("You need Manage Server or Manage Messages.", ephemeral=True)
+            return
+        try:
+            prize = str(self.prize.value).strip()
+            winners = int(self.winners.value)
+            hours = int(self.duration_hours.value)
+            if not prize or not 1 <= winners <= 25 or not 1 <= hours <= 720:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message("Invalid values. Prize is required, winners 1–25, duration 1–720 hours.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ok = await self.cog.update_giveaway(self.giveaway_id, prize=prize, winner_count=winners, ends_at=_utcnow() + timedelta(hours=hours), guild_id=interaction.guild.id)
+        await interaction.followup.send("Giveaway updated." if ok else "Could not update this giveaway.", ephemeral=True)
+
+
+class GiveawayManageButton(discord.ui.Button):
+    def __init__(self, cog: "GiveawayCog", action: str):
+        labels = {"edit": ("Edit", "✏️", discord.ButtonStyle.secondary), "pause": ("Pause / Resume", "⏯️", discord.ButtonStyle.primary), "end": ("End", "⏹️", discord.ButtonStyle.danger)}
+        label, emoji, style = labels[action]
+        super().__init__(label=label, emoji=emoji, style=style, custom_id=f"aircommander:giveaway:manage:{action}:v1")
+        self.cog = cog
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.cog.handle_manage_button(interaction, self.action)
+
+
+class GiveawayView(discord.ui.View):
+    """Persistent participant entry and staff management controls."""
+
+    def __init__(self, cog: "GiveawayCog", *, ended: bool = False):
         super().__init__(timeout=None)
         self.cog = cog
-        self.add_item(GiveawayJoinButton())
+        if not ended:
+            self.add_item(GiveawayJoinButton())
+            self.add_item(GiveawayManageButton(cog, "edit"))
+            self.add_item(GiveawayManageButton(cog, "pause"))
+            self.add_item(GiveawayManageButton(cog, "end"))
 
 
 class GiveawayCog(commands.Cog):
@@ -269,11 +325,64 @@ class GiveawayCog(commands.Cog):
             image_url=requirements.get("image_url"),
             thumbnail_url=requirements.get("thumbnail_url"),
         )
-        view = GiveawayView(self) if status == "active" else None
+        view = GiveawayView(self) if status in ("active", "paused") else None
         try:
             await message.edit(embed=embed, view=view)
         except (discord.Forbidden, discord.NotFound, discord.HTTPException):
             log.warning("Could not update giveaway message id=%s", message_id)
+
+    async def handle_manage_button(self, interaction: discord.Interaction, action: str):
+        if not interaction.guild or not interaction.message:
+            await interaction.response.send_message("This control only works in a server.", ephemeral=True)
+            return
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not (member.guild_permissions.manage_guild or member.guild_permissions.manage_messages or member.guild_permissions.administrator):
+            await interaction.response.send_message("Only staff with Manage Server or Manage Messages can use these controls.", ephemeral=True)
+            return
+        row = await self._fetch_by_message(interaction.message.id)
+        if not row or int(_row_value(row, "guild_id", 0)) != interaction.guild.id:
+            await interaction.response.send_message("Giveaway not found.", ephemeral=True)
+            return
+        gid = int(_row_value(row, "id", 0))
+        status = str(_row_value(row, "status", "active"))
+        if action == "edit":
+            if status not in ("active", "paused"):
+                await interaction.response.send_message("Only active or paused giveaways can be edited.", ephemeral=True)
+                return
+            await interaction.response.send_modal(GiveawayEditModal(self, gid, row))
+        elif action == "end":
+            if status != "active":
+                await interaction.response.send_message("Only an active giveaway can be ended.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            ok = await self.finish_giveaway(gid, force=True)
+            await interaction.followup.send("Giveaway ended." if ok else "Could not end giveaway.", ephemeral=True)
+        elif action == "pause":
+            if status == "active":
+                await db.db_execute("UPDATE giveaways SET status='paused' WHERE id=$1 AND status='active'", gid)
+                updated = await self._fetch_giveaway(gid) or row
+                await self._edit_giveaway_message(updated, status="paused")
+                await interaction.response.send_message("Giveaway paused. Press Pause / Resume again to resume.", ephemeral=True)
+            elif status == "paused":
+                await db.db_execute("UPDATE giveaways SET status='active' WHERE id=$1 AND status='paused'", gid)
+                updated = await self._fetch_giveaway(gid) or row
+                await self._edit_giveaway_message(updated, status="active")
+                await interaction.response.send_message("Giveaway resumed.", ephemeral=True)
+            else:
+                await interaction.response.send_message("This giveaway has already ended.", ephemeral=True)
+
+    async def update_giveaway(self, giveaway_id: int, *, prize: str, winner_count: int, ends_at: datetime, guild_id: int) -> bool:
+        row = await self._fetch_giveaway(giveaway_id)
+        if not row or int(_row_value(row, "guild_id", 0)) != int(guild_id) or _row_value(row, "status", "active") not in ("active", "paused"):
+            return False
+        await db.db_execute("UPDATE giveaways SET prize=$2, winner_count=$3, ends_at=$4 WHERE id=$1", int(giveaway_id), prize, int(winner_count), ends_at)
+        updated = await self._fetch_giveaway(giveaway_id) or row
+        await self._edit_giveaway_message(updated, status=str(_row_value(updated, "status", "active")))
+        return True
+
+    async def _get_templates(self, guild_id: int) -> dict:
+        value = await db.get_guild_data(int(guild_id), "giveaway_templates", {})
+        return value if isinstance(value, dict) else {}
 
     async def handle_entry(self, interaction: discord.Interaction):
         if not interaction.guild or not interaction.user:
@@ -544,6 +653,7 @@ class GiveawayCog(commands.Cog):
         bonus_role="Optional role that receives extra draw entries",
         bonus_entries="Ticket weight for the bonus role (1–100; 1 means no bonus)",
         channel="Channel where the giveaway will be posted",
+        template="Optional saved template name to apply defaults",
         image_url="Optional image URL (HTTPS)",
         thumbnail_url="Optional thumbnail URL (HTTPS)",
         image_attachment="Optional image upload from your device/gallery",
@@ -563,9 +673,36 @@ class GiveawayCog(commands.Cog):
         thumbnail_url: Optional[str] = None,
         image_attachment: Optional[discord.Attachment] = None,
         thumbnail_attachment: Optional[discord.Attachment] = None,
+        template: Optional[str] = None,
     ):
         if not await self._require_manager(ctx):
             return
+        if template and ctx.guild:
+            try:
+                saved_templates = await self._get_templates(ctx.guild.id)
+                saved = saved_templates.get(template.strip().lower())
+            except Exception:
+                saved = None
+            if not saved:
+                await ctx.send("Template not found. Use ,giveaway template list.")
+                return
+            if not required_role and saved.get("required_role_id"):
+                required_role = ctx.guild.get_role(int(saved["required_role_id"]))
+            if not bonus_role and saved.get("bonus_role_id"):
+                bonus_role = ctx.guild.get_role(int(saved["bonus_role_id"]))
+            if bonus_entries == 2 and saved.get("bonus_entries"):
+                bonus_entries = int(saved["bonus_entries"])
+            if not image_url and not image_attachment:
+                image_url = saved.get("image_url")
+            if not thumbnail_url and not thumbnail_attachment:
+                thumbnail_url = saved.get("thumbnail_url")
+            if prize == "Giveaway" and saved.get("prize"):
+                prize = saved["prize"]
+            if int(winners) == 1 and saved.get("winners"):
+                winners = int(saved["winners"])
+            if int(duration_hours) == 24 and saved.get("duration_hours"):
+                duration_hours = int(saved["duration_hours"])
+
         prize = prize.strip()
         if not prize or len(prize) > 200:
             await ctx.send("Prize must be between 1 and 200 characters.")
@@ -662,6 +799,86 @@ class GiveawayCog(commands.Cog):
                 "❌ I couldn't save the giveaway in PostgreSQL, so I removed its panel. "
                 "Check the database connection and `db.init_db()` logs."
             )
+
+    @commands.hybrid_group(name="template", invoke_without_command=True, description="Manage saved giveaway templates")
+    async def giveaway_template(self, ctx: commands.Context):
+        await ctx.send("Template commands: ,giveaway template create/list/edit/delete.")
+
+    @giveaway_template.command(name="create", description="Save a reusable giveaway template")
+    async def giveaway_template_create(self, ctx: commands.Context, name: str, prize: str,
+        winners: app_commands.Range[int, 1, 25] = 1,
+        duration_hours: app_commands.Range[int, 1, 720] = 24,
+        required_role: Optional[discord.Role] = None,
+        bonus_role: Optional[discord.Role] = None,
+        bonus_entries: app_commands.Range[int, 1, 100] = 2,
+        image_url: Optional[str] = None,
+        thumbnail_url: Optional[str] = None):
+        if not await self._require_manager(ctx):
+            return
+        key = name.strip().lower()
+        prize = prize.strip()
+        if not key or len(key) > 40 or not prize or len(prize) > 200:
+            await ctx.send("Template name must be 1–40 chars and prize 1–200 chars.")
+            return
+        templates = await self._get_templates(ctx.guild.id)
+        templates[key] = {"name": name.strip(), "prize": prize, "winners": int(winners),
+            "duration_hours": int(duration_hours), "required_role_id": required_role.id if required_role else None,
+            "bonus_role_id": bonus_role.id if bonus_role else None, "bonus_entries": int(bonus_entries),
+            "image_url": image_url, "thumbnail_url": thumbnail_url}
+        await db.save_guild_data(ctx.guild.id, "giveaway_templates", templates)
+        await ctx.send(f"Saved template {name}. Use it in giveaway create with template={key}.")
+
+    @giveaway_template.command(name="list", description="List saved giveaway templates")
+    async def giveaway_template_list(self, ctx: commands.Context):
+        if not ctx.guild:
+            await ctx.send("Use this command in a server.")
+            return
+        templates = await self._get_templates(ctx.guild.id)
+        if not templates:
+            await ctx.send("No saved templates. Use ,giveaway template create.")
+            return
+        embed = discord.Embed(title="Saved Giveaway Templates", color=PURPLE)
+        for key, val in list(templates.items())[:25]:
+            embed.add_field(name=str(val.get("name", key)),
+                value=f"Prize: {val.get('prize', 'Not set')}\nWinners: {val.get('winners', 1)} • Duration: {val.get('duration_hours', 24)}h\nUse template={key}",
+                inline=False)
+        await ctx.send(embed=embed)
+
+    @giveaway_template.command(name="edit", description="Edit a saved giveaway template")
+    async def giveaway_template_edit(self, ctx: commands.Context, name: str, prize: Optional[str] = None,
+        winners: Optional[app_commands.Range[int, 1, 25]] = None,
+        duration_hours: Optional[app_commands.Range[int, 1, 720]] = None):
+        if not await self._require_manager(ctx):
+            return
+        templates = await self._get_templates(ctx.guild.id)
+        key = name.strip().lower()
+        if key not in templates:
+            await ctx.send("Template not found.")
+            return
+        if prize is not None:
+            if not prize.strip() or len(prize.strip()) > 200:
+                await ctx.send("Prize must be 1–200 characters.")
+                return
+            templates[key]["prize"] = prize.strip()
+        if winners is not None:
+            templates[key]["winners"] = int(winners)
+        if duration_hours is not None:
+            templates[key]["duration_hours"] = int(duration_hours)
+        await db.save_guild_data(ctx.guild.id, "giveaway_templates", templates)
+        await ctx.send("Updated template " + str(templates[key].get("name", key)) + ".")
+
+    @giveaway_template.command(name="delete", description="Delete a saved giveaway template")
+    async def giveaway_template_delete(self, ctx: commands.Context, name: str):
+        if not await self._require_manager(ctx):
+            return
+        templates = await self._get_templates(ctx.guild.id)
+        key = name.strip().lower()
+        if key not in templates:
+            await ctx.send("Template not found.")
+            return
+        removed = templates.pop(key)
+        await db.save_guild_data(ctx.guild.id, "giveaway_templates", templates)
+        await ctx.send("Deleted template " + str(removed.get("name", key)) + ".")
 
     @giveaway.command(name="list", description="List active giveaways in this server")
     async def giveaway_list(self, ctx: commands.Context):
