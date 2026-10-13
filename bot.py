@@ -116,8 +116,18 @@ basic_commands.setup(bot)
 # AI CHAT COMMAND
 # =========================================================
 
-@bot.tree.command(
+ai_group = app_commands.Group(
     name="ai",
+    description="Air Commander AI chat and channel settings",
+)
+ai_channel_group = app_commands.Group(
+    name="channel",
+    description="Configure the AI conversation channel",
+)
+
+
+@ai_group.command(
+    name="chat",
     description="Ask Air Commander AI a question",
 )
 @app_commands.describe(prompt="Your question or message for the AI")
@@ -288,8 +298,8 @@ async def _air_generate_ai_reply(prompt: str, *, conversational: bool = False):
         await client.close()
 
 
-@bot.tree.command(
-    name="ai-channel-set",
+@ai_channel_group.command(
+    name="set",
     description="Set the channel where Air Commander chats when mentioned or replied to",
 )
 @app_commands.describe(channel="Text channel where AI chat should be enabled")
@@ -314,8 +324,8 @@ async def ai_channel_set(interaction: discord.Interaction, channel: discord.Text
     )
 
 
-@bot.tree.command(
-    name="ai-channel-remove",
+@ai_channel_group.command(
+    name="remove",
     description="Disable mention/reply AI chat for this server",
 )
 async def ai_channel_remove(interaction: discord.Interaction):
@@ -338,13 +348,27 @@ async def ai_channel_remove(interaction: discord.Interaction):
     )
 
 
+# Register one canonical /ai group: /ai chat and /ai channel set|remove.
+ai_group.add_command(ai_channel_group)
+if bot.tree.get_command("ai") is None:
+    bot.tree.add_command(ai_group)
+else:
+    existing_ai = bot.tree.get_command("ai")
+    if isinstance(existing_ai, app_commands.Group):
+        for child in ai_group.commands:
+            if existing_ai.get_command(child.name) is None:
+                existing_ai.add_command(child)
+    else:
+        raise TypeError("A non-group slash command named 'ai' already exists.")
+
+
 @bot.group(name="ai", invoke_without_command=True)
 async def ai_prefix_group(ctx):
     await ctx.send(
         "🤖 **AI channel commands**\n"
         "`,ai channel set #channel` — AI chat channel set karo\n"
         "`,ai channel remove` — AI chat disable karo\n"
-        "Slash commands: `/ai-channel-set`, `/ai-channel-remove`"
+        "Slash commands: `/ai chat`, `/ai channel set`, `/ai channel remove`"
     )
 
 
@@ -2471,6 +2495,8 @@ async def _air_cleanup_stale_feature_guild_overrides():
     genuinely guild-only commands (such as database-backed custom commands).
     """
     global_roots = {command.name for command in bot.tree.get_commands()}
+    # Also remove guild overrides left by the previous flat AI command names.
+    global_roots.update({"ai-channel-set", "ai-channel-remove"})
     if not global_roots:
         print("⚠️ No global slash commands are registered locally; skipping guild cleanup.", flush=True)
         return
