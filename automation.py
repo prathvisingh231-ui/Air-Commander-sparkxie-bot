@@ -4166,6 +4166,214 @@ async def antinuke_error(
 # SETUP
 # ============================================================
 
+
+# ============================================================
+# SERVER LOGS SETUP — per-event channel selection
+# ============================================================
+
+SERVER_LOGS_FILE = "server_logs_config.json"
+SERVER_LOG_TYPES = {
+    "message": "Message Edit/Delete Logs",
+    "member_join": "Member Join Logs",
+    "member_leave": "Member Leave Logs",
+    "invite": "Invite Create/Delete Logs",
+    "bot_add": "Bot Addition Logs",
+    "channel": "Channel Create/Delete/Update Logs",
+    "role": "Role Create/Delete/Update Logs",
+    "mod": "Moderation / Ban Logs",
+}
+SERVER_LOG_CONFIGS = load_json_file(SERVER_LOGS_FILE, {})
+
+def server_logs_save_all():
+    return save_json_file(SERVER_LOGS_FILE, SERVER_LOG_CONFIGS)
+
+def get_server_logs_config(guild_id):
+    gid = str(guild_id)
+    SERVER_LOG_CONFIGS.setdefault(gid, {"enabled": True, "channels": {}})
+    cfg = SERVER_LOG_CONFIGS[gid]
+    cfg.setdefault("enabled", True)
+    cfg.setdefault("channels", {})
+    return cfg
+
+def server_logs_embed(guild):
+    cfg = get_server_logs_config(guild.id)
+    embed = make_embed("📋 Server Logs Setup", "Choose a log type, then select the text channel where those events should be posted. Each event type can use a different channel.")
+    embed.add_field(name="System", value=status_text(cfg.get("enabled", True)), inline=True)
+    for key, label in SERVER_LOG_TYPES.items():
+        channel_id = cfg["channels"].get(key)
+        channel = guild.get_channel(int(channel_id)) if channel_id else None
+        embed.add_field(name=label, value=channel.mention if channel else "Not configured — select a channel below", inline=False)
+    embed.set_footer(text="Air Commander • Server Logs")
+    return embed
+
+class ServerLogsSetupView(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=600)
+        self.guild_id = guild_id
+        self.selected_type = "message"
+
+    async def interaction_check(self, interaction):
+        if not interaction.guild or interaction.guild.id != self.guild_id or not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Administrator permission for this server is required.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(placeholder="Choose which log type to configure", min_values=1, max_values=1, row=0, options=[
+        discord.SelectOption(label="Message Edit/Delete", value="message", emoji="💬"),
+        discord.SelectOption(label="Member Join", value="member_join", emoji="📥"),
+        discord.SelectOption(label="Member Leave", value="member_leave", emoji="📤"),
+        discord.SelectOption(label="Invite Create/Delete", value="invite", emoji="🔗"),
+        discord.SelectOption(label="Bot Addition", value="bot_add", emoji="🤖"),
+        discord.SelectOption(label="Channel Changes", value="channel", emoji="🗂️"),
+        discord.SelectOption(label="Role Changes", value="role", emoji="🎭"),
+        discord.SelectOption(label="Ban / Moderation", value="mod", emoji="🛡️"),
+    ])
+    async def log_type_select(self, interaction, select):
+        self.selected_type = select.values[0]
+        await interaction.response.send_message(f"Selected **{SERVER_LOG_TYPES[self.selected_type]}**. Now use the channel selector on the setup panel to save its destination.", ephemeral=True)
+
+    @discord.ui.select(cls=discord.ui.ChannelSelect, channel_types=[discord.ChannelType.text], placeholder="Select a text channel for the chosen log type", min_values=1, max_values=1, row=1)
+    async def channel_select(self, interaction, select):
+        channel = select.values[0]
+        cfg = get_server_logs_config(self.guild_id)
+        cfg["channels"][self.selected_type] = channel.id
+        cfg["enabled"] = True
+        server_logs_save_all()
+        await interaction.response.edit_message(embed=server_logs_embed(interaction.guild), view=self)
+
+    @discord.ui.button(label="Enable All Logs", style=discord.ButtonStyle.success, row=2)
+    async def enable_logs(self, interaction, button):
+        get_server_logs_config(self.guild_id)["enabled"] = True
+        server_logs_save_all()
+        await interaction.response.edit_message(embed=server_logs_embed(interaction.guild), view=self)
+
+    @discord.ui.button(label="Pause All Logs", style=discord.ButtonStyle.danger, row=2)
+    async def disable_logs(self, interaction, button):
+        get_server_logs_config(self.guild_id)["enabled"] = False
+        server_logs_save_all()
+        await interaction.response.edit_message(embed=server_logs_embed(interaction.guild), view=self)
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh_logs(self, interaction, button):
+        await interaction.response.edit_message(embed=server_logs_embed(interaction.guild), view=self)
+
+
+class ServerLogsGroup(app_commands.Group, name="logs", description="Configure server event logs"):
+    @app_commands.command(name="setup", description="Open the server logs channel setup dashboard")
+    async def setup_logs(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await public_send(interaction, content="Use this command inside a server.", ephemeral=True)
+            return
+        if not interaction.user.guild_permissions.administrator:
+            await public_send(interaction, content="Administrator permission required.", ephemeral=True)
+            return
+        await public_send(interaction, embed=server_logs_embed(interaction.guild), view=ServerLogsSetupView(interaction.guild.id), ephemeral=True)
+
+    @app_commands.command(name="status", description="Show configured server log channels")
+    async def status_logs(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await public_send(interaction, content="Use this command inside a server.", ephemeral=True)
+            return
+        await public_send(interaction, embed=server_logs_embed(interaction.guild), ephemeral=True)
+
+
+@commands.group(name="logs", invoke_without_command=True)
+@commands.guild_only()
+@commands.has_permissions(administrator=True)
+async def server_logs_prefix(ctx):
+    await ctx.send(embed=server_logs_embed(ctx.guild), view=ServerLogsSetupView(ctx.guild.id))
+
+@server_logs_prefix.command(name="setup")
+async def server_logs_prefix_setup(ctx):
+    await ctx.send(embed=server_logs_embed(ctx.guild), view=ServerLogsSetupView(ctx.guild.id))
+
+@server_logs_prefix.command(name="status")
+async def server_logs_prefix_status(ctx):
+    await ctx.send(embed=server_logs_embed(ctx.guild))
+
+
+class ServerLogsListener(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def send_event_log(self, guild, log_type, title, description, color=discord.Color.blurple()):
+        cfg = get_server_logs_config(guild.id)
+        if not cfg.get("enabled", True):
+            return
+        channel_id = cfg.get("channels", {}).get(log_type)
+        channel = guild.get_channel(int(channel_id)) if channel_id else None
+        if channel is None:
+            return
+        embed = discord.Embed(title=title, description=description[:4000], color=color, timestamp=discord.utils.utcnow())
+        embed.set_footer(text="Air Commander • Server Logs")
+        try:
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            print(f"[ServerLogs] Could not send {log_type} log in {guild.id}: {exc}")
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message):
+        if not message.guild or message.author.bot:
+            return
+        content = (message.content or "[No text content / attachment only]")[:1200]
+        await self.send_event_log(message.guild, "message", "🗑️ Message Deleted", f"**Author:** {message.author.mention} ({message.author.id})\n**Channel:** {message.channel.mention}\n**Content:** {discord.utils.escape_markdown(content)}", discord.Color.orange())
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before, after):
+        if not before.guild or before.author.bot or before.content == after.content:
+            return
+        await self.send_event_log(before.guild, "message", "✏️ Message Edited", f"**Author:** {before.author.mention}\n**Channel:** {before.channel.mention}\n**Before:** {discord.utils.escape_markdown((before.content or '[empty]')[:900])}\n**After:** {discord.utils.escape_markdown((after.content or '[empty]')[:900])}", discord.Color.gold())
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member):
+        if member.bot:
+            await self.send_event_log(member.guild, "bot_add", "🤖 Bot Added", f"**Bot:** {member.mention} ({member.id})", discord.Color.green())
+        else:
+            await self.send_event_log(member.guild, "member_join", "📥 Member Joined", f"**Member:** {member.mention} ({member.id})\n**Account created:** <t:{int(member.created_at.timestamp())}:R>", discord.Color.green())
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        await self.send_event_log(member.guild, "member_leave", "📤 Member Left", f"**Member:** {discord.utils.escape_markdown(str(member))} ({member.id})", discord.Color.orange())
+
+    @commands.Cog.listener()
+    async def on_invite_create(self, invite):
+        await self.send_event_log(invite.guild, "invite", "🔗 Invite Created", f"**Code:** {invite.code}\n**Channel:** {getattr(invite.channel, 'mention', 'Unknown')}\n**Creator:** {invite.inviter or 'Unknown'}", discord.Color.green())
+
+    @commands.Cog.listener()
+    async def on_invite_delete(self, invite):
+        await self.send_event_log(invite.guild, "invite", "🔗 Invite Deleted", f"**Code:** {invite.code}\n**Channel:** {getattr(invite.channel, 'mention', 'Unknown')}", discord.Color.orange())
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel):
+        await self.send_event_log(channel.guild, "channel", "🗂️ Channel Created", f"**Channel:** {channel.mention if hasattr(channel, 'mention') else channel.name}", discord.Color.green())
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        await self.send_event_log(channel.guild, "channel", "🗂️ Channel Deleted", f"**Channel:** {discord.utils.escape_markdown(channel.name)} ({channel.id})", discord.Color.red())
+
+    @commands.Cog.listener()
+    async def on_guild_channel_update(self, before, after):
+        if before.name != after.name:
+            await self.send_event_log(after.guild, "channel", "🗂️ Channel Updated", f"**Before:** {before.name}\n**After:** {after.name}", discord.Color.gold())
+
+    @commands.Cog.listener()
+    async def on_guild_role_create(self, role):
+        await self.send_event_log(role.guild, "role", "🎭 Role Created", f"**Role:** {role.mention} ({role.id})", discord.Color.green())
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role):
+        await self.send_event_log(role.guild, "role", "🎭 Role Deleted", f"**Role:** {discord.utils.escape_markdown(role.name)} ({role.id})", discord.Color.red())
+
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before, after):
+        if before.name != after.name or before.permissions != after.permissions or before.color != after.color:
+            await self.send_event_log(after.guild, "role", "🎭 Role Updated", f"**Role:** {after.mention}\n**Before:** {before.name}\n**After:** {after.name}", discord.Color.gold())
+
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild, user):
+        await self.send_event_log(guild, "mod", "🔨 Member Banned", f"**User:** {discord.utils.escape_markdown(str(user))} ({user.id})", discord.Color.red())
+
+
 async def setup(bot):
 
     # --------------------------------------------------------
@@ -4400,6 +4608,34 @@ async def setup(bot):
         print("⚠️ Anti-Link slash group already registered.")
     except Exception as e:
         print(f"❌ Anti-Link slash setup error: {e}")
+
+    # --------------------------------------------------------
+    # SERVER LOGS PREFIX + SLASH + EVENT LISTENER
+    # --------------------------------------------------------
+    try:
+        if bot.get_command("logs") is None:
+            bot.add_command(server_logs_prefix)
+            print("📋 Server logs prefix commands loaded.")
+        else:
+            print("⚠️ Server logs prefix command already registered.")
+    except Exception as e:
+        print(f"❌ Server logs prefix setup error: {e}")
+
+    try:
+        if bot.tree.get_command("logs") is None:
+            bot.tree.add_command(ServerLogsGroup())
+            print("📋 Server logs slash group loaded.")
+        else:
+            print("⚠️ Server logs slash group already registered.")
+    except Exception as e:
+        print(f"❌ Server logs slash setup error: {e}")
+
+    try:
+        if bot.get_cog("ServerLogsListener") is None:
+            await bot.add_cog(ServerLogsListener(bot))
+            print("📋 Server logs event listeners loaded.")
+    except Exception as e:
+        print(f"❌ Server logs listener setup error: {e}")
 
     # --------------------------------------------------------
     # FINAL
