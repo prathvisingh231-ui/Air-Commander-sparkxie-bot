@@ -202,7 +202,9 @@ async def ai_chat(interaction: discord.Interaction, prompt: str):
 # in guild_settings.data so it survives bot restarts and redeploys.
 _air_ai_channel_cache = {}
 _air_ai_last_reply = {}
+_air_ai_conversation_history = {}
 _AIR_AI_COOLDOWN_SECONDS = 8
+_AIR_AI_MAX_HISTORY_MESSAGES = 12
 
 
 async def _air_get_ai_channel_id(guild_id: int):
@@ -4558,8 +4560,20 @@ async def on_message(message):
                 bot_id = bot.user.id if bot.user else 0
                 prompt = re.sub(r"<@!?" + str(bot_id) + r">", "", message.content).strip()
                 _air_ai_last_reply[cooldown_key] = now
+
+                # Keep a short per-user conversation so follow-up messages
+                # feel like a real chat instead of isolated one-shot answers.
+                history_key = (message.guild.id, message.channel.id, message.author.id)
+                history = _air_ai_conversation_history.setdefault(history_key, [])
+                user_text = prompt or "[The user replied to the bot without additional text.]"
+                transcript = list(history)
+                transcript.append(f"User: {user_text}")
+                conversation_prompt = "\\n".join(transcript[-_AIR_AI_MAX_HISTORY_MESSAGES:])
+
                 try:
-                    answer = await _air_generate_ai_reply(prompt, conversational=True)
+                    answer = await _air_generate_ai_reply(conversation_prompt, conversational=True)
+                    history.extend([f"User: {user_text}", f"Air Commander: {answer}"])
+                    _air_ai_conversation_history[history_key] = history[-_AIR_AI_MAX_HISTORY_MESSAGES:]
                     chunks = [answer[i:i + 1900] for i in range(0, len(answer), 1900)]
                     for chunk in chunks:
                         await message.reply(
