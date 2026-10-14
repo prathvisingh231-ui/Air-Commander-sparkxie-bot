@@ -4481,11 +4481,22 @@ async def _air_ping_pong_listener(message: discord.Message):
     if not message.guild or message.author.bot or not bot.user:
         return
 
-    # Always send the branded Pong embed when directly mentioned.
-    # AI chat may also answer in its configured channel.
-    # Discord represents a direct bot ping as a mention in message.mentions.
+    # Send the branded Pong embed for a direct ping only.
+    # A reply to one of the bot's messages should get the normal AI text reply,
+    # not an extra Pong embed (Discord clients may include the bot in mentions
+    # when replying).
     if bot.user not in message.mentions:
         return
+
+    if message.reference and message.reference.message_id:
+        referenced = message.reference.resolved
+        if not isinstance(referenced, discord.Message):
+            try:
+                referenced = await message.channel.fetch_message(message.reference.message_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                referenced = None
+        if isinstance(referenced, discord.Message) and referenced.author.id == bot.user.id:
+            return
 
     now = discord.utils.utcnow()
     embed = discord.Embed(
