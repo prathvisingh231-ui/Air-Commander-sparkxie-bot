@@ -362,3 +362,379 @@ def setup(bot):
     # application-command slots for essential feature groups.
     for name,(title,desc) in games.items():
         bot.command(name=name)(make_prefix_game(title, desc))
+
+
+    # ============================================================
+    # AIR COMMANDER ARCADE — PREFIX GAME BROWSER + MINI-GAMES
+    # Prefix only: ,games / ,game / ,xo / ,rps / ,trivia / ,mafia
+    # ============================================================
+
+    ARCADE_GAMES = {
+        "xo": ("Tic-Tac-Toe (XO)", "⚔️ Multiplayer", ",xo @user", "Challenge a member to a live 3x3 XO match using buttons."),
+        "mafia": ("Mafia", "🎭 Social", ",mafia", "Open a lobby, invite players, and privately deal Mafia/Town roles."),
+        "rps": ("Rock Paper Scissors", "⚡ Quick Games", ",rps rock", "Play Rock Paper Scissors against Air Commander."),
+        "trivia": ("Trivia Quiz", "🧠 Quiz & Puzzle", ",trivia", "Answer a multiple-choice question with buttons."),
+        "guess": ("Guess the Number", "🧠 Quiz & Puzzle", ",guess", "Start a number round, then guess using ,guess 42."),
+        "wordle": ("Wordle", "🧠 Quiz & Puzzle", ",wordle", "Start a five-letter puzzle, then submit ,wordle crane."),
+        "hangman": ("Hangman", "🧠 Quiz & Puzzle", ",hangman", "Start a word round, then guess letters using ,hangman a."),
+        "connect4": ("Connect Four", "⚔️ Multiplayer", ",connect4 @user", "Challenge a member to Connect Four."),
+        "heist": ("Heist", "🌍 Adventure", ",heist", "Open the existing fictional heist game entry point."),
+        "kingdom": ("Kingdom", "🌍 Adventure", ",kingdom", "Open the existing kingdom game entry point."),
+        "assassin": ("Assassin", "🌍 Adventure", ",assassin", "Open the existing fictional assassin game entry point."),
+        "blackmarket": ("Black Market", "🌍 Adventure", ",blackmarket", "Open the existing fictional trading game entry point."),
+        "escape": ("Escape Room", "🧠 Quiz & Puzzle", ",escape", "Open the existing escape-room game entry point."),
+        "outbreak": ("Outbreak", "🌍 Adventure", ",outbreak", "Open the existing survival game entry point."),
+        "conquest": ("Conquest", "🌍 Adventure", ",conquest", "Open the existing territory game entry point."),
+        "treasure": ("Treasure Hunt", "🌍 Adventure", ",treasure", "Open the existing treasure-hunt entry point."),
+        "arena": ("Arena", "⚔️ Multiplayer", ",arena", "Open the existing arena game entry point."),
+        "detective": ("Detective", "🧠 Quiz & Puzzle", ",detective", "Open the existing detective game entry point."),
+        "zombie": ("Zombie Survival", "🌍 Adventure", ",zombie", "Open the existing zombie-survival entry point."),
+        "race": ("Virtual Race", "⚡ Quick Games", ",race", "Open the existing virtual race entry point."),
+        "pirate": ("Pirate Crew", "🌍 Adventure", ",pirate", "Open the existing pirate-adventure entry point."),
+        "dungeon": ("Dungeon", "🌍 Adventure", ",dungeon", "Open the existing dungeon-adventure entry point."),
+        "duel": ("Duel", "⚔️ Multiplayer", ",duel @member1 @member2", "Run a friendly fictional duel between two members."),
+        "roast": ("Friendly Roast", "🎉 Social & Fun", ",roast @user", "Generate a playful, non-serious roast."),
+    }
+
+    def _arcade_embed(title, description="", color=None):
+        e = discord.Embed(
+            title=f"✈️ Air Commander Arcade • {title}",
+            description=description,
+            color=color or discord.Color.blurple(),
+            timestamp=discord.utils.utcnow(),
+        )
+        e.set_footer(text="Air Commander • Prefix games • Use ,games to return")
+        return e
+
+    def arcade_home_embed():
+        e = _arcade_embed(
+            "Game Library 🎮",
+            "Choose a game from the dropdown to see its exact prefix command and usage.\n\n"
+            "⚔️ **Multiplayer:** XO, Connect Four, Duel\n"
+            "🧠 **Quiz & Puzzle:** Trivia, Guess the Number, Wordle, Hangman, Escape Room, Detective\n"
+            "⚡ **Quick Games:** Rock Paper Scissors, Race\n"
+            "🎭 **Social & Fun:** Mafia, Friendly Roast\n"
+            "🌍 **Adventure:** Heist, Kingdom, Assassin, Black Market, Outbreak, Conquest, Treasure Hunt, Arena, Zombie, Pirate Crew, Dungeon"
+        )
+        e.add_field(name="Prefix", value="All commands use a comma. Example: ,xo @user", inline=False)
+        return e
+
+    class ArcadeGameDetailsView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=180)
+
+        @discord.ui.button(label="Back to Games", emoji="🎮", style=discord.ButtonStyle.primary)
+        async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.edit_message(embed=arcade_home_embed(), view=ArcadeGameBrowserView())
+
+    class ArcadeGameSelect(discord.ui.Select):
+        def __init__(self):
+            options = [
+                discord.SelectOption(
+                    label=data[0][:100],
+                    value=key,
+                    description=f"{data[1]} • {data[2]}"[:100],
+                    emoji="🎮",
+                )
+                for key, data in ARCADE_GAMES.items()
+            ]
+            super().__init__(
+                placeholder="🎮 Select a game to see its command...",
+                min_values=1,
+                max_values=1,
+                options=options[:25],
+                custom_id="aircommander:arcade:game-select",
+            )
+
+        async def callback(self, interaction: discord.Interaction):
+            name, category, command_text, description = ARCADE_GAMES[self.values[0]]
+            e = _arcade_embed(name, description, discord.Color.green())
+            e.add_field(name="Category", value=category, inline=True)
+            e.add_field(name="Command", value=command_text, inline=False)
+            e.add_field(name="How to use", value=f"Type {command_text} in this server.", inline=False)
+            await interaction.response.edit_message(embed=e, view=ArcadeGameDetailsView())
+
+    class ArcadeGameBrowserView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=180)
+            self.add_item(ArcadeGameSelect())
+
+        async def on_timeout(self):
+            for item in self.children:
+                item.disabled = True
+
+    @bot.command(name="games", aliases=["game"])
+    @commands.guild_only()
+    async def arcade_games(ctx):
+        """Show the interactive prefix-game browser."""
+        await ctx.send(embed=arcade_home_embed(), view=ArcadeGameBrowserView())
+
+    # ----------------------------- XO -----------------------------
+    def _xo_winner(board):
+        lines = ((0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6))
+        for a, b, c in lines:
+            if board[a] and board[a] == board[b] == board[c]:
+                return board[a]
+        return None
+
+    def _xo_board_text(board):
+        symbols = [v if v else str(i + 1) for i, v in enumerate(board)]
+        return "\n".join("  ".join(symbols[start:start + 3]) for start in (0, 3, 6))
+
+    class XOCell(discord.ui.Button):
+        def __init__(self, index):
+            super().__init__(label=str(index + 1), style=discord.ButtonStyle.secondary, row=index // 3)
+            self.index = index
+
+        async def callback(self, interaction: discord.Interaction):
+            await self.view.play_move(interaction, self.index)
+
+    class XOView(discord.ui.View):
+        def __init__(self, player_x, player_o):
+            super().__init__(timeout=180)
+            self.players = {"X": player_x, "O": player_o}
+            self.board = [""] * 9
+            self.turn = "X"
+            for idx in range(9):
+                self.add_item(XOCell(idx))
+
+        async def play_move(self, interaction, index):
+            if interaction.user.id not in self.players.values():
+                return await interaction.response.send_message("This match is not yours.", ephemeral=True)
+            if interaction.user.id != self.players[self.turn]:
+                return await interaction.response.send_message("Wait for your turn.", ephemeral=True)
+            if self.board[index]:
+                return await interaction.response.send_message("That square is already taken.", ephemeral=True)
+
+            self.board[index] = self.turn
+            winner = _xo_winner(self.board)
+            draw = not winner and all(self.board)
+            for item in self.children:
+                if isinstance(item, XOCell):
+                    item.label = self.board[item.index] or str(item.index + 1)
+                    item.disabled = bool(winner or draw or self.board[item.index])
+                    item.style = (
+                        discord.ButtonStyle.success if self.board[item.index] == "X"
+                        else discord.ButtonStyle.danger if self.board[item.index] == "O"
+                        else discord.ButtonStyle.secondary
+                    )
+
+            if winner:
+                e = _arcade_embed("XO • Match Over 🏆", f"<@{self.players[winner]}> wins!\n\n{_xo_board_text(self.board)}", discord.Color.green())
+                self.stop()
+            elif draw:
+                e = _arcade_embed("XO • Draw 🤝", f"It's a draw!\n\n{_xo_board_text(self.board)}", discord.Color.gold())
+                self.stop()
+            else:
+                self.turn = "O" if self.turn == "X" else "X"
+                e = _arcade_embed("Tic-Tac-Toe (XO)", f"X: <@{self.players['X']}>\nO: <@{self.players['O']}>\nTurn: <@{self.players[self.turn]}>\n\n{_xo_board_text(self.board)}")
+            await interaction.response.edit_message(embed=e, view=None if winner or draw else self)
+
+    @bot.command(name="xo")
+    @commands.guild_only()
+    async def arcade_xo(ctx, opponent: discord.Member):
+        if opponent.bot or opponent.id == ctx.author.id:
+            return await ctx.send("You cannot challenge yourself or a bot to XO.")
+        view = XOView(ctx.author.id, opponent.id)
+        e = _arcade_embed("Tic-Tac-Toe Challenge ❎", f"{ctx.author.mention} (X) vs {opponent.mention} (O)\nFirst turn: {ctx.author.mention}\n\n{_xo_board_text(view.board)}")
+        await ctx.send(embed=e, view=view)
+
+    # ------------------------ Rock Paper Scissors -------------------
+    @bot.command(name="rps", aliases=["rockpaperscissors"])
+    async def arcade_rps(ctx, choice: str = None):
+        choices = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
+        if choice is None:
+            return await ctx.send("Choose one: ,rps rock, ,rps paper, or ,rps scissors.")
+        choice = choice.lower().strip()
+        if choice not in choices:
+            return await ctx.send("Choose rock, paper, or scissors.")
+        bot_choice = random.choice(list(choices))
+        if choice == bot_choice:
+            result, color = "It's a draw 🤝", discord.Color.gold()
+        elif (choice, bot_choice) in {("rock","scissors"),("paper","rock"),("scissors","paper")}:
+            result, color = f"You win, {ctx.author.mention}! 🏆", discord.Color.green()
+        else:
+            result, color = "Air Commander wins this round 🤖", discord.Color.red()
+        await ctx.send(embed=_arcade_embed("Rock Paper Scissors", f"You: {choices[choice]} {choice.title()}\nBot: {choices[bot_choice]} {bot_choice.title()}\n\n{result}", color))
+
+    # ------------------------------ Trivia --------------------------
+    TRIVIA_QUESTIONS = [
+        ("Which planet is known as the Red Planet?", ["Venus","Mars","Jupiter","Mercury"], 1),
+        ("How many sides does a hexagon have?", ["Five","Six","Seven","Eight"], 1),
+        ("What is the largest ocean on Earth?", ["Atlantic","Indian","Arctic","Pacific"], 3),
+        ("Which gas do plants absorb?", ["Oxygen","Nitrogen","Carbon dioxide","Helium"], 2),
+        ("What is the capital of Japan?", ["Seoul","Tokyo","Beijing","Bangkok"], 1),
+        ("How many minutes are in two hours?", ["60","90","120","180"], 2),
+    ]
+
+    class TriviaView(discord.ui.View):
+        def __init__(self, options, answer, author_id):
+            super().__init__(timeout=45)
+            self.answer = answer
+            self.author_id = author_id
+            for idx, option in enumerate(options):
+                button = discord.ui.Button(label=option, style=discord.ButtonStyle.primary, row=idx // 2)
+                button.callback = self.make_callback(idx)
+                self.add_item(button)
+
+        def make_callback(self, idx):
+            async def callback(interaction):
+                if interaction.user.id != self.author_id:
+                    return await interaction.response.send_message("This trivia round belongs to another player.", ephemeral=True)
+                for item in self.children:
+                    item.disabled = True
+                    if isinstance(item, discord.ui.Button) and item.label == self.children[self.answer].label:
+                        item.style = discord.ButtonStyle.success
+                correct = idx == self.answer
+                e = _arcade_embed("Trivia Result", ("Correct answer! 🏆" if correct else "Not quite!") + f"\nAnswer: {self.children[self.answer].label}", discord.Color.green() if correct else discord.Color.orange())
+                await interaction.response.edit_message(embed=e, view=self)
+                self.stop()
+            return callback
+
+    @bot.command(name="trivia", aliases=["quiz"])
+    @commands.guild_only()
+    async def arcade_trivia(ctx):
+        question, options, answer = random.choice(TRIVIA_QUESTIONS)
+        await ctx.send(embed=_arcade_embed("Trivia Quiz 🧠", question + "\n\nChoose an answer below. You have 45 seconds."), view=TriviaView(options, answer, ctx.author.id))
+
+    # -------------------------- Guess the Number --------------------
+    guess_sessions = {}
+
+    @bot.command(name="guess")
+    @commands.guild_only()
+    async def arcade_guess(ctx, number: int = None):
+        key = (ctx.guild.id, ctx.author.id)
+        if number is None:
+            guess_sessions[key] = {"secret": random.randint(1, 100), "tries": 0}
+            return await ctx.send(f"{ctx.author.mention}, I picked a number from 1–100. Guess with ,guess 42.")
+        session = guess_sessions.get(key)
+        if not session:
+            return await ctx.send("No active round. Start one with ,guess.")
+        if not 1 <= number <= 100:
+            return await ctx.send("Choose a number from 1 to 100.")
+        session["tries"] += 1
+        if number == session["secret"]:
+            guess_sessions.pop(key, None)
+            return await ctx.send(f"Correct, {ctx.author.mention}! You found it in {session['tries']} guess(es). Start again with ,guess.")
+        await ctx.send(("Too low ⬆️" if number < session["secret"] else "Too high ⬇️") + " — try again with ,guess <number>.")
+
+    # ------------------------------- Wordle -------------------------
+    WORDLE_WORDS = ["plane","brave","crane","smile","ghost","light","storm","grape","flame","sword"]
+    wordle_sessions = {}
+
+    @bot.command(name="wordle")
+    @commands.guild_only()
+    async def arcade_wordle(ctx, *, guess: str = None):
+        key = (ctx.guild.id, ctx.author.id)
+        if guess is None:
+            wordle_sessions[key] = {"word": random.choice(WORDLE_WORDS), "tries": 0}
+            return await ctx.send("Wordle started! Guess a 5-letter word using ,wordle crane. You have 6 tries.")
+        guess = guess.lower().strip()
+        session = wordle_sessions.get(key)
+        if not session:
+            return await ctx.send("Start a round first with ,wordle.")
+        if len(guess) != 5 or not guess.isalpha():
+            return await ctx.send("Enter exactly 5 letters.")
+        session["tries"] += 1
+        answer = session["word"]
+        marks = []
+        for idx, letter in enumerate(guess):
+            marks.append("🟩" if letter == answer[idx] else "🟨" if letter in answer else "⬛")
+        if guess == answer:
+            wordle_sessions.pop(key, None)
+            return await ctx.send(f"You solved it!\n{''.join(marks)}\nAnswer: {answer.upper()}")
+        if session["tries"] >= 6:
+            wordle_sessions.pop(key, None)
+            return await ctx.send(f"{''.join(marks)}\nRound over! The word was {answer.upper()}.")
+        await ctx.send(f"{''.join(marks)}\nTry {session['tries']}/6. Use ,wordle <word>.")
+
+    # ------------------------------- Hangman ------------------------
+    HANGMAN_WORDS = ["discord","airplane","commander","galaxy","puzzle","victory","rainbow","treasure"]
+    hangman_sessions = {}
+
+    def _hangman_display(session):
+        return " ".join(letter.upper() if letter in session["guessed"] else "＿" for letter in session["word"])
+
+    @bot.command(name="hangman")
+    @commands.guild_only()
+    async def arcade_hangman(ctx, letter: str = None):
+        key = (ctx.guild.id, ctx.author.id)
+        session = hangman_sessions.get(key)
+        if letter is None:
+            hangman_sessions[key] = {"word": random.choice(HANGMAN_WORDS), "guessed": set(), "misses": 0}
+            return await ctx.send(f"Hangman started!\n{_hangman_display(hangman_sessions[key])}\nGuess one letter using ,hangman a.")
+        if not session:
+            return await ctx.send("Start a round first with ,hangman.")
+        letter = letter.lower().strip()
+        if len(letter) != 1 or not letter.isalpha():
+            return await ctx.send("Enter one letter, e.g. ,hangman a.")
+        if letter in session["guessed"]:
+            return await ctx.send("You already guessed that letter.")
+        session["guessed"].add(letter)
+        if letter not in session["word"]:
+            session["misses"] += 1
+        display = _hangman_display(session)
+        if "＿" not in display:
+            hangman_sessions.pop(key, None)
+            return await ctx.send(f"You solved it!\n{display}")
+        if session["misses"] >= 7:
+            word = session["word"]
+            hangman_sessions.pop(key, None)
+            return await ctx.send(f"Round over. The word was {word.upper()}.")
+        await ctx.send(f"{display}\nMisses: {session['misses']}/7 • Guessed: {', '.join(sorted(session['guessed']))}")
+
+    # ------------------------------- Mafia --------------------------
+    class MafiaLobbyView(discord.ui.View):
+        def __init__(self, host_id):
+            super().__init__(timeout=180)
+            self.host_id = host_id
+            self.players = {}
+            self.started = False
+
+        def lobby_embed(self):
+            mentions = "\n".join(f"• <@{uid}>" for uid in self.players) or "Nobody has joined yet."
+            return _arcade_embed("Mafia • Lobby 🎭", f"Host: <@{self.host_id}>\n\nPlayers ({len(self.players)}/12):\n{mentions}\n\nJoin the lobby, then the host starts. Minimum 4 players.")
+
+        @discord.ui.button(label="Join Mafia", emoji="🎭", style=discord.ButtonStyle.success)
+        async def join_mafia(self, interaction, button):
+            if self.started:
+                return await interaction.response.send_message("Lobby already started.", ephemeral=True)
+            if interaction.user.bot:
+                return await interaction.response.send_message("Bots cannot join.", ephemeral=True)
+            if len(self.players) >= 12 and interaction.user.id not in self.players:
+                return await interaction.response.send_message("Lobby is full (12 players).", ephemeral=True)
+            self.players[interaction.user.id] = interaction.user
+            await interaction.response.edit_message(embed=self.lobby_embed(), view=self)
+
+        @discord.ui.button(label="Start Round", emoji="🚀", style=discord.ButtonStyle.primary)
+        async def start_mafia(self, interaction, button):
+            if interaction.user.id != self.host_id:
+                return await interaction.response.send_message("Only the lobby host can start Mafia.", ephemeral=True)
+            if len(self.players) < 4:
+                return await interaction.response.send_message("At least 4 players are required.", ephemeral=True)
+            if self.started:
+                return await interaction.response.send_message("This round has already started.", ephemeral=True)
+            self.started = True
+            players = list(self.players.values())
+            random.shuffle(players)
+            mafia_ids = {m.id for m in players[:max(1, len(players) // 4)]}
+            delivered = 0
+            for member in players:
+                role = "Mafia" if member.id in mafia_ids else "Town"
+                try:
+                    await member.send(f"Air Commander Mafia — your secret role: {role}. Keep it secret and follow the host's in-channel instructions.")
+                    delivered += 1
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+            for item in self.children:
+                item.disabled = True
+            e = _arcade_embed("Mafia • Roles Dealt 🎭", f"Roles assigned to {len(players)} players. Secret-role DMs delivered: {delivered}/{len(players)}.\n\nThis starter mode handles lobby and role dealing; it does not automatically run day/night phases or eliminations.", discord.Color.green())
+            await interaction.response.edit_message(embed=e, view=self)
+            self.stop()
+
+    @bot.command(name="mafia")
+    @commands.guild_only()
+    async def arcade_mafia(ctx):
+        view = MafiaLobbyView(ctx.author.id)
+        view.players[ctx.author.id] = ctx.author
+        await ctx.send(embed=view.lobby_embed(), view=view)
