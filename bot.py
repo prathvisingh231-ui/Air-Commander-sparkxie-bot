@@ -205,103 +205,151 @@ _air_ai_last_reply = {}
 _air_ai_conversation_history = {}
 _AIR_AI_COOLDOWN_SECONDS = 8
 _AIR_AI_MAX_HISTORY_MESSAGES = 12
+_AIR_AI_CONFIG_FILE = Path("data/ai_channel_config.json")
+
+
+def _air_load_ai_config():
+    try:
+        if _AIR_AI_CONFIG_FILE.exists():
+            with _AIR_AI_CONFIG_FILE.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError) as exc:
+        print(f"AI local config load failed: {type(exc).__name__}: {exc}", flush=True)
+    return {}
+
+
+def _air_save_ai_config(data):
+    try:
+        _AIR_AI_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temp = _AIR_AI_CONFIG_FILE.with_suffix(".json.tmp")
+        with temp.open("w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+        os.replace(temp, _AIR_AI_CONFIG_FILE)
+        return True
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"AI local config save failed: {type(exc).__name__}: {exc}", flush=True)
+        return False
+
+
+_AIR_AI_LOCAL_CONFIG = _air_load_ai_config()
 
 
 async def _air_get_ai_channel_id(guild_id: int):
     if guild_id in _air_ai_channel_cache:
         return _air_ai_channel_cache[guild_id]
-    if not getattr(db, "_pool", None):
-        return None
+    value = None
+    if getattr(db, "_pool", None):
+        try:
+            value = await db._pool.fetchval(
+                "SELECT data->>'ai_channel_id' FROM guild_settings WHERE guild_id=$1",
+                guild_id,
+            )
+        except Exception as exc:
+            print(f"AI channel database read failed: {type(exc).__name__}: {exc}", flush=True)
+    if value:
+        try:
+            channel_id = int(value)
+            _air_ai_channel_cache[guild_id] = channel_id
+            return channel_id
+        except (ValueError, TypeError):
+            pass
+    local_value = _AIR_AI_LOCAL_CONFIG.get(str(guild_id), {}).get("channel_id")
     try:
-        value = await db._pool.fetchval(
-            "SELECT data->>'ai_channel_id' FROM guild_settings WHERE guild_id=$1",
-            guild_id,
-        )
-        channel_id = int(value) if value else None
-        _air_ai_channel_cache[guild_id] = channel_id
-        return channel_id
-    except Exception as exc:
-        print(f"AI channel config read failed: {type(exc).__name__}: {exc}")
-        return None
+        channel_id = int(local_value) if local_value else None
+    except (ValueError, TypeError):
+        channel_id = None
+    _air_ai_channel_cache[guild_id] = channel_id
+    return channel_id
 
 
 async def _air_get_ai_enabled(guild_id: int) -> bool:
-    """Read the per-server AI toggle; old configs remain enabled by default."""
-    if not getattr(db, "_pool", None):
-        return False
-    try:
-        value = await db._pool.fetchval(
-            "SELECT data->>'ai_enabled' FROM guild_settings WHERE guild_id=$1",
-            guild_id,
-        )
-        return value.lower() != "false" if value is not None else True
-    except Exception as exc:
-        print(f"AI enabled config read failed: {type(exc).__name__}: {exc}")
-        return False
+    if getattr(db, "_pool", None):
+        try:
+            value = await db._pool.fetchval(
+                "SELECT data->>'ai_enabled' FROM guild_settings WHERE guild_id=$1",
+                guild_id,
+            )
+            if value is not None:
+                return str(value).lower() != "false"
+        except Exception as exc:
+            print(f"AI enabled database read failed: {type(exc).__name__}: {exc}", flush=True)
+    local = _AIR_AI_LOCAL_CONFIG.get(str(guild_id), {})
+    return bool(local.get("enabled", False))
 
 
 async def _air_set_ai_enabled(guild_id: int, enabled: bool):
-    if not getattr(db, "_pool", None):
-        return False
-    try:
-        await db._pool.execute(
-            """
-            INSERT INTO guild_settings (guild_id, prefix, data)
-            VALUES ($1, ',', jsonb_build_object('ai_enabled', $2::boolean))
-            ON CONFLICT (guild_id) DO UPDATE
-            SET data = COALESCE(guild_settings.data, '{}'::jsonb)
-                       || jsonb_build_object('ai_enabled', $2::boolean),
-                updated_at = NOW()
-            """,
-            guild_id, enabled,
-        )
-        return True
-    except Exception as exc:
-        print(f"AI enabled config save failed: {type(exc).__name__}: {exc}")
-        return False
+    key = str(guild_id)
+    entry = _AIR_AI_LOCAL_CONFIG.setdefault(key, {})
+    entry["enabled"] = bool(enabled)
+    local_saved = _air_save_ai_config(_AIR_AI_LOCAL_CONFIG)
+    if getattr(db, "_pool", None):
+        try:
+            await db._pool.execute(
+                """
+                INSERT INTO guild_settings (guild_id, prefix, data)
+                VALUES ($1, ',', jsonb_build_object('ai_enabled', $2::boolean))
+                ON CONFLICT (guild_id) DO UPDATE
+                SET data = COALESCE(guild_settings.data, '{}'::jsonb)
+                           || jsonb_build_object('ai_enabled', $2::boolean),
+                    updated_at = NOW()
+                """,
+                guild_id, enabled,
+            )
+            return True
+        except Exception as exc:
+            print(f"AI enabled database save failed: {type(exc).__name__}: {exc}", flush=True)
+    return local_saved
 
 
 async def _air_set_ai_channel(guild_id: int, channel_id: int):
-    if not getattr(db, "_pool", None):
-        return False
-    try:
-        await db._pool.execute(
-            """
-            INSERT INTO guild_settings (guild_id, prefix, data)
-            VALUES ($1, ',', jsonb_build_object('ai_channel_id', $2::bigint))
-            ON CONFLICT (guild_id) DO UPDATE
-            SET data = COALESCE(guild_settings.data, '{}'::jsonb)
-                       || jsonb_build_object('ai_channel_id', $2::bigint),
-                updated_at = NOW()
-            """,
-            guild_id, channel_id,
-        )
-        _air_ai_channel_cache[guild_id] = channel_id
-        return True
-    except Exception as exc:
-        print(f"AI channel config save failed: {type(exc).__name__}: {exc}")
-        return False
+    key = str(guild_id)
+    entry = _AIR_AI_LOCAL_CONFIG.setdefault(key, {})
+    entry["channel_id"] = int(channel_id)
+    local_saved = _air_save_ai_config(_AIR_AI_LOCAL_CONFIG)
+    _air_ai_channel_cache[guild_id] = int(channel_id)
+    if getattr(db, "_pool", None):
+        try:
+            await db._pool.execute(
+                """
+                INSERT INTO guild_settings (guild_id, prefix, data)
+                VALUES ($1, ',', jsonb_build_object('ai_channel_id', $2::bigint))
+                ON CONFLICT (guild_id) DO UPDATE
+                SET data = COALESCE(guild_settings.data, '{}'::jsonb)
+                           || jsonb_build_object('ai_channel_id', $2::bigint),
+                    updated_at = NOW()
+                """,
+                guild_id, channel_id,
+            )
+            return True
+        except Exception as exc:
+            print(f"AI channel database save failed: {type(exc).__name__}: {exc}", flush=True)
+    return local_saved
 
 
 async def _air_remove_ai_channel(guild_id: int):
-    if not getattr(db, "_pool", None):
-        return False
-    try:
-        await db._pool.execute(
-            """
-            INSERT INTO guild_settings (guild_id, prefix, data)
-            VALUES ($1, ',', '{}'::jsonb)
-            ON CONFLICT (guild_id) DO UPDATE
-            SET data = COALESCE(guild_settings.data, '{}'::jsonb) - 'ai_channel_id',
-                updated_at = NOW()
-            """,
-            guild_id,
-        )
-        _air_ai_channel_cache[guild_id] = None
-        return True
-    except Exception as exc:
-        print(f"AI channel config removal failed: {type(exc).__name__}: {exc}")
-        return False
+    key = str(guild_id)
+    entry = _AIR_AI_LOCAL_CONFIG.setdefault(key, {})
+    entry.pop("channel_id", None)
+    entry["enabled"] = False
+    local_saved = _air_save_ai_config(_AIR_AI_LOCAL_CONFIG)
+    _air_ai_channel_cache[guild_id] = None
+    if getattr(db, "_pool", None):
+        try:
+            await db._pool.execute(
+                """
+                INSERT INTO guild_settings (guild_id, prefix, data)
+                VALUES ($1, ',', '{}'::jsonb)
+                ON CONFLICT (guild_id) DO UPDATE
+                SET data = COALESCE(guild_settings.data, '{}'::jsonb) - 'ai_channel_id',
+                    updated_at = NOW()
+                """,
+                guild_id,
+            )
+            return True
+        except Exception as exc:
+            print(f"AI channel database removal failed: {type(exc).__name__}: {exc}", flush=True)
+    return local_saved
 
 
 async def _air_generate_ai_reply(prompt: str, *, conversational: bool = False):
