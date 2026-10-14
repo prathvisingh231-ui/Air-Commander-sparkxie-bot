@@ -4431,6 +4431,18 @@ async def _air_ping_pong_listener(message: discord.Message):
     if not message.guild or message.author.bot or not bot.user:
         return
 
+    # In the configured AI channel, let the conversational AI answer the ping
+    # instead of sending both Pong and an AI reply.
+    try:
+        configured_ai_channel = await _air_get_ai_channel_id(message.guild.id)
+        if (
+            configured_ai_channel == message.channel.id
+            and await _air_get_ai_enabled(message.guild.id)
+        ):
+            return
+    except Exception:
+        pass
+
     # Discord represents a direct bot ping as a mention in message.mentions.
     if bot.user not in message.mentions:
         return
