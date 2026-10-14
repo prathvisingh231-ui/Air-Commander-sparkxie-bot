@@ -45,10 +45,20 @@ def setup(bot):
             except discord.HTTPException: return
             await asyncio.sleep(1)
         rows=await db.session_players(sid)
-        if not rows:
+        minimum_players = 2
+        if len(rows) < minimum_players:
             await db.close_session(sid,"cancelled")
-            try: await message.edit(embed=embed(f"{game.title()} • Cancelled ⏰","The 30-second lobby ended with **0 players**. Nothing was charged or changed.",discord.Color.red()),view=None)
-            except discord.HTTPException: pass
+            try:
+                await message.edit(
+                    embed=embed(
+                        f"{game.title()} • Cancelled ⏰",
+                        f"The 30-second lobby ended with **{len(rows)} player(s)**. At least **{minimum_players} players** are required, so the game was cancelled. Nothing was charged or changed.",
+                        discord.Color.red(),
+                    ),
+                    view=None,
+                )
+            except discord.HTTPException:
+                pass
             return
         await db.close_session(sid,"active")
         try: await message.edit(embed=embed(f"{game.title()} • GAME STARTED 🚀",f"**{len(rows)} player(s)** joined! The game is now starting.\n\n🎯 Make decisions when the bot presents each turn.\n💾 XP, coins and progression are saved.",discord.Color.green()),view=None)
@@ -376,6 +386,7 @@ def setup(bot):
         "rps": ("Rock Paper Scissors", "⚡ Quick Games", ",rps rock", "Play Rock Paper Scissors against Air Commander."),
         "trivia": ("Trivia Quiz", "🧠 Quiz & Puzzle", ",trivia", "Answer a multiple-choice question with buttons."),
         "guess": ("Guess the Number", "🧠 Quiz & Puzzle", ",guess", "Start a number round, then guess using ,guess 42."),
+        "country": ("Guess the Country", "🌍 Multiplayer Quiz", ",country", "Join a 30-second lobby, then identify the country from its flag with other players."),
         "wordle": ("Wordle", "🧠 Quiz & Puzzle", ",wordle", "Start a five-letter puzzle, then submit ,wordle crane."),
         "hangman": ("Hangman", "🧠 Quiz & Puzzle", ",hangman", "Start a word round, then guess letters using ,hangman a."),
         "heist": ("Heist", "🌍 Adventure", ",heist", "Open the existing fictional heist game entry point."),
@@ -410,8 +421,8 @@ def setup(bot):
         e = _arcade_embed(
             "Game Library 🎮",
             "Choose a game from the dropdown to see its exact prefix command and usage.\n\n"
-            "⚔️ **Multiplayer:** XO, Duel\n"
-            "🧠 **Quiz & Puzzle:** Trivia, Guess the Number, Wordle, Hangman, Escape Room, Detective\n"
+            "⚔️ **Multiplayer:** XO, Duel, Guess the Country\n"
+            "🧠 **Quiz & Puzzle:** Trivia, Guess the Number, Guess the Country, Wordle, Hangman, Escape Room, Detective\n"
             "⚡ **Quick Games:** Rock Paper Scissors, Race\n"
             "🎭 **Social & Fun:** Mafia, Friendly Roast\n"
             "🌍 **Adventure:** Heist, Kingdom, Assassin, Black Market, Outbreak, Conquest, Treasure Hunt, Arena, Zombie, Pirate Crew, Dungeon"
@@ -597,6 +608,141 @@ def setup(bot):
         question, options, answer = random.choice(TRIVIA_QUESTIONS)
         await ctx.send(embed=_arcade_embed("Trivia Quiz 🧠", question + "\n\nChoose an answer below. You have 45 seconds."), view=TriviaView(options, answer, ctx.author.id))
 
+    # -------------------------- Guess the Country -------------------
+    COUNTRY_QUESTIONS = [
+        ("🇯🇵", "Japan", ["Japan", "South Korea", "China", "Thailand"]),
+        ("🇧🇷", "Brazil", ["Brazil", "Portugal", "Argentina", "Mexico"]),
+        ("🇨🇦", "Canada", ["Canada", "United States", "Australia", "United Kingdom"]),
+        ("🇮🇳", "India", ["India", "Pakistan", "Bangladesh", "Nepal"]),
+        ("🇫🇷", "France", ["France", "Italy", "Belgium", "Spain"]),
+        ("🇦🇺", "Australia", ["Australia", "New Zealand", "United Kingdom", "South Africa"]),
+        ("🇪🇬", "Egypt", ["Egypt", "Morocco", "Algeria", "Turkey"]),
+        ("🇰🇪", "Kenya", ["Kenya", "Nigeria", "Ghana", "Ethiopia"]),
+        ("🇳🇴", "Norway", ["Norway", "Sweden", "Finland", "Denmark"]),
+        ("🇲🇽", "Mexico", ["Mexico", "Brazil", "Chile", "Peru"]),
+        ("🇬🇷", "Greece", ["Greece", "Italy", "Cyprus", "Turkey"]),
+        ("🇸🇬", "Singapore", ["Singapore", "Malaysia", "Indonesia", "Philippines"]),
+    ]
+
+    class CountryAnswerView(discord.ui.View):
+        def __init__(self, players, flag, answer, options):
+            super().__init__(timeout=30)
+            self.players = set(players)
+            self.answer = answer
+            self.finished = False
+            random.shuffle(options)
+            for option in options:
+                button = discord.ui.Button(label=option, style=discord.ButtonStyle.primary)
+                button.callback = self.make_callback(option)
+                self.add_item(button)
+
+        def make_callback(self, option):
+            async def callback(interaction):
+                if self.finished:
+                    return await interaction.response.send_message("This country round has ended.", ephemeral=True)
+                if interaction.user.id not in self.players:
+                    return await interaction.response.send_message("Join the lobby before answering.", ephemeral=True)
+                if option != self.answer:
+                    return await interaction.response.send_message("❌ Not quite! Try another option.", ephemeral=True)
+                self.finished = True
+                for item in self.children:
+                    item.disabled = True
+                    if item.label == self.answer:
+                        item.style = discord.ButtonStyle.success
+                e = _arcade_embed(
+                    "Guess the Country • Winner 🏆",
+                    f"{interaction.user.mention} guessed correctly! The answer was **{self.answer}**.",
+                    discord.Color.green(),
+                )
+                await interaction.response.edit_message(embed=e, view=self)
+                self.stop()
+            return callback
+
+        async def on_timeout(self):
+            if self.finished:
+                return
+            self.finished = True
+            for item in self.children:
+                item.disabled = True
+            try:
+                if self.message:
+                    await self.message.edit(
+                        embed=_arcade_embed("Guess the Country • Time's Up ⏰", f"The correct answer was **{self.answer}**.", discord.Color.orange()),
+                        view=self,
+                    )
+            except (discord.HTTPException, AttributeError):
+                pass
+
+    class CountryLobbyView(discord.ui.View):
+        def __init__(self, host):
+            super().__init__(timeout=35)
+            self.host = host
+            self.players = {host.id: host}
+            self.message = None
+            self.started = False
+
+        def lobby_embed(self, remaining=30):
+            return _arcade_embed(
+                "Guess the Country • Lobby 🌍",
+                f"Host: {self.host.mention}\nPlayers: **{len(self.players)}** (minimum 2)\n\n"
+                f"Press **Join Game**. The round starts automatically in **{remaining}s** if at least 2 players joined; otherwise it is cancelled.",
+            )
+
+        @discord.ui.button(label="Join Game", emoji="🌍", style=discord.ButtonStyle.success)
+        async def join_country(self, interaction, button):
+            if self.started:
+                return await interaction.response.send_message("This lobby has already started.", ephemeral=True)
+            if interaction.user.bot:
+                return await interaction.response.send_message("Bots cannot join.", ephemeral=True)
+            self.players[interaction.user.id] = interaction.user
+            await interaction.response.edit_message(embed=self.lobby_embed(), view=self)
+
+        async def countdown(self):
+            for remaining in range(30, 0, -1):
+                if self.started:
+                    return
+                try:
+                    await self.message.edit(embed=self.lobby_embed(remaining), view=self)
+                except discord.HTTPException:
+                    return
+                await asyncio.sleep(1)
+            if self.started:
+                return
+            if len(self.players) < 2:
+                self.started = True
+                for item in self.children:
+                    item.disabled = True
+                try:
+                    await self.message.edit(
+                        embed=_arcade_embed("Guess the Country • Cancelled ⏰", "Only one player joined in 30 seconds. At least **2 players** are required, so this game was cancelled.", discord.Color.red()),
+                        view=self,
+                    )
+                except discord.HTTPException:
+                    pass
+                self.stop()
+                return
+            self.started = True
+            flag, answer, options = random.choice(COUNTRY_QUESTIONS)
+            view = CountryAnswerView(self.players.keys(), flag, answer, options)
+            e = _arcade_embed(
+                "Guess the Country 🌍",
+                f"**Which country does this flag belong to?**\n\n# {flag}\n\nPlayers: {len(self.players)}\nChoose the correct answer below. First correct answer wins!",
+            )
+            try:
+                await self.message.edit(embed=e, view=view)
+                view.message = self.message
+            except discord.HTTPException:
+                pass
+            self.stop()
+
+    @bot.command(name="country", aliases=["guesscountry", "guess-country"])
+    @commands.guild_only()
+    async def arcade_country(ctx):
+        view = CountryLobbyView(ctx.author)
+        msg = await ctx.send(embed=view.lobby_embed(), view=view)
+        view.message = msg
+        asyncio.create_task(view.countdown())
+
     # -------------------------- Guess the Number --------------------
     guess_sessions = {}
 
@@ -685,20 +831,26 @@ def setup(bot):
 
     # ------------------------------- Mafia --------------------------
     class MafiaLobbyView(discord.ui.View):
-        def __init__(self, host_id):
-            super().__init__(timeout=180)
-            self.host_id = host_id
-            self.players = {}
+        def __init__(self, host):
+            super().__init__(timeout=35)
+            self.host = host
+            self.host_id = host.id
+            self.players = {host.id: host}
+            self.message = None
             self.started = False
 
-        def lobby_embed(self):
+        def lobby_embed(self, remaining=30):
             mentions = "\n".join(f"• <@{uid}>" for uid in self.players) or "Nobody has joined yet."
-            return _arcade_embed("Mafia • Lobby 🎭", f"Host: <@{self.host_id}>\n\nPlayers ({len(self.players)}/12):\n{mentions}\n\nJoin the lobby, then the host starts. Minimum 4 players.")
+            return _arcade_embed(
+                "Mafia • Lobby 🎭",
+                f"Host: <@{self.host_id}>\n\nPlayers ({len(self.players)}/12):\n{mentions}\n\n"
+                f"Minimum **4 players**. Automatic start in **{remaining}s** if enough players join; otherwise cancelled.",
+            )
 
         @discord.ui.button(label="Join Mafia", emoji="🎭", style=discord.ButtonStyle.success)
         async def join_mafia(self, interaction, button):
             if self.started:
-                return await interaction.response.send_message("Lobby already started.", ephemeral=True)
+                return await interaction.response.send_message("Lobby already started or cancelled.", ephemeral=True)
             if interaction.user.bot:
                 return await interaction.response.send_message("Bots cannot join.", ephemeral=True)
             if len(self.players) >= 12 and interaction.user.id not in self.players:
@@ -706,14 +858,9 @@ def setup(bot):
             self.players[interaction.user.id] = interaction.user
             await interaction.response.edit_message(embed=self.lobby_embed(), view=self)
 
-        @discord.ui.button(label="Start Round", emoji="🚀", style=discord.ButtonStyle.primary)
-        async def start_mafia(self, interaction, button):
-            if interaction.user.id != self.host_id:
-                return await interaction.response.send_message("Only the lobby host can start Mafia.", ephemeral=True)
-            if len(self.players) < 4:
-                return await interaction.response.send_message("At least 4 players are required.", ephemeral=True)
+        async def deal_roles(self):
             if self.started:
-                return await interaction.response.send_message("This round has already started.", ephemeral=True)
+                return
             self.started = True
             players = list(self.players.values())
             random.shuffle(players)
@@ -728,13 +875,49 @@ def setup(bot):
                     pass
             for item in self.children:
                 item.disabled = True
-            e = _arcade_embed("Mafia • Roles Dealt 🎭", f"Roles assigned to {len(players)} players. Secret-role DMs delivered: {delivered}/{len(players)}.\n\nThis starter mode handles lobby and role dealing; it does not automatically run day/night phases or eliminations.", discord.Color.green())
-            await interaction.response.edit_message(embed=e, view=self)
+            e = _arcade_embed(
+                "Mafia • Roles Dealt 🎭",
+                f"Roles assigned to {len(players)} players. Secret-role DMs delivered: {delivered}/{len(players)}.\n\n"
+                "This starter mode handles lobby and role dealing; it does not automatically run day/night phases or eliminations.",
+                discord.Color.green(),
+            )
+            try:
+                await self.message.edit(embed=e, view=self)
+            except discord.HTTPException:
+                pass
             self.stop()
+
+        async def countdown(self):
+            for remaining in range(30, 0, -1):
+                if self.started:
+                    return
+                try:
+                    await self.message.edit(embed=self.lobby_embed(remaining), view=self)
+                except discord.HTTPException:
+                    return
+                await asyncio.sleep(1)
+            if self.started:
+                return
+            if len(self.players) < 4:
+                self.started = True
+                for item in self.children:
+                    item.disabled = True
+                try:
+                    await self.message.edit(
+                        embed=_arcade_embed("Mafia • Cancelled ⏰", f"Only **{len(self.players)}** player(s) joined. Mafia needs at least **4 players**, so it was cancelled.", discord.Color.red()),
+                        view=self,
+                    )
+                except discord.HTTPException:
+                    pass
+                self.stop()
+                return
+            await self.deal_roles()
 
     @bot.command(name="mafia")
     @commands.guild_only()
     async def arcade_mafia(ctx):
-        view = MafiaLobbyView(ctx.author.id)
-        view.players[ctx.author.id] = ctx.author
-        await ctx.send(embed=view.lobby_embed(), view=view)
+        view = MafiaLobbyView(ctx.author)
+        msg = await ctx.send(embed=view.lobby_embed(), view=view)
+        view.message = msg
+        asyncio.create_task(view.countdown())
+
