@@ -377,7 +377,6 @@ def setup(bot):
         "guess": ("Guess the Number", "🧠 Quiz & Puzzle", ",guess", "Start a number round, then guess using ,guess 42."),
         "wordle": ("Wordle", "🧠 Quiz & Puzzle", ",wordle", "Start a five-letter puzzle, then submit ,wordle crane."),
         "hangman": ("Hangman", "🧠 Quiz & Puzzle", ",hangman", "Start a word round, then guess letters using ,hangman a."),
-        "connect4": ("Connect Four", "⚔️ Multiplayer", ",connect4 @user", "Challenge a member to Connect Four."),
         "heist": ("Heist", "🌍 Adventure", ",heist", "Open the existing fictional heist game entry point."),
         "kingdom": ("Kingdom", "🌍 Adventure", ",kingdom", "Open the existing kingdom game entry point."),
         "assassin": ("Assassin", "🌍 Adventure", ",assassin", "Open the existing fictional assassin game entry point."),
@@ -410,7 +409,7 @@ def setup(bot):
         e = _arcade_embed(
             "Game Library 🎮",
             "Choose a game from the dropdown to see its exact prefix command and usage.\n\n"
-            "⚔️ **Multiplayer:** XO, Connect Four, Duel\n"
+            "⚔️ **Multiplayer:** XO, Duel\n"
             "🧠 **Quiz & Puzzle:** Trivia, Guess the Number, Wordle, Hangman, Escape Room, Detective\n"
             "⚡ **Quick Games:** Rock Paper Scissors, Race\n"
             "🎭 **Social & Fun:** Mafia, Friendly Roast\n"
