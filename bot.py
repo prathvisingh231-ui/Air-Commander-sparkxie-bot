@@ -223,6 +223,42 @@ async def _air_get_ai_channel_id(guild_id: int):
         return None
 
 
+async def _air_get_ai_enabled(guild_id: int) -> bool:
+    """Read the per-server AI toggle; old configs remain enabled by default."""
+    if not getattr(db, "_pool", None):
+        return False
+    try:
+        value = await db._pool.fetchval(
+            "SELECT data->>'ai_enabled' FROM guild_settings WHERE guild_id=$1",
+            guild_id,
+        )
+        return value.lower() != "false" if value is not None else True
+    except Exception as exc:
+        print(f"AI enabled config read failed: {type(exc).__name__}: {exc}")
+        return False
+
+
+async def _air_set_ai_enabled(guild_id: int, enabled: bool):
+    if not getattr(db, "_pool", None):
+        return False
+    try:
+        await db._pool.execute(
+            """
+            INSERT INTO guild_settings (guild_id, prefix, data)
+            VALUES ($1, ',', jsonb_build_object('ai_enabled', $2::boolean))
+            ON CONFLICT (guild_id) DO UPDATE
+            SET data = COALESCE(guild_settings.data, '{}'::jsonb)
+                       || jsonb_build_object('ai_enabled', $2::boolean),
+                updated_at = NOW()
+            """,
+            guild_id, enabled,
+        )
+        return True
+    except Exception as exc:
+        print(f"AI enabled config save failed: {type(exc).__name__}: {exc}")
+        return False
+
+
 async def _air_set_ai_channel(guild_id: int, channel_id: int):
     if not getattr(db, "_pool", None):
         return False
@@ -348,6 +384,34 @@ async def ai_channel_remove(interaction: discord.Interaction):
     )
 
 
+@ai_group.command(name="enable", description="Enable AI conversations in the configured AI channel")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def ai_enable(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    channel_id = await _air_get_ai_channel_id(interaction.guild.id)
+    if not channel_id:
+        return await interaction.response.send_message(
+            "Pehle `/ai channel set` se AI channel set karo.", ephemeral=True
+        )
+    if not await _air_set_ai_enabled(interaction.guild.id, True):
+        return await interaction.response.send_message("Database unavailable hai.", ephemeral=True)
+    await interaction.response.send_message(
+        "✅ AI enabled! Ab configured channel mein members mujhe ping karke ya mere message ka reply dekar baat kar sakte hain.",
+        ephemeral=True,
+    )
+
+
+@ai_group.command(name="disable", description="Disable AI conversations in the configured channel")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def ai_disable(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await interaction.response.send_message("Server only.", ephemeral=True)
+    if not await _air_set_ai_enabled(interaction.guild.id, False):
+        return await interaction.response.send_message("Database unavailable hai.", ephemeral=True)
+    await interaction.response.send_message("⏸️ AI chat disabled for this server.", ephemeral=True)
+
+
 # Register one canonical /ai group: /ai chat and /ai channel set|remove.
 ai_group.add_command(ai_channel_group)
 if bot.tree.get_command("ai") is None:
@@ -367,9 +431,37 @@ async def ai_prefix_group(ctx):
     await ctx.send(
         "🤖 **AI channel commands**\n"
         "`,ai channel set #channel` — AI chat channel set karo\n"
-        "`,ai channel remove` — AI chat disable karo\n"
-        "Slash commands: `/ai chat`, `/ai channel set`, `/ai channel remove`"
+        "`,ai enable` — AI chat enable karo\n"
+        "`,ai disable` — AI chat disable karo\n"
+        "`,ai channel remove` — AI channel remove karo\n"
+        "Slash commands: `/ai chat`, `/ai enable`, `/ai disable`, `/ai channel set`, `/ai channel remove`"
     )
+
+
+@ai_prefix_group.command(name="enable")
+@commands.has_guild_permissions(manage_guild=True)
+async def ai_prefix_enable(ctx):
+    if not ctx.guild:
+        return await ctx.send("❌ Ye command sirf server mein use ho sakti hai.")
+    channel_id = await _air_get_ai_channel_id(ctx.guild.id)
+    if not channel_id:
+        return await ctx.send("Pehle `,ai channel set #channel` use karo.")
+    if not await _air_set_ai_enabled(ctx.guild.id, True):
+        return await ctx.send("❌ Database unavailable hai. Render logs check karo.")
+    await ctx.send(
+        "✅ AI enabled! Ab configured channel mein members mujhe ping karke "
+        "ya mere message ka reply dekar baat kar sakte hain."
+    )
+
+
+@ai_prefix_group.command(name="disable")
+@commands.has_guild_permissions(manage_guild=True)
+async def ai_prefix_disable(ctx):
+    if not ctx.guild:
+        return await ctx.send("❌ Ye command sirf server mein use ho sakti hai.")
+    if not await _air_set_ai_enabled(ctx.guild.id, False):
+        return await ctx.send("❌ Database unavailable hai. Render logs check karo.")
+    await ctx.send("⏸️ AI chat is server ke liye disable kar diya gaya.")
 
 
 @ai_prefix_group.group(name="channel", invoke_without_command=True)
@@ -4429,6 +4521,7 @@ async def on_message(message):
     try:
         configured_channel_id = await _air_get_ai_channel_id(message.guild.id)
         in_ai_channel = configured_channel_id == message.channel.id
+        ai_enabled = await _air_get_ai_enabled(message.guild.id)
 
         replied_to_bot = False
         if message.reference and message.reference.message_id:
@@ -4443,7 +4536,7 @@ async def on_message(message):
                     replied_to_bot = False
 
         mentioned_bot = bool(bot.user and bot.user in message.mentions)
-        should_ai_reply = in_ai_channel and (mentioned_bot or replied_to_bot)
+        should_ai_reply = ai_enabled and in_ai_channel and (mentioned_bot or replied_to_bot)
 
         if should_ai_reply:
             cooldown_key = (message.guild.id, message.author.id)
