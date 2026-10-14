@@ -4329,6 +4329,45 @@ async def on_command_error(ctx, error):
 # MESSAGE ACTIVITY LOGGER
 # =========================================================
 
+# =========================================================
+# AIR COMMANDER — PING / PONG EMBED
+# Reply whenever a member mentions the bot in a server.
+# =========================================================
+
+@bot.listen("on_message")
+async def _air_ping_pong_listener(message: discord.Message):
+    if not message.guild or message.author.bot or not bot.user:
+        return
+
+    # Discord represents a direct bot ping as a mention in message.mentions.
+    if bot.user not in message.mentions:
+        return
+
+    embed = discord.Embed(
+        title="🏓 Pong!",
+        description=(
+            "**My current prefix is `,`**\n"
+            "Use `,help` to see all my commands!"
+        ),
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    embed.set_footer(
+        text=f"Requested by {message.author.display_name}",
+        icon_url=message.author.display_avatar.url,
+    )
+
+    try:
+        await message.reply(
+            embed=embed,
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        print(f"Ping/pong reply failed: {type(exc).__name__}: {exc}", flush=True)
+
+
 @bot.event
 async def on_message(message):
 
