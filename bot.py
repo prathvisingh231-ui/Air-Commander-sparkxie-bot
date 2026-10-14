@@ -4433,18 +4433,8 @@ async def _air_ping_pong_listener(message: discord.Message):
     if not message.guild or message.author.bot or not bot.user:
         return
 
-    # In the configured AI channel, let the conversational AI answer the ping
-    # instead of sending both Pong and an AI reply.
-    try:
-        configured_ai_channel = await _air_get_ai_channel_id(message.guild.id)
-        if (
-            configured_ai_channel == message.channel.id
-            and await _air_get_ai_enabled(message.guild.id)
-        ):
-            return
-    except Exception:
-        pass
-
+    # Always send the branded Pong embed when directly mentioned.
+    # AI chat may also answer in its configured channel.
     # Discord represents a direct bot ping as a mention in message.mentions.
     if bot.user not in message.mentions:
         return
@@ -4582,13 +4572,25 @@ async def on_message(message):
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
                 except Exception as ai_exc:
-                    print(f"AI auto-reply failed: {type(ai_exc).__name__}: {ai_exc}")
+                    print(f"AI auto-reply failed: {type(ai_exc).__name__}: {ai_exc}", flush=True)
                     if not os.getenv("OPENAI_API_KEY"):
+                        user_error = (
+                            "⚠️ AI abhi configured nahi hai. Bot owner Render Environment "
+                            "mein OPENAI_API_KEY set kare."
+                        )
+                    else:
+                        user_error = (
+                            "⚠️ AI reply nahi kar paaya. Bot owner Render logs mein "
+                            "'AI auto-reply failed' search karke API key, model aur API billing/access check kare."
+                        )
+                    try:
                         await message.reply(
-                            "AI abhi configure nahi hai. Bot owner ko OPENAI_API_KEY set karni hogi.",
+                            user_error,
                             mention_author=False,
                             allowed_mentions=discord.AllowedMentions.none(),
                         )
+                    except discord.HTTPException:
+                        pass
     except Exception as ai_config_exc:
         print(f"AI message handler error: {type(ai_config_exc).__name__}: {ai_config_exc}")
 
