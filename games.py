@@ -73,7 +73,7 @@ def setup(bot):
         sid=await db.new_session(i.guild_id,game,i.user.id,{"round":1,"seed":random.randint(1,999999)})
         if sid is None: return await i.response.send_message("⚠️ PostgreSQL is not connected. Set DATABASE_URL on Render.",ephemeral=True)
         view=LobbyView(game,sid)
-        e=embed(f"{game.title()} • Lobby 🎮",f"**Session:** #{sid}\n\n📖 **How to play**\nYou have **30 seconds** to join. Press **🎮 Join Game**. When the timer ends, the game starts automatically. If nobody joins, it ends automatically.\n\n👤 Host: {i.user.mention}\n👥 Players: 1\n⏱️ Starting in: **30s**",discord.Color.blurple())
+        e=embed(f"{game.title()} • Lobby 🎮",f"**Session:** #{sid}\n\n📖 **How to play**\nYou have **30 seconds** to join. Press **🎮 Join Game**. The game starts automatically only if at least **2 players** are in the lobby when the timer ends; otherwise it is cancelled.\n\n👤 Host: {i.user.mention}\n👥 Players: 1 / 2 minimum\n⏱️ Starting in: **30s**",discord.Color.blurple())
         e.add_field(name="🪙 Economy",value="Virtual coins + XP",inline=True)
         e.add_field(name="💾 Persistence",value="PostgreSQL",inline=True)
         await i.response.send_message(embed=e,view=view)
