@@ -4,6 +4,7 @@ import db
 import hashlib
 import discord
 from discord import app_commands
+from discord.ext import commands
 
 def embed(title, desc="", color=None):
     return discord.Embed(title=f"✈️ {title}", description=desc, color=color or discord.Color.blurple(), timestamp=discord.utils.utcnow())
