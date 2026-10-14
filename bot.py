@@ -4343,6 +4343,7 @@ async def _air_ping_pong_listener(message: discord.Message):
     if bot.user not in message.mentions:
         return
 
+    now = discord.utils.utcnow()
     embed = discord.Embed(
         title="🏓 Pong!",
         description=(
@@ -4350,11 +4351,14 @@ async def _air_ping_pong_listener(message: discord.Message):
             "Use `,help` to see all my commands!"
         ),
         color=discord.Color.blurple(),
-        timestamp=discord.utils.utcnow(),
+        timestamp=now,
     )
     embed.set_thumbnail(url=bot.user.display_avatar.url)
     embed.set_footer(
-        text=f"Requested by {message.author.display_name}",
+        text=(
+            f"Requested by {message.author.display_name} "
+            f"• <t:{int(now.timestamp())}:t>"
+        ),
         icon_url=message.author.display_avatar.url,
     )
 
