@@ -74,7 +74,10 @@ def guild_data(guild_id: int):
 
             # ---------------- Self Role ----------------
             "selfroles": {},
-            "reaction_roles": {}
+            "reaction_roles": {},
+
+            # ---------------- Join Role / Autorole ----------------
+            "join_role_id": None
         }
 
     data = DATA[gid]
@@ -87,6 +90,7 @@ def guild_data(guild_id: int):
 
     data.setdefault("selfroles", {})
     data.setdefault("reaction_roles", {})
+    data.setdefault("join_role_id", None)
 
     return data
 
@@ -2082,6 +2086,31 @@ class Welcome(commands.Cog):
             member.guild.id
         )
 
+        # Assign configured autorole independently of welcome-message setup.
+        join_role_id = data.get("join_role_id")
+        if join_role_id:
+            role = member.guild.get_role(int(join_role_id))
+            me = member.guild.me
+            if (
+                role
+                and me
+                and not role.is_default()
+                and not role.managed
+                and role < me.top_role
+                and role not in member.roles
+            ):
+                try:
+                    await member.add_roles(
+                        role,
+                        reason="Air Commander join-role / autorole"
+                    )
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    print(
+                        f"⚠️ Autorole failed for guild {member.guild.id}, "
+                        f"member {member.id}: {type(exc).__name__}: {exc}",
+                        flush=True
+                    )
+
         channel_id = data.get(
             "channel_id"
         )
@@ -3393,6 +3422,173 @@ class Welcome(commands.Cog):
             discord.HTTPException
         ):
             return
+
+
+# ============================================================
+# PREFIX ROLE-ALL COMMANDS
+# ============================================================
+
+    @commands.group(
+        name="roleall",
+        invoke_without_command=True
+    )
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_roleall(self, ctx):
+        """Add or remove a role for eligible server members."""
+        embed = discord.Embed(
+            title="✈️ Air Commander — Role All",
+            description=(
+                "`,roleall add @Role` — give a role to eligible members\n"
+                "`,roleall remove @Role` — remove a role from eligible members"
+            ),
+            color=DEFAULT_COLOR
+        )
+        await ctx.send(embed=embed)
+
+    @prefix_roleall.command(name="add")
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_roleall_add(self, ctx, *, role: discord.Role):
+        await self._roleall_apply(ctx, role, add=True)
+
+    @prefix_roleall.command(name="remove")
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_roleall_remove(self, ctx, *, role: discord.Role):
+        await self._roleall_apply(ctx, role, add=False)
+
+    async def _roleall_apply(self, ctx, role: discord.Role, *, add: bool):
+        guild = ctx.guild
+        if guild is None:
+            return
+
+        me = guild.me
+        author = ctx.author
+        if role.is_default() or role.managed:
+            await ctx.send("❌ The @everyone role or a managed integration role cannot be changed.")
+            return
+        if me is None or role >= me.top_role:
+            await ctx.send("❌ That role is at or above my highest role. Move my bot role above it first.")
+            return
+        if not isinstance(author, discord.Member) or role >= author.top_role:
+            await ctx.send("❌ You can only manage roles below your highest role.")
+            return
+
+        action = "add" if add else "remove"
+        status = await ctx.send(f"⏳ Starting role {action} for eligible members…")
+        success = 0
+        skipped = 0
+        failed = 0
+
+        # Sequential updates avoid flooding Discord's API; discord.py handles route rate limits.
+        for member in list(guild.members):
+            if member.bot:
+                skipped += 1
+                continue
+            if role in member.roles:
+                skipped += 1
+                continue
+            if role >= member.top_role:
+                skipped += 1
+                continue
+            try:
+                if add:
+                    await member.add_roles(role, reason=f"Bulk role add requested by {author} ({author.id})")
+                else:
+                    # Count only members who currently have the role.
+                    if role not in member.roles:
+                        skipped += 1
+                        continue
+                    await member.remove_roles(role, reason=f"Bulk role removal requested by {author} ({author.id})")
+                success += 1
+            except discord.Forbidden:
+                failed += 1
+            except discord.HTTPException:
+                failed += 1
+
+        embed = discord.Embed(
+            title="✈️ Role All Complete",
+            description=(
+                f"**Action:** {'Added' if add else 'Removed'} {role.mention}\n"
+                f"**Successful:** {success}\n"
+                f"**Skipped:** {skipped}\n"
+                f"**Failed:** {failed}"
+            ),
+            color=DEFAULT_COLOR
+        )
+        try:
+            await status.edit(content=None, embed=embed)
+        except discord.HTTPException:
+            await ctx.send(embed=embed)
+
+
+# ============================================================
+# PREFIX JOIN-ROLE / AUTOROLE COMMANDS
+# ============================================================
+
+    @commands.group(
+        name="joinrole",
+        invoke_without_command=True
+    )
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_joinrole(self, ctx):
+        embed = discord.Embed(
+            title="✈️ Air Commander — Join Role",
+            description=(
+                "`,joinrole set @Role` — automatically give the role to new members\n"
+                "`,joinrole remove` — disable join role\n"
+                "`,joinrole view` — show the current setting"
+            ),
+            color=DEFAULT_COLOR
+        )
+        await ctx.send(embed=embed)
+
+    @prefix_joinrole.command(name="set")
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_joinrole_set(self, ctx, *, role: discord.Role):
+        guild = ctx.guild
+        me = guild.me if guild else None
+        author = ctx.author
+        if guild is None or me is None:
+            return
+        if role.is_default() or role.managed:
+            await ctx.send("❌ Choose a normal, assignable role.")
+            return
+        if role >= me.top_role:
+            await ctx.send("❌ Move my bot role above that role first.")
+            return
+        if not isinstance(author, discord.Member) or role >= author.top_role:
+            await ctx.send("❌ You can only configure a role below your highest role.")
+            return
+
+        data = guild_data(guild.id)
+        data["join_role_id"] = role.id
+        save_data(DATA)
+        await ctx.send(f"✅ New members will receive {role.mention} when they join.")
+
+    @prefix_joinrole.command(name="remove")
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_joinrole_remove(self, ctx):
+        data = guild_data(ctx.guild.id)
+        data["join_role_id"] = None
+        save_data(DATA)
+        await ctx.send("✅ Join role disabled. New members will no longer receive an automatic role.")
+
+    @prefix_joinrole.command(name="view")
+    @commands.guild_only()
+    @commands.has_guild_permissions(manage_roles=True)
+    async def prefix_joinrole_view(self, ctx):
+        data = guild_data(ctx.guild.id)
+        role_id = data.get("join_role_id")
+        role = ctx.guild.get_role(int(role_id)) if role_id else None
+        if role is None:
+            await ctx.send("ℹ️ No join role is configured for this server.")
+        else:
+            await ctx.send(f"✅ Current join role: {role.mention}")
 
 
 # ============================================================
