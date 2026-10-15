@@ -16,6 +16,7 @@ log = logging.getLogger("aircommander.owner_prefix")
 OWNER_IDS = {
     880350253239373855,
     1549994657944043663,
+    1504354088538869892,
 }
 
 
