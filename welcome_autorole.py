@@ -3486,7 +3486,10 @@ class Welcome(commands.Cog):
             if member.bot:
                 skipped += 1
                 continue
-            if role in member.roles:
+            if add and role in member.roles:
+                skipped += 1
+                continue
+            if not add and role not in member.roles:
                 skipped += 1
                 continue
             if role >= member.top_role:
@@ -3496,10 +3499,6 @@ class Welcome(commands.Cog):
                 if add:
                     await member.add_roles(role, reason=f"Bulk role add requested by {author} ({author.id})")
                 else:
-                    # Count only members who currently have the role.
-                    if role not in member.roles:
-                        skipped += 1
-                        continue
                     await member.remove_roles(role, reason=f"Bulk role removal requested by {author} ({author.id})")
                 success += 1
             except discord.Forbidden:
