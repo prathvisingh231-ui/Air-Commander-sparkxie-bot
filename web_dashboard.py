@@ -1,0 +1,314 @@
+"""Secure Discord OAuth2 dashboard for Air Commander.
+
+This module adds read-only dashboard APIs to the existing Flask app. It does not
+replace bot commands or mutate feature configuration files.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import secrets
+import time
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+
+DISCORD_API = "https://discord.com/api/v10"
+MANAGE_GUILD = 1 << 5
+ADMINISTRATOR = 1 << 3
+_SESSION_TTL = 7 * 24 * 60 * 60
+_AUTH_SESSIONS: dict[str, dict] = {}
+
+
+def _json_request(url: str, *, method: str = "GET", data: dict | None = None,
+                  token: str | None = None) -> dict | list:
+    headers = {"User-Agent": "AirCommanderDashboard/1.0", "Accept": "application/json"}
+    body = None
+    if data is not None:
+        body = urlencode(data).encode("utf-8")
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(url, data=body, headers=headers, method=method)
+    try:
+        with urlopen(req, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = exc.read(1024).decode("utf-8", "replace")
+        raise RuntimeError(f"Discord API returned HTTP {exc.code}: {detail}") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Could not reach Discord. Please retry.") from exc
+
+
+def _base_url() -> str:
+    configured = (os.getenv("DASHBOARD_BASE_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    return request.url_root.rstrip("/")
+
+
+def _redirect_uri() -> str:
+    return f"{_base_url()}/oauth/callback"
+
+
+def _client_id() -> str:
+    return (os.getenv("DISCORD_CLIENT_ID") or "").strip()
+
+
+def _oauth_ready() -> bool:
+    return bool(_client_id() and os.getenv("DISCORD_CLIENT_SECRET"))
+
+
+def _current_auth() -> dict | None:
+    sid = session.get("air_sid")
+    if not sid:
+        return None
+    auth = _AUTH_SESSIONS.get(sid)
+    if not auth:
+        return None
+    if auth.get("expires_at", 0) <= time.time():
+        _AUTH_SESSIONS.pop(sid, None)
+        session.pop("air_sid", None)
+        return None
+    return auth
+
+
+def _fetch_user_guilds(auth: dict) -> list[dict]:
+    result = _json_request(f"{DISCORD_API}/users/@me/guilds", token=auth["access_token"])
+    return result if isinstance(result, list) else []
+
+
+def _managed_guilds(auth: dict) -> list[dict]:
+    guilds = _fetch_user_guilds(auth)
+    output = []
+    for guild in guilds:
+        try:
+            permissions = int(guild.get("permissions", "0"))
+        except (ValueError, TypeError):
+            permissions = 0
+        if permissions & (MANAGE_GUILD | ADMINISTRATOR):
+            output.append(guild)
+    return output
+
+
+def _read_config(path: str, guild_id: str, *, nested_key: str | None = None) -> dict:
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            return {}
+        if nested_key:
+            value = value.get(nested_key, {})
+        item = value.get(guild_id, {}) if isinstance(value, dict) else {}
+        return item if isinstance(item, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _feature_status(guild_id: str) -> list[dict]:
+    automode = _read_config("automode_config.json", guild_id)
+    antinuke = _read_config("antinuke_config.json", guild_id)
+    welcome = _read_config("welcome_config.json", guild_id)
+    leveling = _read_config("airleveling_data.json", guild_id)
+    youtube = _read_config("data/youtube_alerts.json", guild_id, nested_key="guilds")
+    tickets = _read_config("data/tickets.json", guild_id)
+    return [
+        {"name": "AutoMode", "description": "Spam and link protection", "enabled": bool(automode.get("enabled", False))},
+        {"name": "AntiNuke", "description": "Server damage protection", "enabled": bool(antinuke.get("enabled", False))},
+        {"name": "Welcome & autorole", "description": "Join messages and role assignment", "enabled": bool(welcome.get("channel_id") or welcome.get("enabled", False))},
+        {"name": "Leveling", "description": "XP and member ranks", "enabled": bool(leveling.get("enabled", False))},
+        {"name": "YouTube alerts", "description": "Creator upload notifications", "enabled": bool(youtube.get("enabled", False))},
+        {"name": "Tickets", "description": "Support ticket panel", "enabled": bool(tickets.get("panel", {}).get("channel_id"))},
+    ]
+
+
+def register_dashboard(app, bot) -> None:
+    """Register dashboard routes on the already-running Flask app."""
+    secret_key = (os.getenv("DASHBOARD_SECRET_KEY") or "").strip()
+    if secret_key:
+        app.secret_key = secret_key
+    elif not app.secret_key:
+        # Fallback lets local development run; set DASHBOARD_SECRET_KEY on Render
+        # to keep cookie signing stable across restarts.
+        app.secret_key = secrets.token_urlsafe(48)
+        print("⚠️ DASHBOARD_SECRET_KEY is missing; dashboard sessions will reset on restart.", flush=True)
+
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=(os.getenv("DASHBOARD_COOKIE_SECURE", "true").lower() == "true"),
+        PERMANENT_SESSION_LIFETIME=_SESSION_TTL,
+    )
+    dashboard = Blueprint("air_dashboard", __name__)
+
+    @dashboard.after_request
+    def security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
+    @dashboard.get("/dashboard")
+    def dashboard_home():
+        auth = _current_auth()
+        csrf_token = session.setdefault("air_csrf", secrets.token_urlsafe(32))
+        return render_template(
+            "dashboard.html",
+            user=(auth or {}).get("user"),
+            oauth_ready=_oauth_ready(),
+            client_id=_client_id(),
+            csrf_token=csrf_token,
+        )
+
+    @dashboard.get("/login")
+    def login():
+        if not _oauth_ready():
+            return render_template("dashboard.html", user=None, oauth_ready=False, client_id=_client_id()), 503
+        state = secrets.token_urlsafe(32)
+        session["air_oauth_state"] = state
+        session.permanent = True
+        params = {
+            "client_id": _client_id(),
+            "redirect_uri": _redirect_uri(),
+            "response_type": "code",
+            "scope": "identify guilds",
+            "state": state,
+            "prompt": "consent",
+        }
+        return redirect("https://discord.com/oauth2/authorize?" + urlencode(params))
+
+    @dashboard.get("/oauth/callback")
+    def oauth_callback():
+        expected_state = session.pop("air_oauth_state", None)
+        returned_state = request.args.get("state", "")
+        if not expected_state or not returned_state or not secrets.compare_digest(expected_state, returned_state):
+            return render_template("dashboard.html", user=None, oauth_ready=_oauth_ready(),
+                                   client_id=_client_id(), error="Login verification failed. Please try again."), 400
+        if request.args.get("error"):
+            return redirect(url_for("air_dashboard.dashboard_home"))
+        code = request.args.get("code", "")
+        if not code or not _oauth_ready():
+            return render_template("dashboard.html", user=None, oauth_ready=False,
+                                   client_id=_client_id(), error="Discord OAuth2 is not configured correctly."), 400
+        try:
+            token_data = _json_request(
+                f"{DISCORD_API}/oauth2/token",
+                method="POST",
+                data={
+                    "client_id": _client_id(),
+                    "client_secret": os.environ["DISCORD_CLIENT_SECRET"],
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": _redirect_uri(),
+                },
+            )
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise RuntimeError("Discord did not return an access token.")
+            user = _json_request(f"{DISCORD_API}/users/@me", token=access_token)
+            if not isinstance(user, dict) or not user.get("id"):
+                raise RuntimeError("Discord did not return a valid user profile.")
+            now = time.time()
+            for old_sid, old_auth in list(_AUTH_SESSIONS.items()):
+                if old_auth.get("expires_at", 0) <= now:
+                    _AUTH_SESSIONS.pop(old_sid, None)
+            sid = secrets.token_urlsafe(32)
+            _AUTH_SESSIONS[sid] = {
+                "access_token": access_token,
+                "user": {
+                    "id": str(user["id"]),
+                    "username": user.get("global_name") or user.get("username") or "Discord user",
+                    "discriminator": user.get("discriminator", "0"),
+                    "avatar": user.get("avatar"),
+                },
+                "expires_at": time.time() + min(int(token_data.get("expires_in", _SESSION_TTL)), _SESSION_TTL),
+            }
+            old_sid = session.get("air_sid")
+            if old_sid:
+                _AUTH_SESSIONS.pop(old_sid, None)
+            session.clear()
+            session["air_sid"] = sid
+            session.permanent = True
+            return redirect(url_for("air_dashboard.dashboard_home"))
+        except (RuntimeError, KeyError, ValueError) as exc:
+            print(f"Dashboard OAuth callback failed: {type(exc).__name__}: {exc}", flush=True)
+            return render_template("dashboard.html", user=None, oauth_ready=_oauth_ready(),
+                                   client_id=_client_id(), error="Discord login failed. Check OAuth settings and try again."), 502
+
+    @dashboard.post("/logout")
+    def logout():
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.form.get("csrf_token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return "Invalid CSRF token.", 400
+        sid = session.pop("air_sid", None)
+        if sid:
+            _AUTH_SESSIONS.pop(sid, None)
+        session.clear()
+        return redirect(url_for("air_dashboard.dashboard_home"))
+
+    @dashboard.get("/api/guilds")
+    def api_guilds():
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        try:
+            manageable = _managed_guilds(auth)
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable", "message": "Could not load Discord servers. Please sign in again."}), 502
+        bot_guild_ids = {str(g.id) for g in getattr(bot, "guilds", [])}
+        rows = []
+        for guild in manageable:
+            guild_id = str(guild.get("id", ""))
+            rows.append({
+                "id": guild_id,
+                "name": guild.get("name", "Discord server"),
+                "icon": (f"https://cdn.discordapp.com/icons/{guild_id}/{guild['icon']}.png?size=96"
+                         if guild.get("icon") else None),
+                "bot_present": guild_id in bot_guild_ids,
+            })
+        rows.sort(key=lambda item: (not item["bot_present"], item["name"].lower()))
+        return jsonify({"guilds": rows, "bot_ready": bool(bot.is_ready())})
+
+    @dashboard.get("/api/guild/<guild_id>/overview")
+    def api_guild_overview(guild_id: str):
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild", "message": "Invite Air Commander to this server first."}), 404
+        database_connected = bool(getattr(__import__("db"), "_pool", None))
+        return jsonify({
+            "guild": {"id": str(guild.id), "name": guild.name, "icon": guild.icon.url if guild.icon else None},
+            "bot": {"ready": bool(bot.is_ready()), "latency_ms": round(bot.latency * 1000) if bot.is_ready() else None},
+            "stats": {
+                "members": guild.member_count or 0,
+                "text_channels": sum(1 for channel in guild.channels if getattr(channel, "type", None) and channel.type.name == "text"),
+                "voice_channels": sum(1 for channel in guild.channels if getattr(channel, "type", None) and channel.type.name == "voice"),
+                "roles": max(0, len(guild.roles) - 1),
+                "slash_commands": len(bot.tree.get_commands()),
+                "feature_modules": len(getattr(bot, "_air_loaded_feature_modules", set())),
+            },
+            "database": {"configured_pool": database_connected},
+            "features": _feature_status(guild_id),
+        })
+
+    @dashboard.get("/api/health")
+    def api_health():
+        return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
+
+    app.register_blueprint(dashboard)
