@@ -23,10 +23,11 @@
   <a class="brand" href="/dashboard"><span class="brandmark">✈</span><span>Air Commander<small>Server dashboard</small></span></a>
   <div class="top-actions">
     {% if user %}
+      <a class="secondary" href="https://discord.com/oauth2/authorize?client_id={{ client_id }}&scope=bot%20applications.commands&permissions=0">Invite bot</a>
       <img class="avatar" src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=64" alt="" onerror="this.style.display='none'">
       <span class="user-label">{{ user.username }}</span>
       <form method="post" action="/logout"><button class="logout" type="submit">Log out</button></form>
-    {% else %}<a class="secondary" href="https://discord.com/oauth2/authorize?client_id={{ client_id }}&scope=bot%20applications.commands&permissions=0">Invite bot</a>{% endif %}
+    {% endif %}
   </div>
 </header>
 {% if not user %}
