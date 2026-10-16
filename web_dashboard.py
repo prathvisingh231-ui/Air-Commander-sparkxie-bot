@@ -307,6 +307,130 @@ def register_dashboard(app, bot) -> None:
             "features": _feature_status(guild_id),
         })
 
+
+    @dashboard.route("/api/guild/<guild_id>/config/security", methods=["GET", "POST"])
+    def api_security_config(guild_id: str):
+        """Manage the first dashboard config group without replacing bot commands."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+
+        try:
+            import automation
+        except Exception:
+            return jsonify({"error": "security_module_unavailable"}), 503
+
+        if request.method == "GET":
+            auto = automation.get_automode_config(int(guild_id))
+            anti = automation.get_antinuke_config(int(guild_id))
+            return jsonify({
+                "automode": {
+                    "enabled": bool(auto.get("enabled", False)),
+                    "spam_messages": int(auto.get("spam_messages", 5)),
+                    "spam_window": int(auto.get("spam_window", 7)),
+                    "link_protection": bool(auto.get("link_protection", True)),
+                    "mention_limit": int(auto.get("mention_limit", 5)),
+                    "duplicate_limit": int(auto.get("duplicate_limit", 3)),
+                    "log_channel_id": auto.get("log_channel_id"),
+                },
+                "antinuke": {
+                    "enabled": bool(anti.get("enabled", False)),
+                    "action": str(anti.get("action", "ban")),
+                    "window": int(anti.get("window", 10)),
+                    "log_channel_id": anti.get("log_channel_id"),
+                    "thresholds": anti.get("thresholds", {}),
+                },
+            })
+
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "invalid_json"}), 400
+
+        def bounded_int(value, low, high):
+            if isinstance(value, bool):
+                raise ValueError
+            result = int(value)
+            if result < low or result > high:
+                raise ValueError
+            return result
+
+        try:
+            if "automode" in payload:
+                incoming = payload["automode"]
+                if not isinstance(incoming, dict):
+                    raise ValueError
+                cfg = automation.get_automode_config(int(guild_id))
+                if "enabled" in incoming:
+                    if not isinstance(incoming["enabled"], bool): raise ValueError
+                    cfg["enabled"] = incoming["enabled"]
+                for key, low, high in (("spam_messages", 2, 30), ("spam_window", 2, 60),
+                                        ("mention_limit", 2, 30), ("duplicate_limit", 2, 15)):
+                    if key in incoming: cfg[key] = bounded_int(incoming[key], low, high)
+                if "link_protection" in incoming:
+                    if not isinstance(incoming["link_protection"], bool): raise ValueError
+                    cfg["link_protection"] = incoming["link_protection"]
+                if "log_channel_id" in incoming:
+                    raw = incoming["log_channel_id"]
+                    if raw in ("", None):
+                        cfg["log_channel_id"] = None
+                    else:
+                        channel_id = bounded_int(raw, 1, 10**22)
+                        channel = guild.get_channel(channel_id)
+                        if not isinstance(channel, __import__("discord").TextChannel): raise ValueError
+                        cfg["log_channel_id"] = channel_id
+                if not automation.automode_save_all():
+                    return jsonify({"error": "save_failed", "message": "Could not save AutoMode settings."}), 500
+
+            if "antinuke" in payload:
+                incoming = payload["antinuke"]
+                if not isinstance(incoming, dict):
+                    raise ValueError
+                cfg = automation.get_antinuke_config(int(guild_id))
+                if "enabled" in incoming:
+                    if not isinstance(incoming["enabled"], bool): raise ValueError
+                    cfg["enabled"] = incoming["enabled"]
+                if "action" in incoming:
+                    if incoming["action"] not in {"ban", "kick", "timeout", "strip"}: raise ValueError
+                    cfg["action"] = incoming["action"]
+                if "window" in incoming: cfg["window"] = bounded_int(incoming["window"], 3, 60)
+                if "log_channel_id" in incoming:
+                    raw = incoming["log_channel_id"]
+                    if raw in ("", None):
+                        cfg["log_channel_id"] = None
+                    else:
+                        channel_id = bounded_int(raw, 1, 10**22)
+                        channel = guild.get_channel(channel_id)
+                        if not isinstance(channel, __import__("discord").TextChannel): raise ValueError
+                        cfg["log_channel_id"] = channel_id
+                if "thresholds" in incoming:
+                    thresholds = incoming["thresholds"]
+                    if not isinstance(thresholds, dict): raise ValueError
+                    allowed = set(cfg.get("thresholds", {}))
+                    for key, value in thresholds.items():
+                        if key not in allowed: raise ValueError
+                        cfg.setdefault("thresholds", {})[key] = bounded_int(value, 1, 20)
+                if not automation.antinuke_save_all():
+                    return jsonify({"error": "save_failed", "message": "Could not save AntiNuke settings."}), 500
+        except (ValueError, TypeError, KeyError):
+            return jsonify({"error": "invalid_config", "message": "One or more settings are invalid."}), 400
+
+        return jsonify({"ok": True, "message": "Security settings saved."})
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
