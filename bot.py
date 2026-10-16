@@ -16,7 +16,7 @@ from openai import AsyncOpenAI
 import discord
 from discord import app_commands
 from discord.ext import commands
-from flask import Flask
+from flask import Flask, redirect
 
 import db
 import games
@@ -39,6 +39,7 @@ import diagnostics
 import backup_system
 import modlog
 import verification
+from web_dashboard import register_dashboard
 
 # CONFIGURATION
 # =========================================================
@@ -59,7 +60,7 @@ app = Flask(__name__)
 
 @app.get("/")
 def home():
-    return "✈️ Air Commander is online!", 200
+    return redirect("/dashboard")
 
 
 @app.get("/health")
@@ -103,6 +104,9 @@ bot = AirCommanderBot(
     intents=intents,
     help_command=None
 )
+
+# Register the web dashboard without replacing any Discord commands or cogs.
+register_dashboard(app, bot)
 
 setup_owner_prefixless(bot)
 
