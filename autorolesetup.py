@@ -68,11 +68,12 @@ async def _apply_roles(guild: discord.Guild, layout: str):
 
 
 def _clean_channel_name(name: str):
-    name = name.strip().strip("`").lower()
+    """Normalize spacing without deleting emoji or decorative Unicode characters."""
+    name = name.strip().strip(chr(96))
+    # Preserve Unicode decorations and emojis. Only normalize whitespace.
     name = re.sub(r"\s+", "-", name)
-    name = re.sub(r"[^a-z0-9\-_]", "", name)
     name = re.sub(r"-{2,}", "-", name)
-    return name.strip("-_")[:100]
+    return name.strip("-")[:100]
 
 
 def _parse_channel_layout(layout: str):
