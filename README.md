@@ -91,3 +91,24 @@ In the configured channel, members can mention **Air Commander** or reply to one
 ## Ticket close behavior
 
 Closing a ticket generates a transcript when enabled, sends it to the configured ticket log channel when available, logs the close event, and then attempts to delete the ticket channel after 3 seconds. The bot needs Manage Channels permission. A failed delete is reported in Render logs.
+
+
+## Website dashboard (Discord OAuth2)
+
+The Flask health server now also serves the Air Commander web dashboard at `/` and `/dashboard`. It is hosted by the same Render service and keeps the existing `python bot.py` start command.
+
+### Render environment variables
+
+Set these in the existing Render web service:
+- `DISCORD_CLIENT_ID`: Application ID from Discord Developer Portal (not the bot token).
+- `DISCORD_CLIENT_SECRET`: OAuth2 client secret for that application.
+- `DASHBOARD_SECRET_KEY`: long random secret used to sign browser sessions; keep it private.
+- `DASHBOARD_BASE_URL`: `https://air-commander-sparkxie-bot.onrender.com` (no trailing slash).
+- `DASHBOARD_COOKIE_SECURE`: `true` for HTTPS (default).
+
+In Discord Developer Portal → OAuth2, add this exact redirect URL:
+`https://air-commander-sparkxie-bot.onrender.com/oauth/callback`
+
+The initial dashboard is intentionally **read-only**: it lists servers where the signed-in user has Manage Server or Administrator permission and displays bot status, basic server statistics and current feature configuration. It does not write to module JSON files or change existing bot settings. Server access is rechecked by the backend for each overview request. OAuth tokens are held server-side in process memory rather than stored in the browser cookie; signing out clears the session.
+
+The dashboard uses the existing Flask server and adds no package dependencies. The current Render health endpoint remains available at `/health`. Keep the same Render service and database; do not replace `bot.py` or any feature module.
