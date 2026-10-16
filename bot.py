@@ -38,6 +38,7 @@ import config_dashboard
 import diagnostics
 import backup_system
 import modlog
+import verification
 
 # CONFIGURATION
 # =========================================================
@@ -2867,7 +2868,7 @@ async def _air_startup_loader(bot):
                 try:
                     await db.restore_json_snapshots()
                     _air_autoresponder_load()
-                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog, verification):
                         importlib.reload(module)
                     print("♻️ JSON module state restored before feature setup.")
                 except Exception as restore_exc:
@@ -2899,6 +2900,7 @@ async def _air_startup_loader(bot):
         ("diagnostics", diagnostics),
         ("backup_system", backup_system),
         ("modlog", modlog),
+        ("verification", verification),
     ]
 
     # Track modules individually: one failed setup must not mark every module loaded.
@@ -3168,7 +3170,7 @@ async def _air_json_snapshot_worker():
                         bot._air_db_initialized = True
                         await db.restore_json_snapshots()
                         _air_autoresponder_load()
-                        for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog):
+                        for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog, verification):
                             importlib.reload(module)
                         welcome_cog = bot.get_cog("Welcome")
                         if welcome_cog is not None:
