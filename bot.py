@@ -5608,6 +5608,220 @@ else:
 
 
 # =========================================================
+
+# ============================================================
+# AIR COMMANDER — NATIVE DISCORD ONBOARDING (existing bot.py)
+# ============================================================
+
+_air_onboarding_group = app_commands.Group(name="onboarding", description="Configure Discord's native Server Onboarding")
+
+
+async def _air_get_native_onboarding(guild_id: int):
+    route = discord.http.Route("GET", "/guilds/{guild_id}/onboarding", guild_id=guild_id)
+    return await bot.http.request(route)
+
+
+async def _air_put_native_onboarding(guild_id: int, payload: dict):
+    route = discord.http.Route("PUT", "/guilds/{guild_id}/onboarding", guild_id=guild_id)
+    return await bot.http.request(route, json=payload)
+
+
+def _air_onboarding_permission_error(interaction):
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        return "Use this command inside a server."
+    if not interaction.user.guild_permissions.manage_guild or not interaction.user.guild_permissions.manage_roles:
+        return "You need both Manage Server and Manage Roles permissions."
+    me = interaction.guild.me
+    if not me or not me.guild_permissions.manage_guild or not me.guild_permissions.manage_roles:
+        return "Air Commander needs both Manage Server and Manage Roles permissions."
+    return None
+
+
+def _air_clean_onboarding_prompt(prompt):
+    clean = {k: prompt[k] for k in ("id", "title", "type", "single_select", "required", "in_onboarding") if k in prompt}
+    options = []
+    for option in prompt.get("options", []):
+        item = {k: option[k] for k in ("id", "title", "description", "channel_ids", "role_ids", "emoji_id", "emoji_name", "emoji_animated") if k in option}
+        emoji = option.get("emoji")
+        if isinstance(emoji, dict):
+            if emoji.get("id") is not None:
+                item["emoji_id"] = str(emoji["id"])
+            if emoji.get("name") is not None:
+                item["emoji_name"] = emoji["name"]
+            if emoji.get("animated") is not None:
+                item["emoji_animated"] = bool(emoji["animated"])
+        options.append(item)
+    clean["options"] = options
+    return clean
+
+
+@_air_onboarding_group.command(name="status", description="Show native Discord Onboarding status")
+async def air_onboarding_status(interaction: discord.Interaction):
+    error = _air_onboarding_permission_error(interaction)
+    if error:
+        return await interaction.response.send_message(error, ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        data = await _air_get_native_onboarding(interaction.guild.id)
+        defaults = data.get("default_channel_ids", [])
+        prompts = data.get("prompts", [])
+        names = []
+        for value in defaults[:12]:
+            channel = interaction.guild.get_channel(int(value))
+            names.append(channel.mention if channel else str(value))
+        message = f"Native Discord Onboarding\nEnabled: {bool(data.get('enabled'))}\nDefault channels: {len(defaults)}\nQuestions: {len(prompts)}"
+        if names:
+            message += "\n\nDefault channels:\n" + "\n".join(names)
+        if prompts:
+            message += "\n\nQuestions:\n" + "\n".join(f"- {p.get('title', 'Untitled')} ({len(p.get('options', []))} choices)" for p in prompts[:10])
+        await interaction.followup.send(message[:1900], ephemeral=True)
+    except Exception as exc:
+        print(f"Native onboarding status failed: {type(exc).__name__}: {exc}", flush=True)
+        await interaction.followup.send(f"Couldn't read native Onboarding. Check Community is enabled and bot permissions. API error: {type(exc).__name__}", ephemeral=True)
+
+
+@_air_onboarding_group.command(name="defaults", description="Set default channels for native Onboarding")
+@app_commands.describe(channels="At least 7 text-channel mentions or IDs, separated by commas")
+async def air_onboarding_defaults(interaction: discord.Interaction, channels: str):
+    error = _air_onboarding_permission_error(interaction)
+    if error:
+        return await interaction.response.send_message(error, ephemeral=True)
+    ids = list(dict.fromkeys(re.findall(r"\d{15,22}", channels)))
+    if len(ids) < 7:
+        return await interaction.response.send_message("Discord requires at least 7 default channels. Paste 7 or more channel mentions or IDs.", ephemeral=True)
+    resolved, public_send_count = [], 0
+    for raw_id in ids:
+        channel = interaction.guild.get_channel(int(raw_id))
+        if not isinstance(channel, discord.TextChannel):
+            return await interaction.response.send_message(f"{raw_id} is not a text channel in this server.", ephemeral=True)
+        perms = channel.permissions_for(interaction.guild.default_role)
+        if perms.view_channel:
+            resolved.append(str(channel.id))
+            if perms.send_messages:
+                public_send_count += 1
+    if len(resolved) < 7 or public_send_count < 5:
+        return await interaction.response.send_message("Choose at least 7 visible text channels. At least 5 must allow @everyone to view and send messages.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        await _air_put_native_onboarding(interaction.guild.id, {"default_channel_ids": resolved[:25]})
+        await interaction.followup.send("Default channels saved:\n" + "\n".join(interaction.guild.get_channel(int(x)).mention for x in resolved[:25]), ephemeral=True)
+    except Exception as exc:
+        print(f"Native onboarding defaults failed: {type(exc).__name__}: {exc}", flush=True)
+        await interaction.followup.send(f"Discord rejected the default channels. Check Community setup and permissions. API error: {type(exc).__name__}", ephemeral=True)
+
+
+@_air_onboarding_group.command(name="question", description="Add a native Onboarding question with two choices")
+@app_commands.describe(title="Question shown to new members", option_one="First answer choice", option_two="Second answer choice", role_one="Optional role for first choice", role_two="Optional role for second choice")
+async def air_onboarding_question(interaction: discord.Interaction, title: str, option_one: str, option_two: str, role_one: discord.Role = None, role_two: discord.Role = None):
+    error = _air_onboarding_permission_error(interaction)
+    if error:
+        return await interaction.response.send_message(error, ephemeral=True)
+    title, option_one, option_two = title.strip(), option_one.strip(), option_two.strip()
+    if not title or len(title) > 100 or not option_one or not option_two or len(option_one) > 100 or len(option_two) > 100:
+        return await interaction.response.send_message("Question and both choices are required; each must be 100 characters or fewer.", ephemeral=True)
+    me = interaction.guild.me
+    for role in (role_one, role_two):
+        if role and (role.is_default() or role.managed or role >= me.top_role):
+            return await interaction.response.send_message(f"Choose a normal role below Air Commander's highest role. Invalid role: {role.name}", ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        data = await _air_get_native_onboarding(interaction.guild.id)
+        prompts = [_air_clean_onboarding_prompt(p) for p in data.get("prompts", [])]
+        prompts.append({
+            "title": title, "type": 0, "single_select": True, "required": False, "in_onboarding": True,
+            "options": [
+                {"title": option_one, "description": "", "channel_ids": [], "role_ids": [str(role_one.id)] if role_one else []},
+                {"title": option_two, "description": "", "channel_ids": [], "role_ids": [str(role_two.id)] if role_two else []},
+            ],
+        })
+        await _air_put_native_onboarding(interaction.guild.id, {"prompts": prompts})
+        answer = f"Question added: {title}\n- {option_one}" + (f" → {role_one.name}" if role_one else "") + f"\n- {option_two}" + (f" → {role_two.name}" if role_two else "")
+        await interaction.followup.send(answer, ephemeral=True)
+    except Exception as exc:
+        print(f"Native onboarding question failed: {type(exc).__name__}: {exc}", flush=True)
+        await interaction.followup.send(f"Couldn't save the question. Check Community status and bot permissions. API error: {type(exc).__name__}", ephemeral=True)
+
+
+@_air_onboarding_group.command(name="enable", description="Enable native Discord Onboarding")
+async def air_onboarding_enable(interaction: discord.Interaction):
+    error = _air_onboarding_permission_error(interaction)
+    if error:
+        return await interaction.response.send_message(error, ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        data = await _air_get_native_onboarding(interaction.guild.id)
+        if len(data.get("default_channel_ids", [])) < 7:
+            return await interaction.followup.send("Set at least 7 default channels first with /onboarding defaults.", ephemeral=True)
+        await _air_put_native_onboarding(interaction.guild.id, {"enabled": True})
+        await interaction.followup.send("Discord accepted the request to enable Onboarding. If Discord reports incomplete setup, review Community and Onboarding requirements in Server Settings.", ephemeral=True)
+    except Exception as exc:
+        print(f"Native onboarding enable failed: {type(exc).__name__}: {exc}", flush=True)
+        await interaction.followup.send(f"Discord couldn't enable Onboarding. Confirm Community is enabled, 7 defaults are configured, and 5 allow @everyone to send messages. API error: {type(exc).__name__}", ephemeral=True)
+
+
+@_air_onboarding_group.command(name="disable", description="Disable native Discord Onboarding")
+async def air_onboarding_disable(interaction: discord.Interaction):
+    error = _air_onboarding_permission_error(interaction)
+    if error:
+        return await interaction.response.send_message(error, ephemeral=True)
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        await _air_put_native_onboarding(interaction.guild.id, {"enabled": False})
+        await interaction.followup.send("Native Discord Onboarding disabled.", ephemeral=True)
+    except Exception as exc:
+        print(f"Native onboarding disable failed: {type(exc).__name__}: {exc}", flush=True)
+        await interaction.followup.send(f"Couldn't disable Onboarding. API error: {type(exc).__name__}", ephemeral=True)
+
+
+if bot.tree.get_command("onboarding") is None:
+    bot.tree.add_command(_air_onboarding_group)
+    print("Registered /onboarding native Discord configuration group.", flush=True)
+else:
+    print("An /onboarding command already exists; leaving it untouched.", flush=True)
+
+
+@bot.group(name="onboarding", invoke_without_command=True)
+@commands.guild_only()
+async def air_onboarding_prefix(ctx):
+    await ctx.send("Native Discord Onboarding:\n,onboarding status\n,onboarding defaults #welcome,#rules,#general,... (7+ text channels)\nUse /onboarding question and /onboarding enable for questions and activation.")
+
+
+@air_onboarding_prefix.command(name="status")
+@commands.has_guild_permissions(manage_guild=True, manage_roles=True)
+async def air_onboarding_prefix_status(ctx):
+    try:
+        data = await _air_get_native_onboarding(ctx.guild.id)
+        await ctx.send(f"Native Onboarding enabled: {bool(data.get('enabled'))} | Default channels: {len(data.get('default_channel_ids', []))} | Questions: {len(data.get('prompts', []))}")
+    except Exception as exc:
+        await ctx.send(f"Couldn't read native Onboarding: {type(exc).__name__}")
+
+
+@air_onboarding_prefix.command(name="defaults")
+@commands.has_guild_permissions(manage_guild=True, manage_roles=True)
+async def air_onboarding_prefix_defaults(ctx, *, channels: str):
+    ids = list(dict.fromkeys(re.findall(r"\d{15,22}", channels)))
+    if len(ids) < 7:
+        return await ctx.send("Discord requires at least 7 default channels. Paste 7+ channel mentions.")
+    resolved, public_send_count = [], 0
+    for raw_id in ids:
+        channel = ctx.guild.get_channel(int(raw_id))
+        if not isinstance(channel, discord.TextChannel):
+            return await ctx.send(f"{raw_id} is not a text channel in this server.")
+        perms = channel.permissions_for(ctx.guild.default_role)
+        if perms.view_channel:
+            resolved.append(str(channel.id))
+            if perms.send_messages:
+                public_send_count += 1
+    if len(resolved) < 7 or public_send_count < 5:
+        return await ctx.send("Need 7 visible text channels, and 5 must allow @everyone to view and send.")
+    try:
+        await _air_put_native_onboarding(ctx.guild.id, {"default_channel_ids": resolved[:25]})
+        await ctx.send("Saved defaults: " + ", ".join(ctx.guild.get_channel(int(x)).mention for x in resolved[:25]))
+    except Exception as exc:
+        await ctx.send(f"Discord rejected the setup: {type(exc).__name__}")
+
+
+
 # BOT STARTUP
 # =========================================================
 
