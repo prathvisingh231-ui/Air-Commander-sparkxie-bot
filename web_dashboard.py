@@ -156,11 +156,13 @@ def register_dashboard(app, bot) -> None:
     @dashboard.get("/dashboard")
     def dashboard_home():
         auth = _current_auth()
+        csrf_token = session.setdefault("air_csrf", secrets.token_urlsafe(32))
         return render_template(
             "dashboard.html",
             user=(auth or {}).get("user"),
             oauth_ready=_oauth_ready(),
             client_id=_client_id(),
+            csrf_token=csrf_token,
         )
 
     @dashboard.get("/login")
@@ -211,6 +213,10 @@ def register_dashboard(app, bot) -> None:
             user = _json_request(f"{DISCORD_API}/users/@me", token=access_token)
             if not isinstance(user, dict) or not user.get("id"):
                 raise RuntimeError("Discord did not return a valid user profile.")
+            now = time.time()
+            for old_sid, old_auth in list(_AUTH_SESSIONS.items()):
+                if old_auth.get("expires_at", 0) <= now:
+                    _AUTH_SESSIONS.pop(old_sid, None)
             sid = secrets.token_urlsafe(32)
             _AUTH_SESSIONS[sid] = {
                 "access_token": access_token,
@@ -236,6 +242,10 @@ def register_dashboard(app, bot) -> None:
 
     @dashboard.post("/logout")
     def logout():
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.form.get("csrf_token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return "Invalid CSRF token.", 400
         sid = session.pop("air_sid", None)
         if sid:
             _AUTH_SESSIONS.pop(sid, None)
