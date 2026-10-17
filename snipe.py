@@ -959,7 +959,7 @@ class TicketSystem(commands.Cog):
         await interaction.followup.send(
             f"🎫 Your ticket has been created: "
             f"{channel.mention}",
-            ephemeral=False
+            ephemeral=True
         )
 
     # ========================================================
