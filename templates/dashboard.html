@@ -124,6 +124,7 @@
       '<div class="panel features" style="margin-top:18px" id="welcomePanel"><div class="section-heading"><div><h2>Welcome & join role</h2><div class="muted" style="font-size:12px;margin-top:4px">Choose the welcome channel, message and role given to new members</div></div><span class="count">Editable</span></div><div id="welcomeEditor" class="loading">Loading welcome settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="verificationPanel"><div class="section-heading"><div><h2>Button verification</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Verify button, role and embed</div></div><span class="count">Editable</span></div><div id="verificationEditor" class="loading">Loading verification settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="ticketsPanel"><div class="section-heading"><div><h2>Tickets · Templates & Panels</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Air Commander ticket template and panel</div></div><span class="count">Editable</span></div><div id="ticketsEditor" class="loading">Loading ticket settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="giveawayTemplatesPanel"><div class="section-heading"><div><h2>Giveaways · Templates</h2><div class="muted" style="font-size:12px;margin-top:4px">Reusable prizes, duration, winners and role requirements</div></div><span class="count">Editable</span></div><div id="giveawayTemplatesEditor" class="loading">Loading giveaway templates…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="levelingPanel"><div class="section-heading"><div><h2>Air Leveling</h2><div class="muted" style="font-size:12px;margin-top:4px">XP rates, cooldowns, announcements and ignored channels/roles</div></div><span class="count">Editable</span></div><div id="levelingEditor" class="loading">Loading leveling settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Additional configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
       ['Tickets','Giveaways','AI channel','YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
@@ -429,6 +430,68 @@
     }
   }
 
+  async function loadGiveawayTemplates(server) {
+    const editor = document.getElementById('giveawayTemplatesEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading giveaway templates…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/giveaway-templates');
+      let templates = Object.entries(cfg.templates || {}).map(([key, value]) => ({...value, key}));
+      const roles = cfg.roles || [];
+      const roleOptions = selected => '<option value="">No role requirement</option>' + roles.map(role => '<option value="' + esc(role.id) + '"' + (String(role.id) === String(selected || '') ? ' selected' : '') + '>' + esc(role.name) + '</option>').join('');
+      const selectOptions = '<option value="">Create a new template…</option>' + templates.map(t => '<option value="' + esc(t.key) + '">' + esc(t.name || t.key) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Saved templates</h3><label class="setting-field"><span>Select template</span><select id="giveawayTemplateSelect">' + selectOptions + '</select></label><p class="muted" style="font-size:12px">Up to 25 templates. Running giveaways are not changed.</p><div>' + (templates.map(t => '<div class="feature"><div><div class="feature-name">' + esc(t.name || t.key) + '</div><div class="feature-desc">' + esc(t.prize || 'No prize') + ' · ' + esc(String(t.winners || 1)) + ' winner(s) · ' + esc(String(t.duration_hours || 24)) + 'h</div></div></div>').join('') || '<p class="muted">No saved templates yet.</p>') + '</div></section><section class="config-sub"><h3>Template editor</h3>' +
+        '<label class="setting-field"><span>Template name</span><input id="giveawayTemplateName" maxlength="40" placeholder="e.g. Nitro Drop"></label>' +
+        '<label class="setting-field"><span>Prize</span><input id="giveawayTemplatePrize" maxlength="200" placeholder="Prize name"></label>' +
+        '<div class="config-columns"><label class="setting-field"><span>Winners (1–25)</span><input id="giveawayTemplateWinners" type="number" min="1" max="25" value="1"></label><label class="setting-field"><span>Duration hours (1–720)</span><input id="giveawayTemplateDuration" type="number" min="1" max="720" value="24"></label></div>' +
+        '<label class="setting-field"><span>Required role</span><select id="giveawayRequiredRole">' + roleOptions('') + '</select></label>' +
+        '<label class="setting-field"><span>Bonus-entry role</span><select id="giveawayBonusRole">' + roleOptions('') + '</select></label>' +
+        '<label class="setting-field"><span>Bonus entries (1–100)</span><input id="giveawayBonusEntries" type="number" min="1" max="100" value="2"></label>' +
+        '<label class="setting-field"><span>Image URL (HTTPS, optional)</span><input id="giveawayImageUrl" type="url" maxlength="1000"></label>' +
+        '<label class="setting-field"><span>Thumbnail URL (HTTPS, optional)</span><input id="giveawayThumbnailUrl" type="url" maxlength="1000"></label>' +
+        '</section></div><div class="config-actions"><button class="primary" id="saveGiveawayTemplate">Save template</button><button class="secondary" id="deleteGiveawayTemplate">Delete selected</button><span id="giveawayTemplatesMessage" class="muted" role="status"></span></div>';
+      const byKey = key => templates.find(t => t.key === key);
+      const fillForm = t => {
+        document.getElementById('giveawayTemplateName').value = t?.name || '';
+        document.getElementById('giveawayTemplatePrize').value = t?.prize || '';
+        document.getElementById('giveawayTemplateWinners').value = t?.winners || 1;
+        document.getElementById('giveawayTemplateDuration').value = t?.duration_hours || 24;
+        document.getElementById('giveawayRequiredRole').value = t?.required_role_id ? String(t.required_role_id) : '';
+        document.getElementById('giveawayBonusRole').value = t?.bonus_role_id ? String(t.bonus_role_id) : '';
+        document.getElementById('giveawayBonusEntries').value = t?.bonus_entries || 2;
+        document.getElementById('giveawayImageUrl').value = t?.image_url || '';
+        document.getElementById('giveawayThumbnailUrl').value = t?.thumbnail_url || '';
+      };
+      document.getElementById('giveawayTemplateSelect').addEventListener('change', event => fillForm(byKey(event.target.value)));
+      const sendTemplates = async list => {
+        const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/giveaway-templates', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({templates:list})});
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+        return result;
+      };
+      document.getElementById('saveGiveawayTemplate').addEventListener('click', async () => {
+        const btn = document.getElementById('saveGiveawayTemplate'), status = document.getElementById('giveawayTemplatesMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const item = {name:document.getElementById('giveawayTemplateName').value.trim(), prize:document.getElementById('giveawayTemplatePrize').value.trim(), winners:Number(document.getElementById('giveawayTemplateWinners').value), duration_hours:Number(document.getElementById('giveawayTemplateDuration').value), required_role_id:document.getElementById('giveawayRequiredRole').value || null, bonus_role_id:document.getElementById('giveawayBonusRole').value || null, bonus_entries:Number(document.getElementById('giveawayBonusEntries').value), image_url:document.getElementById('giveawayImageUrl').value.trim() || null, thumbnail_url:document.getElementById('giveawayThumbnailUrl').value.trim() || null};
+          if (!item.name || !item.prize) throw new Error('Enter template name and prize.');
+          const key = item.name.toLowerCase(), selectedKey = document.getElementById('giveawayTemplateSelect').value;
+          if (templates.some(t => t.key === key) && selectedKey !== key) throw new Error('A template with this name already exists.');
+          let list = templates.filter(t => t.key !== selectedKey && t.key !== key).map(t => ({name:t.name, prize:t.prize, winners:t.winners, duration_hours:t.duration_hours, required_role_id:t.required_role_id || null, bonus_role_id:t.bonus_role_id || null, bonus_entries:t.bonus_entries || 2, image_url:t.image_url || null, thumbnail_url:t.thumbnail_url || null}));
+          list.push(item); if (list.length > 25) throw new Error('Maximum 25 templates per server.');
+          const result = await sendTemplates(list); status.textContent = result.message || 'Saved.'; await loadGiveawayTemplates(server);
+        } catch (error) { status.textContent = error.message; } finally { btn.disabled = false; }
+      });
+      document.getElementById('deleteGiveawayTemplate').addEventListener('click', async () => {
+        const selectedKey = document.getElementById('giveawayTemplateSelect').value, status = document.getElementById('giveawayTemplatesMessage'), btn = document.getElementById('deleteGiveawayTemplate');
+        if (!selectedKey) { status.textContent = 'Select a saved template first.'; return; }
+        btn.disabled = true; status.textContent = 'Deleting…';
+        try { const list = templates.filter(t => t.key !== selectedKey).map(t => ({name:t.name, prize:t.prize, winners:t.winners, duration_hours:t.duration_hours, required_role_id:t.required_role_id || null, bonus_role_id:t.bonus_role_id || null, bonus_entries:t.bonus_entries || 2, image_url:t.image_url || null, thumbnail_url:t.thumbnail_url || null})); const result = await sendTemplates(list); status.textContent = result.message || 'Deleted.'; await loadGiveawayTemplates(server); }
+        catch (error) { status.textContent = error.message; } finally { btn.disabled = false; }
+      });
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+
   async function chooseServer(server) {
     selected = server;
     renderServers();
@@ -445,6 +508,7 @@
       await loadVerification(server);
       await loadLeveling(server);
       await loadTickets(server);
+      await loadGiveawayTemplates(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
