@@ -975,7 +975,8 @@ def register_dashboard(app, bot) -> None:
             if isinstance(raw_channel_id, bool) or not str(raw_channel_id).isdigit():
                 return jsonify({"error": "invalid_channel", "message": "Select a valid text channel."}), 400
             channel = guild.get_channel(int(raw_channel_id))
-            if channel is None or not getattr(channel, "type", None) or channel.type not in (getattr(__import__("discord"), "TextChannel"),):
+            import discord
+            if not isinstance(channel, discord.TextChannel):
                 # Thread/forum/voice channels are not accepted by the existing AI command.
                 return jsonify({"error": "invalid_channel", "message": "Choose a regular text channel from this server."}), 400
             channel_id = channel.id
