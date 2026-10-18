@@ -119,7 +119,15 @@ def setup(bot):
             base_allowed = await original_check(interaction)
             if not base_allowed or not interaction.guild or not interaction.command:
                 return base_allowed
-            names = [interaction.command.qualified_name, interaction.command.name]
+            command = interaction.command
+            # Check the full subcommand, its top-level group, and its leaf name.
+            # This lets admins restrict either one nested command or an entire group.
+            names = [command.qualified_name]
+            parent = getattr(command, "parent", None)
+            while parent is not None:
+                names.append(parent.qualified_name)
+                parent = getattr(parent, "parent", None)
+            names.append(command.name)
             for name in dict.fromkeys(names):
                 if _policy(interaction.guild.id, name) is not None:
                     allowed = _allowed(interaction.user, interaction.guild.id, name)
