@@ -107,8 +107,13 @@ def setup(bot):
         async def prefix_permission_check(ctx):
             if not ctx.guild or not ctx.command:
                 return True
-            # Restrict the invoked command and nested subcommands independently.
-            candidates = [ctx.command.qualified_name, ctx.command.root_parent.qualified_name if ctx.command.root_parent else ctx.command.name, ctx.command.name]
+            # Apply every configured policy from the invoked command through all parent groups.
+            candidates = [ctx.command.qualified_name]
+            parent = getattr(ctx.command, "parent", None)
+            while parent is not None:
+                candidates.append(parent.qualified_name)
+                parent = getattr(parent, "parent", None)
+            candidates.append(ctx.command.name)
             if not _all_policies_allow(ctx.author, ctx.guild.id, candidates):
                 await ctx.send("You do not have a role allowed to use this command.")
                 return False
