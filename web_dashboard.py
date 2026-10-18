@@ -334,7 +334,16 @@ def register_dashboard(app, bot) -> None:
         if request.method == "GET":
             auto = automation.get_automode_config(int(guild_id))
             anti = automation.get_antinuke_config(int(guild_id))
+            links = automation.get_antilink_config(int(guild_id))
             return jsonify({
+                "antilink": {
+                    "enabled": bool(links.get("enabled", False)),
+                    "warning_enabled": bool(links.get("warning_enabled", True)),
+                    "dm_enabled": bool(links.get("dm_enabled", True)),
+                    "delete_enabled": bool(links.get("delete_enabled", True)),
+                    "types": {key: bool(value) for key, value in links.get("types", {}).items()},
+                    "log_channel_id": links.get("log_channel_id"),
+                },
                 "automode": {
                     "enabled": bool(auto.get("enabled", False)),
                     "spam_messages": int(auto.get("spam_messages", 5)),
@@ -395,6 +404,34 @@ def register_dashboard(app, bot) -> None:
                         cfg["log_channel_id"] = channel_id
                 if not automation.automode_save_all():
                     return jsonify({"error": "save_failed", "message": "Could not save AutoMode settings."}), 500
+
+            if "antilink" in payload:
+                incoming = payload["antilink"]
+                if not isinstance(incoming, dict):
+                    raise ValueError
+                cfg = automation.get_antilink_config(int(guild_id))
+                for key in ("enabled", "warning_enabled", "dm_enabled", "delete_enabled"):
+                    if key in incoming:
+                        if not isinstance(incoming[key], bool): raise ValueError
+                        cfg[key] = incoming[key]
+                if "types" in incoming:
+                    types = incoming["types"]
+                    if not isinstance(types, dict): raise ValueError
+                    allowed_types = set(cfg.get("types", {}))
+                    for key, value in types.items():
+                        if key not in allowed_types or not isinstance(value, bool): raise ValueError
+                        cfg.setdefault("types", {})[key] = value
+                if "log_channel_id" in incoming:
+                    raw = incoming["log_channel_id"]
+                    if raw in ("", None):
+                        cfg["log_channel_id"] = None
+                    else:
+                        channel_id = bounded_int(raw, 1, 10**22)
+                        channel = guild.get_channel(channel_id)
+                        if not isinstance(channel, __import__("discord").TextChannel): raise ValueError
+                        cfg["log_channel_id"] = channel_id
+                if not automation.antilink_save_all():
+                    return jsonify({"error": "save_failed", "message": "Could not save AntiLink settings."}), 500
 
             if "antinuke" in payload:
                 incoming = payload["antinuke"]
