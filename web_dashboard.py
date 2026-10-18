@@ -931,6 +931,11 @@ def register_dashboard(app, bot) -> None:
         guild = bot.get_guild(int(guild_id))
         if guild is None:
             return jsonify({"error": "bot_not_in_guild"}), 404
+        if request.method == "POST":
+            expected_csrf = session.get("air_csrf", "")
+            supplied_csrf = request.headers.get("X-CSRF-Token", "")
+            if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+                return jsonify({"error": "csrf_failed"}), 400
         import db
         if not getattr(db, "_pool", None):
             return jsonify({"error": "database_unavailable", "message": "PostgreSQL is not connected; AI settings were not changed."}), 503
@@ -979,9 +984,6 @@ def register_dashboard(app, bot) -> None:
                 "api_key_configured": bool(os.getenv("OPENAI_API_KEY")),
             })
 
-        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
-        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
-            return jsonify({"error": "csrf_failed"}), 400
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
             return jsonify({"error": "invalid_json", "message": "Choose an AI channel and an enabled state."}), 400
