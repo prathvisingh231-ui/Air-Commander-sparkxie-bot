@@ -468,6 +468,91 @@ def register_dashboard(app, bot) -> None:
 
         return jsonify({"ok": True, "message": "Security settings saved."})
 
+    @dashboard.route("/api/guild/<guild_id>/config/welcome", methods=["GET", "POST"])
+    def api_welcome_config(guild_id: str):
+        """Read and update welcome-message and join-role settings for one authorized guild."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+
+        try:
+            import welcome_autorole
+        except Exception:
+            return jsonify({"error": "welcome_module_unavailable"}), 503
+
+        cfg = welcome_autorole.guild_data(guild.id)
+        if request.method == "GET":
+            return jsonify({
+                "channel_id": str(cfg.get("channel_id") or ""),
+                "message": str(cfg.get("message") or ""),
+                "join_role_id": str(cfg.get("join_role_id") or ""),
+                "channels": [
+                    {"id": str(ch.id), "name": ch.name}
+                    for ch in guild.text_channels
+                    if not ch.is_news()
+                ],
+                "roles": [
+                    {"id": str(role.id), "name": role.name}
+                    for role in guild.roles
+                    if not role.is_default() and not role.managed
+                ],
+            })
+
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "invalid_json"}), 400
+
+        raw_channel = payload.get("channel_id", "")
+        raw_role = payload.get("join_role_id", "")
+        message = payload.get("message", "")
+        if not isinstance(message, str) or len(message) > 2000:
+            return jsonify({"error": "invalid_config", "message": "Welcome message must be 2,000 characters or fewer."}), 400
+        if raw_channel in ("", None):
+            channel_id = None
+        else:
+            try:
+                channel_id = int(raw_channel)
+            except (ValueError, TypeError):
+                return jsonify({"error": "invalid_config", "message": "Choose a valid text channel."}), 400
+            if not isinstance(guild.get_channel(channel_id), __import__("discord").TextChannel):
+                return jsonify({"error": "invalid_config", "message": "The selected channel is not a text channel in this server."}), 400
+        if raw_role in ("", None):
+            role_id = None
+        else:
+            try:
+                role_id = int(raw_role)
+            except (ValueError, TypeError):
+                return jsonify({"error": "invalid_config", "message": "Choose a valid join role."}), 400
+            role = guild.get_role(role_id)
+            me = guild.me
+            if role is None or role.is_default() or role.managed or me is None or role >= me.top_role:
+                return jsonify({"error": "invalid_config", "message": "Choose a role below Air Commander's highest role."}), 400
+
+        cfg["channel_id"] = channel_id
+        cfg["message"] = message
+        cfg["join_role_id"] = role_id
+        try:
+            welcome_autorole.save_data(welcome_autorole.DATA)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"Dashboard welcome config save failed: {type(exc).__name__}: {exc}", flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not save welcome settings."}), 500
+        return jsonify({"ok": True, "message": "Welcome and join-role settings saved."})
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
