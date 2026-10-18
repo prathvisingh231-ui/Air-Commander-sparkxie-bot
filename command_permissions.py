@@ -67,6 +67,14 @@ def _allowed(member, guild_id, command_name):
     return bool(member_roles.intersection(role_ids))
 
 
+def _all_policies_allow(member, guild_id, command_names):
+    """Require every matching enabled policy to allow access (specific + parent)."""
+    for name in dict.fromkeys(command_names):
+        if _policy(guild_id, name) is not None and not _allowed(member, guild_id, name):
+            return False
+    return True
+
+
 def setup(bot):
     load_data()
     bot._air_command_permissions_data = DATA
@@ -101,12 +109,9 @@ def setup(bot):
                 return True
             # Restrict the invoked command and nested subcommands independently.
             candidates = [ctx.command.qualified_name, ctx.command.root_parent.qualified_name if ctx.command.root_parent else ctx.command.name, ctx.command.name]
-            for name in dict.fromkeys(candidates):
-                if _policy(ctx.guild.id, name) is not None:
-                    if not _allowed(ctx.author, ctx.guild.id, name):
-                        await ctx.send("You do not have a role allowed to use this command.")
-                        return False
-                    return True
+            if not _all_policies_allow(ctx.author, ctx.guild.id, candidates):
+                await ctx.send("You do not have a role allowed to use this command.")
+                return False
             return True
         bot.add_check(prefix_permission_check)
         bot._air_command_permissions_prefix_check = True
@@ -128,13 +133,10 @@ def setup(bot):
                 names.append(parent.qualified_name)
                 parent = getattr(parent, "parent", None)
             names.append(command.name)
-            for name in dict.fromkeys(names):
-                if _policy(interaction.guild.id, name) is not None:
-                    allowed = _allowed(interaction.user, interaction.guild.id, name)
-                    if not allowed and not interaction.response.is_done():
-                        await interaction.response.send_message("You do not have a role allowed to use this command.", ephemeral=True)
-                    return allowed
-            return True
+            allowed = _all_policies_allow(interaction.user, interaction.guild.id, names)
+            if not allowed and not interaction.response.is_done():
+                await interaction.response.send_message("You do not have a role allowed to use this command.", ephemeral=True)
+            return allowed
 
         tree.interaction_check = slash_permission_check
         bot._air_command_permissions_slash_check = True
