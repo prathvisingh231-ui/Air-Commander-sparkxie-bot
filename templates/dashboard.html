@@ -450,7 +450,10 @@
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
           status.textContent = result.message || 'Saved.';
-          await loadAIChannel(server);
+          if (remove) {
+            document.getElementById('aiChannelSelect').value = '';
+            document.getElementById('aiEnabledToggle').checked = false;
+          }
         } catch (error) { status.textContent = error.message; }
         finally {
           const a = document.getElementById('saveAIChannel'), b = document.getElementById('removeAIChannel');
