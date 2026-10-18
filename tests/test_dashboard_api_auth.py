@@ -4,6 +4,7 @@ These tests run against Flask's test client with a fake bot. They never call
 Discord's API, use real credentials, or mutate live guild configuration.
 """
 import unittest
+from unittest import mock
 
 from flask import Flask
 
