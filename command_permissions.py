@@ -100,7 +100,7 @@ def setup(bot):
             if not ctx.guild or not ctx.command:
                 return True
             # Restrict the invoked command and nested subcommands independently.
-            candidates = [ctx.command.qualified_name, ctx.command.name]
+            candidates = [ctx.command.qualified_name, ctx.command.root_parent.qualified_name if ctx.command.root_parent else ctx.command.name, ctx.command.name]
             for name in dict.fromkeys(candidates):
                 if _policy(ctx.guild.id, name) is not None:
                     if not _allowed(ctx.author, ctx.guild.id, name):
@@ -122,7 +122,10 @@ def setup(bot):
             names = [interaction.command.qualified_name, interaction.command.name]
             for name in dict.fromkeys(names):
                 if _policy(interaction.guild.id, name) is not None:
-                    return _allowed(interaction.user, interaction.guild.id, name)
+                    allowed = _allowed(interaction.user, interaction.guild.id, name)
+                    if not allowed and not interaction.response.is_done():
+                        await interaction.response.send_message("You do not have a role allowed to use this command.", ephemeral=True)
+                    return allowed
             return True
 
         tree.interaction_check = slash_permission_check
