@@ -559,6 +559,107 @@ def register_dashboard(app, bot) -> None:
             return jsonify({"error": "save_failed", "message": "Could not save welcome settings."}), 500
         return jsonify({"ok": True, "message": "Welcome and join-role settings saved."})
 
+
+    @dashboard.route("/api/guild/<guild_id>/config/verification", methods=["GET", "POST"])
+    def api_verification_config(guild_id: str):
+        """Edit the existing button-verification module without changing its commands."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import verification
+        except Exception:
+            return jsonify({"error": "verification_module_unavailable"}), 503
+
+        cfg = verification._guild_config(guild.id)
+        if request.method == "GET":
+            me = guild.me
+            return jsonify({
+                "enabled": bool(cfg.get("enabled", False)),
+                "channel_id": str(cfg.get("channel_id") or ""),
+                "role_id": str(cfg.get("role_id") or ""),
+                "title": str(cfg.get("title", "✈️ Verify to access the server")),
+                "description": str(cfg.get("description", "Welcome! Click the button below to verify your account and unlock the server.")),
+                "color": str(cfg.get("color", "#5865F2")),
+                "footer": str(cfg.get("footer", "Air Commander • Verification")),
+                "button_text": str(cfg.get("button_text", "✅ Verify")),
+                "channels": [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels],
+                "roles": [{"id": str(role.id), "name": role.name, "assignable": bool(me and not role.is_default() and not role.managed and role < me.top_role)}
+                          for role in guild.roles if not role.is_default() and not role.managed],
+            })
+
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "invalid_json"}), 400
+
+        enabled = payload.get("enabled", bool(cfg.get("enabled", False)))
+        if not isinstance(enabled, bool):
+            return jsonify({"error": "invalid_config", "message": "Enabled must be true or false."}), 400
+        title = payload.get("title", cfg.get("title", "✈️ Verify to access the server"))
+        description = payload.get("description", cfg.get("description", "Welcome! Click the button below to verify your account and unlock the server."))
+        color = payload.get("color", cfg.get("color", "#5865F2"))
+        footer = payload.get("footer", cfg.get("footer", "Air Commander • Verification"))
+        button_text = payload.get("button_text", cfg.get("button_text", "✅ Verify"))
+        if not all(isinstance(v, str) for v in (title, description, color, footer, button_text)):
+            return jsonify({"error": "invalid_config", "message": "Text and color settings must be strings."}), 400
+        if not title.strip() or len(title) > 256 or not description.strip() or len(description) > 4000:
+            return jsonify({"error": "invalid_config", "message": "Title must be 1–256 characters and description 1–4,000 characters."}), 400
+        if len(footer) > 2048 or not button_text.strip() or len(button_text) > 80:
+            return jsonify({"error": "invalid_config", "message": "Footer must be at most 2,048 characters and button text 1–80 characters."}), 400
+        parsed_color = verification._parse_color(color)
+        if parsed_color is None:
+            return jsonify({"error": "invalid_config", "message": "Color must be a hex value such as #5865F2."}), 400
+
+        def parse_snowflake(value):
+            if value in ("", None):
+                return None
+            if isinstance(value, bool):
+                raise ValueError
+            result = int(value)
+            if result < 1 or result > 10**22:
+                raise ValueError
+            return result
+
+        try:
+            channel_id = parse_snowflake(payload.get("channel_id", cfg.get("channel_id")))
+            role_id = parse_snowflake(payload.get("role_id", cfg.get("role_id")))
+        except (ValueError, TypeError):
+            return jsonify({"error": "invalid_config", "message": "Select a valid channel and verification role."}), 400
+        if channel_id is not None and not isinstance(guild.get_channel(channel_id), __import__("discord").TextChannel):
+            return jsonify({"error": "invalid_config", "message": "The selected channel is not a text channel in this server."}), 400
+        if enabled and (channel_id is None or role_id is None):
+            return jsonify({"error": "invalid_config", "message": "Choose both a panel channel and a verified-member role before enabling verification."}), 400
+        if role_id is not None:
+            role = guild.get_role(role_id)
+            me = guild.me
+            if role is None or role.is_default() or role.managed or me is None or role >= me.top_role:
+                return jsonify({"error": "invalid_config", "message": "Choose a normal verification role below Air Commander's highest role."}), 400
+
+        cfg.update({
+            "enabled": enabled, "channel_id": channel_id, "role_id": role_id,
+            "title": title.strip(), "description": description.strip(),
+            "color": parsed_color, "footer": footer, "button_text": button_text.strip(),
+        })
+        verification._CONFIG[str(guild.id)] = cfg
+        if not verification._save_config():
+            return jsonify({"error": "save_failed", "message": "Could not save verification settings."}), 500
+        return jsonify({"ok": True, "message": "Verification settings saved. To refresh an already-posted panel, run /verify post in Discord."})
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
