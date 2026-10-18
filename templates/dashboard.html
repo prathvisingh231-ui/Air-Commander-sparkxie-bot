@@ -215,9 +215,13 @@
       editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Welcome message</h3>' +
         '<label class="setting-field"><span>Send welcome message in</span><select id="welcomeChannel">' +
         options(cfg.channels || [], cfg.channel_id, 'Disabled — no channel') + '</select></label>' +
+        '<label class="setting-field"><span>Existing welcome embed</span><select id="welcomeEmbed">' +
+        '<option value="">None — message only is disabled by the current welcome module</option>' +
+        (cfg.embeds || []).map(item => '<option value="' + esc(item.name) + '"' + (item.name === cfg.active_embed ? ' selected' : '') + '>' + esc(item.label) + '</option>').join('') +
+        '</select></label>' +
         '<label class="setting-field"><span>Message text</span><textarea id="welcomeMessage" rows="5" maxlength="2000" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit;resize:vertical" placeholder="Welcome {user} to {server}!">' +
         esc(cfg.message || '') + '</textarea></label>' +
-        '<p class="muted" style="font-size:12px">Variables: {user}, {username}, {displayname}, {server}, {membercount}</p>' +
+        '<p class="muted" style="font-size:12px">Variables: {user}, {username}, {displayname}, {server}, {membercount}. Select an existing embed for the current welcome module to send this message on join.</p>' +
         '</section><section class="config-sub"><h3>Automatic join role</h3>' +
         '<label class="setting-field"><span>Role assigned to new members</span><select id="joinRole">' +
         options(cfg.roles || [], cfg.join_role_id, 'No automatic role') + '</select></label>' +
@@ -234,7 +238,8 @@
             body:JSON.stringify({
               channel_id:document.getElementById('welcomeChannel').value || null,
               message:document.getElementById('welcomeMessage').value,
-              join_role_id:document.getElementById('joinRole').value || null
+              join_role_id:document.getElementById('joinRole').value || null,
+              active_embed:document.getElementById('welcomeEmbed').value || null
             })
           });
           const result = await response.json().catch(() => ({}));
