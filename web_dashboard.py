@@ -6,6 +6,7 @@ replace bot commands or mutate feature configuration files.
 from __future__ import annotations
 
 import json
+import asyncio
 import os
 import re
 import secrets
@@ -834,6 +835,81 @@ def register_dashboard(app, bot) -> None:
             print("Dashboard tickets save failed: " + str(type(exc).__name__), flush=True)
             return jsonify({"error": "save_failed", "message": "Could not confirm ticket settings were saved."}), 500
         return jsonify({"ok": True, "message": "Ticket settings saved. Existing ticket records were preserved. Repost the panel in Discord to update its message."})
+
+
+    @dashboard.route("/api/guild/<guild_id>/config/giveaway-templates", methods=["GET", "POST"])
+    def api_giveaway_templates(guild_id: str):
+        """Manage saved giveaway templates in the existing PostgreSQL guild_data table."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import db
+            future = asyncio.run_coroutine_threadsafe(db.get_guild_data(guild.id, "giveaway_templates", {}), bot.loop)
+            templates = future.result(timeout=15)
+            if not isinstance(templates, dict): templates = {}
+        except Exception as exc:
+            print("Dashboard giveaway templates load failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "giveaway_database_unavailable"}), 503
+        if request.method == "GET":
+            return jsonify({"templates": templates, "roles": [{"id": str(r.id), "name": r.name} for r in guild.roles if not r.is_default() and not r.managed]})
+        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or not isinstance(payload.get("templates"), list):
+            return jsonify({"error": "invalid_json"}), 400
+        if len(payload["templates"]) > 25:
+            return jsonify({"error": "template_limit", "message": "You can save up to 25 templates per server."}), 400
+        updated = {}
+        try:
+            for item in payload["templates"]:
+                if not isinstance(item, dict): raise ValueError
+                name = str(item.get("name", "")).strip()
+                prize = str(item.get("prize", "")).strip()
+                if not name or len(name) > 40 or not prize or len(prize) > 200: raise ValueError
+                key = name.lower()
+                if key in updated: raise ValueError
+                winners = item.get("winners", 1)
+                duration = item.get("duration_hours", 24)
+                bonus_entries = item.get("bonus_entries", 2)
+                for value, low, high in ((winners, 1, 25), (duration, 1, 720), (bonus_entries, 1, 100)):
+                    if isinstance(value, bool) or not isinstance(value, int) or value < low or value > high: raise ValueError
+                def role_id(value):
+                    if value in (None, ""): return None
+                    if isinstance(value, bool) or not str(value).isdigit(): raise ValueError
+                    role = guild.get_role(int(value))
+                    if role is None or role.is_default() or role.managed: raise ValueError
+                    return role.id
+                image_url = str(item.get("image_url") or "").strip() or None
+                thumbnail_url = str(item.get("thumbnail_url") or "").strip() or None
+                for url in (image_url, thumbnail_url):
+                    if url and (not url.lower().startswith("https://") or len(url) > 1000): raise ValueError
+                updated[key] = {"name": name, "prize": prize, "winners": winners, "duration_hours": duration,
+                    "required_role_id": role_id(item.get("required_role_id")), "bonus_role_id": role_id(item.get("bonus_role_id")),
+                    "bonus_entries": bonus_entries, "image_url": image_url, "thumbnail_url": thumbnail_url}
+        except (ValueError, TypeError, OverflowError):
+            return jsonify({"error": "invalid_template", "message": "Check unique template names, prize, duration, winners, role selections and HTTPS image URLs."}), 400
+        try:
+            future = asyncio.run_coroutine_threadsafe(db.save_guild_data(guild.id, "giveaway_templates", updated), bot.loop)
+            future.result(timeout=15)
+            verified = asyncio.run_coroutine_threadsafe(db.get_guild_data(guild.id, "giveaway_templates", {}), bot.loop).result(timeout=15)
+            if not isinstance(verified, dict) or set(verified) != set(updated): raise RuntimeError("Could not verify saved templates")
+        except Exception as exc:
+            print("Dashboard giveaway templates save failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not confirm giveaway templates were saved."}), 500
+        return jsonify({"ok": True, "message": "Giveaway templates saved. Existing giveaways and entries were not changed."})
 
 
     @dashboard.get("/api/health")
