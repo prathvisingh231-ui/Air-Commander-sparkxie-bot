@@ -125,10 +125,11 @@
       '<div class="panel features" style="margin-top:18px" id="verificationPanel"><div class="section-heading"><div><h2>Button verification</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Verify button, role and embed</div></div><span class="count">Editable</span></div><div id="verificationEditor" class="loading">Loading verification settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="ticketsPanel"><div class="section-heading"><div><h2>Tickets · Templates & Panels</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Air Commander ticket template and panel</div></div><span class="count">Editable</span></div><div id="ticketsEditor" class="loading">Loading ticket settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="giveawayTemplatesPanel"><div class="section-heading"><div><h2>Giveaways · Templates</h2><div class="muted" style="font-size:12px;margin-top:4px">Reusable prizes, duration, winners and role requirements</div></div><span class="count">Editable</span></div><div id="giveawayTemplatesEditor" class="loading">Loading giveaway templates…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="youtubeAlertsPanel"><div class="section-heading"><div><h2>YouTube Alerts</h2><div class="muted" style="font-size:12px;margin-top:4px">RSS uploads, Shorts and live alerts for tracked creators</div></div><span class="count">Editable</span></div><div id="youtubeAlertsEditor" class="loading">Loading YouTube alert settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="aiChannelPanel"><div class="section-heading"><div><h2>AI Channel</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing mention/reply AI chat channel</div></div><span class="count">Editable</span></div><div id="aiChannelEditor" class="loading">Loading AI channel settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="levelingPanel"><div class="section-heading"><div><h2>Air Leveling</h2><div class="muted" style="font-size:12px;margin-top:4px">XP rates, cooldowns, announcements and ignored channels/roles</div></div><span class="count">Editable</span></div><div id="levelingEditor" class="loading">Loading leveling settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Additional configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
-      ['YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
+      ['Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
       '</div></div>' +
       '<div class="notice">Runtime: ' + (bot.ready ? 'Connected' : 'Not connected') +
       (bot.latency_ms !== null ? ' · Gateway latency: ' + fmt(bot.latency_ms) + ' ms' : '') +
@@ -431,6 +432,48 @@
     }
   }
 
+  async function loadYouTubeAlerts(server) {
+    const editor = document.getElementById('youtubeAlertsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading YouTube Alerts…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/youtube-alerts');
+      let tracked = (cfg.channels || []).map(item => ({...item}));
+      const channels = cfg.text_channels || [], roles = cfg.roles || [];
+      const channelOptions = selected => '<option value="">Use default / none</option>' + channels.map(ch => '<option value="' + esc(ch.id) + '"' + (String(ch.id) === String(selected || '') ? ' selected' : '') + '>#' + esc(ch.name) + '</option>').join('');
+      const roleOptions = selected => '<option value="">Use default / none</option>' + roles.map(role => '<option value="' + esc(role.id) + '"' + (String(role.id) === String(selected || '') ? ' selected' : '') + '>' + esc(role.name) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>General settings</h3><label class="setting-toggle"><input type="checkbox" id="youtubeAlertsEnabled"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable YouTube Alerts</span></label><label class="setting-field"><span>Default alert channel</span><select id="youtubeDefaultChannel">' + channelOptions(cfg.default_channel) + '</select></label><label class="setting-field"><span>Default ping role</span><select id="youtubePingRole">' + roleOptions(cfg.ping_role) + '</select></label><label class="setting-field"><span>Custom message (optional)</span><textarea id="youtubeCustomMessage" maxlength="1000" rows="3" placeholder="Add a message to each alert">' + esc(cfg.custom_message || '') + '</textarea></label><p class="muted" style="font-size:12px">Checks the existing YouTube RSS feed every 45 seconds. Adding a channel initializes its latest upload so old videos are not announced.</p></section><section class="config-sub"><h3>Track a channel</h3><label class="setting-field"><span>YouTube Channel ID</span><input id="youtubeNewChannelId" maxlength="50" placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx"></label><p class="muted" style="font-size:12px">Use the Channel ID (starts with UC), not a display name or @handle.</p><button class="secondary" id="youtubeAddChannel">Add channel</button><div id="youtubeTrackedList" style="margin-top:16px"></div></section></div><div class="config-actions"><button class="primary" id="saveYouTubeAlerts">Save YouTube settings</button><span id="youtubeAlertsMessage" class="muted" role="status"></span></div>';
+      const renderTracked = () => {
+        const list = document.getElementById('youtubeTrackedList');
+        if (!tracked.length) { list.innerHTML = '<p class="muted">No YouTube channels tracked yet.</p>'; return; }
+        list.innerHTML = tracked.map((item, index) => '<div class="config-sub" style="margin-top:10px"><div class="feature-name">' + esc(item.name || item.id) + '</div><div class="feature-desc" style="overflow-wrap:anywhere">' + esc(item.id) + '</div><div class="config-columns"><label class="setting-field"><span>Alert channel override</span><select data-yt-channel="' + index + '">' + channelOptions(item.discord_channel_id) + '</select></label><label class="setting-field"><span>Ping role override</span><select data-yt-role="' + index + '">' + roleOptions(item.ping_role_id) + '</select></label></div><button class="secondary" data-yt-remove="' + index + '">Remove channel</button></div>').join('');
+        list.querySelectorAll('[data-yt-remove]').forEach(btn => btn.addEventListener('click', () => { tracked.splice(Number(btn.dataset.ytRemove), 1); renderTracked(); }));
+      };
+      renderTracked();
+      document.getElementById('youtubeAddChannel').addEventListener('click', () => {
+        const input = document.getElementById('youtubeNewChannelId'), value = input.value.trim().replace(/^https?:\/\/(www\.)?youtube\.com\/channel\//i, '').replace(/\/$/, '');
+        if (!/^UC[A-Za-z0-9_-]{20,}$/.test(value)) { document.getElementById('youtubeAlertsMessage').textContent = 'Enter a valid YouTube Channel ID starting with UC.'; return; }
+        if (tracked.some(item => item.id === value)) { document.getElementById('youtubeAlertsMessage').textContent = 'That channel is already tracked.'; return; }
+        if (tracked.length >= 50) { document.getElementById('youtubeAlertsMessage').textContent = 'Maximum 50 tracked channels.'; return; }
+        tracked.push({id:value, name:value, discord_channel_id:'', ping_role_id:''}); input.value = ''; renderTracked();
+        document.getElementById('youtubeAlertsMessage').textContent = 'Channel added to the draft. Save settings to verify its RSS feed.';
+      });
+      document.getElementById('saveYouTubeAlerts').addEventListener('click', async () => {
+        const btn = document.getElementById('saveYouTubeAlerts'), status = document.getElementById('youtubeAlertsMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          tracked = tracked.map((item, index) => ({...item, discord_channel_id:document.querySelector('[data-yt-channel="' + index + '"]')?.value || null, ping_role_id:document.querySelector('[data-yt-role="' + index + '"]')?.value || null}));
+          const payload = {enabled:document.getElementById('youtubeAlertsEnabled').checked, default_channel:document.getElementById('youtubeDefaultChannel').value || null, ping_role:document.getElementById('youtubePingRole').value || null, custom_message:document.getElementById('youtubeCustomMessage').value, channels:tracked.map(item => ({id:item.id, name:item.name, discord_channel_id:item.discord_channel_id || null, ping_role_id:item.ping_role_id || null}))};
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/youtube-alerts', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify(payload)});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          await loadYouTubeAlerts(server);
+        } catch (error) { status.textContent = error.message; } finally { const b = document.getElementById('saveYouTubeAlerts'); if (b) b.disabled = false; }
+      });
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+
   async function loadAIChannel(server) {
     const editor = document.getElementById('aiChannelEditor');
     if (!editor) return;
@@ -544,6 +587,7 @@
       await loadLeveling(server);
       await loadTickets(server);
       await loadGiveawayTemplates(server);
+      await loadYouTubeAlerts(server);
       await loadAIChannel(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
