@@ -87,5 +87,51 @@ class DashboardAuthTests(unittest.TestCase):
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
 
 
+    def test_all_config_write_routes_require_csrf(self):
+        class Guild:
+            id = 123456789012345
+
+        class ReadyBot(FakeBot):
+            guilds = [Guild()]
+
+            def get_guild(self, guild_id):
+                return Guild() if int(guild_id) == 123456789012345 else None
+
+        app = Flask(__name__)
+        app.secret_key = "test-only-secret"
+        web_dashboard.register_dashboard(app, ReadyBot())
+        client = app.test_client()
+        sid = "test-csrf-session"
+        web_dashboard._AUTH_SESSIONS[sid] = {
+            "access_token": "test-token",
+            "user": {"id": "test-user", "username": "Tester"},
+            "expires_at": __import__("time").time() + 60,
+        }
+        routes = [
+            "/api/guild/123456789012345/config/security",
+            "/api/guild/123456789012345/config/welcome",
+            "/api/guild/123456789012345/config/verification",
+            "/api/guild/123456789012345/config/leveling",
+            "/api/guild/123456789012345/config/tickets",
+            "/api/guild/123456789012345/config/giveaway-templates",
+            "/api/guild/123456789012345/config/ai-channel",
+            "/api/guild/123456789012345/config/youtube-alerts",
+            "/api/guild/123456789012345/config/backups",
+            "/api/guild/123456789012345/config/command-permissions",
+        ]
+        try:
+            with client.session_transaction() as sess:
+                sess["air_sid"] = sid
+            with mock.patch.object(web_dashboard, "_managed_guilds", return_value=[
+                {"id": "123456789012345", "permissions": str(web_dashboard.MANAGE_GUILD)}
+            ]):
+                for route in routes:
+                    with self.subTest(route=route):
+                        response = client.post(route, json={})
+                        self.assertEqual(response.status_code, 400)
+                        self.assertEqual(response.get_json().get("error"), "csrf_failed")
+        finally:
+            web_dashboard._AUTH_SESSIONS.pop(sid, None)
+
 if __name__ == "__main__":
     unittest.main()
