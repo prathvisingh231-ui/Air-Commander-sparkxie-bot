@@ -125,9 +125,10 @@
       '<div class="panel features" style="margin-top:18px" id="verificationPanel"><div class="section-heading"><div><h2>Button verification</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Verify button, role and embed</div></div><span class="count">Editable</span></div><div id="verificationEditor" class="loading">Loading verification settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="ticketsPanel"><div class="section-heading"><div><h2>Tickets · Templates & Panels</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Air Commander ticket template and panel</div></div><span class="count">Editable</span></div><div id="ticketsEditor" class="loading">Loading ticket settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="giveawayTemplatesPanel"><div class="section-heading"><div><h2>Giveaways · Templates</h2><div class="muted" style="font-size:12px;margin-top:4px">Reusable prizes, duration, winners and role requirements</div></div><span class="count">Editable</span></div><div id="giveawayTemplatesEditor" class="loading">Loading giveaway templates…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="aiChannelPanel"><div class="section-heading"><div><h2>AI Channel</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing mention/reply AI chat channel</div></div><span class="count">Editable</span></div><div id="aiChannelEditor" class="loading">Loading AI channel settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="levelingPanel"><div class="section-heading"><div><h2>Air Leveling</h2><div class="muted" style="font-size:12px;margin-top:4px">XP rates, cooldowns, announcements and ignored channels/roles</div></div><span class="count">Editable</span></div><div id="levelingEditor" class="loading">Loading leveling settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Additional configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
-      ['Tickets','Giveaways','AI channel','YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
+      ['YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
       '</div></div>' +
       '<div class="notice">Runtime: ' + (bot.ready ? 'Connected' : 'Not connected') +
       (bot.latency_ms !== null ? ' · Gateway latency: ' + fmt(bot.latency_ms) + ' ms' : '') +
@@ -430,6 +431,37 @@
     }
   }
 
+  async function loadAIChannel(server) {
+    const editor = document.getElementById('aiChannelEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading AI settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/ai-channel');
+      const channels = cfg.channels || [];
+      const options = '<option value="">No channel selected</option>' + channels.map(ch => '<option value="' + esc(ch.id) + '"' + (String(ch.id) === String(cfg.channel_id || '') ? ' selected' : '') + '>#' + esc(ch.name) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Chat channel</h3><label class="setting-field"><span>AI text channel</span><select id="aiChannelSelect">' + options + '</select></label><label class="setting-toggle"><input type="checkbox" id="aiEnabledToggle"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable AI mention/reply chat</span></label><p class="muted" style="font-size:12px">Members can chat by mentioning the bot or replying to its message in the configured channel. This does not change other bot commands.</p></section><section class="config-sub"><h3>AI availability</h3><p class="muted" style="font-size:13px">' + (cfg.api_key_configured ? 'OPENAI_API_KEY is configured in the running service.' : 'OPENAI_API_KEY is not configured in the running service.') + '</p><p class="muted" style="font-size:12px">A configured key may still have insufficient quota. Dashboard settings do not bypass API billing or quota limits.</p></section></div><div class="config-actions"><button class="primary" id="saveAIChannel">Save AI settings</button><button class="secondary" id="removeAIChannel">Remove channel & disable</button><span id="aiChannelMessage" class="muted" role="status"></span></div>';
+      const save = async remove => {
+        const saveBtn = document.getElementById('saveAIChannel'), removeBtn = document.getElementById('removeAIChannel'), status = document.getElementById('aiChannelMessage');
+        saveBtn.disabled = true; removeBtn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const channelId = remove ? null : document.getElementById('aiChannelSelect').value || null;
+          const enabled = remove ? false : document.getElementById('aiEnabledToggle').checked;
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/ai-channel', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({channel_id:channelId, enabled})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          await loadAIChannel(server);
+        } catch (error) { status.textContent = error.message; }
+        finally {
+          const a = document.getElementById('saveAIChannel'), b = document.getElementById('removeAIChannel');
+          if (a) a.disabled = false; if (b) b.disabled = false;
+        }
+      };
+      document.getElementById('saveAIChannel').addEventListener('click', () => save(false));
+      document.getElementById('removeAIChannel').addEventListener('click', () => save(true));
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+
   async function loadGiveawayTemplates(server) {
     const editor = document.getElementById('giveawayTemplatesEditor');
     if (!editor) return;
@@ -509,6 +541,7 @@
       await loadLeveling(server);
       await loadTickets(server);
       await loadGiveawayTemplates(server);
+      await loadAIChannel(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
