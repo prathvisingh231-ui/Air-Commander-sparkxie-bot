@@ -949,15 +949,29 @@ def register_dashboard(app, bot) -> None:
             print("Dashboard AI settings load failed: " + str(type(exc).__name__), flush=True)
             return jsonify({"error": "database_unavailable", "message": "Could not read AI settings from PostgreSQL."}), 503
 
+        local_cfg = {}
+        try:
+            local_path = Path("data/ai_channel_config.json")
+            local_data = json.loads(local_path.read_text(encoding="utf-8")) if local_path.exists() else {}
+            if isinstance(local_data, dict) and isinstance(local_data.get(guild_id), dict):
+                local_cfg = local_data[guild_id]
+        except (OSError, ValueError, TypeError):
+            local_cfg = {}
+
         if request.method == "GET":
             channel_id = data.get("ai_channel_id")
+            if channel_id in (None, ""):
+                channel_id = local_cfg.get("channel_id")
             try:
                 channel_id = str(int(channel_id)) if channel_id else ""
             except (ValueError, TypeError):
                 channel_id = ""
+            enabled_value = data.get("ai_enabled")
+            if enabled_value is None:
+                enabled_value = local_cfg.get("enabled", False)
             return jsonify({
                 "channel_id": channel_id,
-                "enabled": str(data.get("ai_enabled", "false")).lower() == "true",
+                "enabled": str(enabled_value).lower() == "true",
                 "channels": [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels],
                 "database_available": True,
                 "api_key_configured": bool(os.getenv("OPENAI_API_KEY")),
@@ -1012,6 +1026,29 @@ def register_dashboard(app, bot) -> None:
                 raise RuntimeError("AI settings verification failed")
             if bool(verify.get("ai_enabled", False)) != (bool(payload["enabled"]) if channel_id else False):
                 raise RuntimeError("AI enabled state verification failed")
+            # Mirror the existing bot command's local fallback file without touching other guilds.
+            local_all = {}
+            local_path = Path("data/ai_channel_config.json")
+            try:
+                loaded_local = json.loads(local_path.read_text(encoding="utf-8")) if local_path.exists() else {}
+                if isinstance(loaded_local, dict):
+                    local_all = loaded_local
+            except (OSError, ValueError, TypeError):
+                local_all = {}
+            local_entry = local_all.setdefault(guild_id, {})
+            if channel_id:
+                local_entry["channel_id"] = int(channel_id)
+                local_entry["enabled"] = bool(payload["enabled"])
+            else:
+                local_entry.pop("channel_id", None)
+                local_entry["enabled"] = False
+            try:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_path = local_path.with_suffix(".json.tmp")
+                temp_path.write_text(json.dumps(local_all, ensure_ascii=False, indent=2), encoding="utf-8")
+                os.replace(temp_path, local_path)
+            except (OSError, TypeError, ValueError) as local_exc:
+                print("Dashboard AI local fallback sync failed: " + str(type(local_exc).__name__), flush=True)
             # Keep the running bot's in-memory channel cache in sync with dashboard edits.
             import sys
             bot_module = sys.modules.get("bot")
