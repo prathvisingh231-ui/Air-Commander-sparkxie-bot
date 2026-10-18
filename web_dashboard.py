@@ -497,6 +497,8 @@ def register_dashboard(app, bot) -> None:
                 "channel_id": str(cfg.get("channel_id") or ""),
                 "message": str(cfg.get("message") or ""),
                 "join_role_id": str(cfg.get("join_role_id") or ""),
+                "active_embed": str(cfg.get("active_embed") or ""),
+                "embeds": [{"name": str(name), "label": str(name)} for name in (cfg.get("embeds") or {}).keys()],
                 "channels": [
                     {"id": str(ch.id), "name": ch.name}
                     for ch in guild.text_channels
@@ -519,9 +521,12 @@ def register_dashboard(app, bot) -> None:
 
         raw_channel = payload.get("channel_id", "")
         raw_role = payload.get("join_role_id", "")
+        active_embed = payload.get("active_embed", "")
         message = payload.get("message", "")
         if not isinstance(message, str) or len(message) > 2000:
             return jsonify({"error": "invalid_config", "message": "Welcome message must be 2,000 characters or fewer."}), 400
+        if not isinstance(active_embed, str) or (active_embed and active_embed not in (cfg.get("embeds") or {})):
+            return jsonify({"error": "invalid_config", "message": "Choose an existing welcome embed, or create one using the bot's welcome commands first."}), 400
         if raw_channel in ("", None):
             channel_id = None
         else:
@@ -545,6 +550,7 @@ def register_dashboard(app, bot) -> None:
 
         cfg["channel_id"] = channel_id
         cfg["message"] = message
+        cfg["active_embed"] = active_embed or None
         cfg["join_role_id"] = role_id
         try:
             welcome_autorole.save_data(welcome_autorole.DATA)
