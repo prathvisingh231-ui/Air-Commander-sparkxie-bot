@@ -98,6 +98,9 @@ async def _dump_guild_db(guild_id):
         cols.setdefault(row["table_name"], []).append(row["column_name"])
     data, pks, skipped = {}, {}, []
     for table, columns in cols.items():
+        # Backup archives must not recursively embed prior backup ZIPs.
+        if table == "air_guild_backups":
+            continue
         scope = "guild_id" if "guild_id" in columns else ("server_id" if "server_id" in columns else None)
         if not scope:
             skipped.append(table)
