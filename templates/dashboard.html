@@ -121,6 +121,7 @@
       '<div class="panel features"><div class="section-heading"><div><h2>Feature status</h2><div class="muted" style="font-size:12px;margin-top:4px">Read-only status from the bot’s current configuration files</div></div><span class="count">' + (data.features || []).length + ' modules</span></div>' +
       '<div class="feature-grid">' + features + '</div>' +
       '<div class="panel features" style="margin-top:18px" id="securityPanel"><div class="section-heading"><div><h2>Security configuration</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure AutoMode and AntiNuke for this server</div></div><span class="count">Editable</span></div><div id="securityEditor" class="loading">Loading security settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="welcomePanel"><div class="section-heading"><div><h2>Welcome & join role</h2><div class="muted" style="font-size:12px;margin-top:4px">Choose the welcome channel, message and role given to new members</div></div><span class="count">Editable</span></div><div id="welcomeEditor" class="loading">Loading welcome settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Module status is visible here; configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
       ['Welcome & autorole','Verification','Tickets','Leveling','Giveaways','AI channel','YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
       '</div></div>' +
@@ -201,6 +202,55 @@
     }
   }
 
+  async function loadWelcome(server) {
+    const editor = document.getElementById('welcomeEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading welcome settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/welcome');
+      const options = (items, selected, emptyLabel) =>
+        '<option value="">' + esc(emptyLabel) + '</option>' + items.map(item =>
+          '<option value="' + esc(item.id) + '"' + (String(item.id) === String(selected) ? ' selected' : '') + '>' + esc(item.name) + '</option>'
+        ).join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Welcome message</h3>' +
+        '<label class="setting-field"><span>Send welcome message in</span><select id="welcomeChannel">' +
+        options(cfg.channels || [], cfg.channel_id, 'Disabled — no channel') + '</select></label>' +
+        '<label class="setting-field"><span>Message text</span><textarea id="welcomeMessage" rows="5" maxlength="2000" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit;resize:vertical" placeholder="Welcome {user} to {server}!">' +
+        esc(cfg.message || '') + '</textarea></label>' +
+        '<p class="muted" style="font-size:12px">Variables: {user}, {username}, {displayname}, {server}, {membercount}</p>' +
+        '</section><section class="config-sub"><h3>Automatic join role</h3>' +
+        '<label class="setting-field"><span>Role assigned to new members</span><select id="joinRole">' +
+        options(cfg.roles || [], cfg.join_role_id, 'No automatic role') + '</select></label>' +
+        '<p class="muted" style="font-size:12px">Air Commander needs Manage Roles, and its highest role must be above the selected role.</p></section></div>' +
+        '<div class="config-actions"><button class="primary" id="saveWelcome">Save welcome settings</button><span id="welcomeMessageStatus" class="muted" role="status"></span></div>';
+      document.getElementById('saveWelcome').addEventListener('click', async () => {
+        const btn = document.getElementById('saveWelcome');
+        const status = document.getElementById('welcomeMessageStatus');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/welcome', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              channel_id:document.getElementById('welcomeChannel').value || null,
+              message:document.getElementById('welcomeMessage').value,
+              join_role_id:document.getElementById('joinRole').value || null
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
   async function chooseServer(server) {
     selected = server;
     renderServers();
@@ -213,6 +263,7 @@
       const data = await api('/api/guild/' + encodeURIComponent(server.id) + '/overview');
       renderOverview(data);
       await loadSecurity(server);
+      await loadWelcome(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
