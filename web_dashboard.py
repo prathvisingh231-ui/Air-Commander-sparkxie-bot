@@ -1061,6 +1061,136 @@ def register_dashboard(app, bot) -> None:
         return jsonify({"ok": True, "message": "AI channel settings saved. Existing commands and conversation code were not changed."})
 
 
+    @dashboard.route("/api/guild/<guild_id>/config/youtube-alerts", methods=["GET", "POST"])
+    def api_youtube_alerts(guild_id: str):
+        """Manage the existing youtube_alerts.py JSON configuration without resetting feed cursors."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import youtube_alerts as yt
+            cfg = yt.guild_data(guild.id)
+        except Exception as exc:
+            print("Dashboard YouTube config load failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "youtube_module_unavailable"}), 503
+
+        if request.method == "GET":
+            return jsonify({
+                "enabled": bool(cfg.get("enabled", True)),
+                "default_channel": str(cfg.get("default_channel") or ""),
+                "ping_role": str(cfg.get("ping_role") or ""),
+                "custom_message": str(cfg.get("custom_message") or ""),
+                "channels": [{"id": str(cid), "name": str(info.get("name") or cid),
+                    "discord_channel_id": str(info.get("discord_channel_id") or ""),
+                    "ping_role_id": str(info.get("ping_role_id") or "")}
+                    for cid, info in cfg.get("channels", {}).items() if isinstance(info, dict)],
+                "text_channels": [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels],
+                "roles": [{"id": str(role.id), "name": role.name} for role in guild.roles if not role.is_default() and not role.managed],
+            })
+
+        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool) or not isinstance(payload.get("channels"), list):
+            return jsonify({"error": "invalid_json", "message": "Check the enabled setting and tracked channel list."}), 400
+        if len(payload["channels"]) > 50:
+            return jsonify({"error": "channel_limit", "message": "You can track up to 50 YouTube channels per server."}), 400
+
+        def valid_text_channel(value, allow_empty=True):
+            if value in (None, "") and allow_empty:
+                return None
+            if isinstance(value, bool) or not str(value).isdigit():
+                raise ValueError
+            channel = guild.get_channel(int(value))
+            import discord
+            if not isinstance(channel, discord.TextChannel):
+                raise ValueError
+            return channel.id
+
+        def valid_role(value, allow_empty=True):
+            if value in (None, "") and allow_empty:
+                return None
+            if isinstance(value, bool) or not str(value).isdigit():
+                raise ValueError
+            role = guild.get_role(int(value))
+            if role is None or role.is_default() or role.managed:
+                raise ValueError
+            return role.id
+
+        try:
+            default_channel = valid_text_channel(payload.get("default_channel"))
+            ping_role = valid_role(payload.get("ping_role"))
+            custom_message = str(payload.get("custom_message") or "")
+            if len(custom_message) > 1000:
+                raise ValueError
+            new_channels = {}
+            old_channels = cfg.get("channels", {})
+            for item in payload["channels"]:
+                if not isinstance(item, dict):
+                    raise ValueError
+                yt_id = str(item.get("id") or "").strip()
+                if not re.fullmatch(r"UC[A-Za-z0-9_-]{20,}", yt_id) or yt_id in new_channels:
+                    raise ValueError
+                target_id = valid_text_channel(item.get("discord_channel_id"))
+                role_id = valid_role(item.get("ping_role_id"))
+                old = old_channels.get(yt_id, {})
+                if not isinstance(old, dict):
+                    old = {}
+                new_channels[yt_id] = {
+                    "name": str(old.get("name") or item.get("name") or "YouTube Channel")[:100],
+                    "channel_id": yt_id,
+                    "discord_channel_id": target_id if target_id else (old.get("discord_channel_id") or default_channel),
+                    "ping_role_id": role_id if role_id else (old.get("ping_role_id") or ping_role),
+                    "last_video_id": old.get("last_video_id"),
+                }
+        except (ValueError, TypeError, OverflowError):
+            return jsonify({"error": "invalid_config", "message": "Check YouTube channel IDs, Discord text channels, roles and custom message length."}), 400
+
+        # Verify newly added feeds before committing, matching the existing command's RSS-first behavior.
+        additions = [cid for cid in new_channels if cid not in cfg.get("channels", {})]
+        for yt_id in additions:
+            try:
+                rss = asyncio.run_coroutine_threadsafe(yt.fetch_rss(yt_id), bot.loop).result(timeout=25)
+                videos = yt.parse_rss(rss or "")
+                if not rss or not videos:
+                    return jsonify({"error": "youtube_feed_unavailable", "message": "Could not verify the RSS feed for a newly added channel. Check its Channel ID and try again."}), 400
+                new_channels[yt_id]["name"] = videos[0].get("author") or "YouTube Channel"
+                # Initialize at the current latest video so adding a channel won't announce old uploads.
+                new_channels[yt_id]["last_video_id"] = videos[0]["video_id"]
+            except Exception as exc:
+                print("Dashboard YouTube feed verification failed: " + str(type(exc).__name__), flush=True)
+                return jsonify({"error": "youtube_feed_unavailable", "message": "YouTube RSS could not be verified right now. Try again later."}), 503
+
+        try:
+            cfg["enabled"] = bool(payload["enabled"])
+            cfg["default_channel"] = default_channel
+            cfg["ping_role"] = ping_role
+            cfg["custom_message"] = custom_message
+            cfg["channels"] = new_channels
+            yt.save_data(yt.DATA)
+            # Verify the saved JSON snapshot by re-reading the same module data file.
+            verified = json.loads(yt.DATA_FILE.read_text(encoding="utf-8"))
+            saved = verified.get("guilds", {}).get(guild_id, {})
+            if bool(saved.get("enabled", True)) != bool(payload["enabled"]) or set(saved.get("channels", {})) != set(new_channels):
+                raise RuntimeError("YouTube settings verification failed")
+        except Exception as exc:
+            print("Dashboard YouTube config save failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not confirm YouTube settings were saved."}), 500
+        return jsonify({"ok": True, "message": "YouTube alert settings saved. Existing tracked feed cursors were preserved; new channels start from their latest upload."})
+
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
