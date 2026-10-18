@@ -143,7 +143,7 @@ class DashboardPanelWiringTests(unittest.TestCase):
     """Regression coverage for the missing-config-panels dashboard failure."""
 
     def test_authenticated_dashboard_renders_all_config_panels_and_api_routes(self):
-        app = Flask(__name__)
+        app = Flask(__name__, template_folder="../templates")
         app.secret_key = "test-only-secret"
         web_dashboard.register_dashboard(app, FakeBot())
         client = app.test_client()
