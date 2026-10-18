@@ -112,5 +112,25 @@ class BackupSafetyTests(unittest.IsolatedAsyncioTestCase):
             command_permissions.DATA = original
 
 
+    def test_parent_and_subcommand_policies_are_both_enforced(self):
+        original = command_permissions.DATA
+        try:
+            command_permissions.DATA = {
+                "123": {"commands": {
+                    "ai": {"enabled": True, "role_ids": ["456"]},
+                    "ai chat": {"enabled": True, "role_ids": ["789"]},
+                }}
+            }
+            member = type("Member", (), {
+                "roles": [type("Role", (), {"id": 789})()],
+                "guild_permissions": type("Permissions", (), {"administrator": False, "manage_guild": False})(),
+            })()
+            # Having the subcommand role must not bypass the parent-group policy.
+            self.assertFalse(command_permissions._all_policies_allow(member, 123, ["ai chat", "ai", "chat"]))
+            member.roles.append(type("Role", (), {"id": 456})())
+            self.assertTrue(command_permissions._all_policies_allow(member, 123, ["ai chat", "ai", "chat"]))
+        finally:
+            command_permissions.DATA = original
+
 if __name__ == "__main__":
     unittest.main()
