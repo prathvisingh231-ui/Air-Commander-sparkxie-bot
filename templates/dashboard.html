@@ -122,8 +122,9 @@
       '<div class="feature-grid">' + features + '</div>' +
       '<div class="panel features" style="margin-top:18px" id="securityPanel"><div class="section-heading"><div><h2>Security configuration</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure AutoMode and AntiNuke for this server</div></div><span class="count">Editable</span></div><div id="securityEditor" class="loading">Loading security settings…</div></div>' +
       '<div class="panel features" style="margin-top:18px" id="welcomePanel"><div class="section-heading"><div><h2>Welcome & join role</h2><div class="muted" style="font-size:12px;margin-top:4px">Choose the welcome channel, message and role given to new members</div></div><span class="count">Editable</span></div><div id="welcomeEditor" class="loading">Loading welcome settings…</div></div>' +
-      '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Module status is visible here; configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
-      ['Welcome & autorole','Verification','Tickets','Leveling','Giveaways','AI channel','YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
+      '<div class="panel features" style="margin-top:18px" id="verificationPanel"><div class="section-heading"><div><h2>Button verification</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Verify button, role and embed</div></div><span class="count">Editable</span></div><div id="verificationEditor" class="loading">Loading verification settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Additional configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
+      ['Tickets','Leveling','Giveaways','AI channel','YouTube alerts','Backups','Command permissions'].map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
       '</div></div>' +
       '<div class="notice">Runtime: ' + (bot.ready ? 'Connected' : 'Not connected') +
       (bot.latency_ms !== null ? ' · Gateway latency: ' + fmt(bot.latency_ms) + ' ms' : '') +
@@ -256,6 +257,60 @@
     }
   }
 
+
+  async function loadVerification(server) {
+    const editor = document.getElementById('verificationEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading verification settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/verification');
+      const options = (items, selected, emptyLabel, roleMode=false) =>
+        '<option value="">' + esc(emptyLabel) + '</option>' + items.map(item => {
+          const disabled = roleMode && !item.assignable;
+          return '<option value="' + esc(item.id) + '"' + (String(item.id) === String(selected) ? ' selected' : '') +
+            (disabled ? ' disabled' : '') + '>' + esc(item.name) + (disabled ? ' (role hierarchy)' : '') + '</option>';
+        }).join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Panel & role</h3>' +
+        '<label class="setting-toggle"><input type="checkbox" id="verifyEnabled"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable button verification</span></label>' +
+        '<label class="setting-field"><span>Panel channel</span><select id="verifyChannel">' + options(cfg.channels || [], cfg.channel_id, 'Choose a text channel') + '</select></label>' +
+        '<label class="setting-field"><span>Verified member role</span><select id="verifyRole">' + options(cfg.roles || [], cfg.role_id, 'Choose a role', true) + '</select></label>' +
+        '<p class="muted" style="font-size:12px">Only roles below Air Commander’s highest role can be assigned. Saving settings does not post a new message.</p>' +
+        '</section><section class="config-sub"><h3>Embed appearance</h3>' +
+        '<label class="setting-field"><span>Title</span><input id="verifyTitle" maxlength="256" value="' + esc(cfg.title) + '"></label>' +
+        '<label class="setting-field"><span>Description</span><textarea id="verifyDescription" rows="4" maxlength="4000" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit;resize:vertical">' + esc(cfg.description) + '</textarea></label>' +
+        '<label class="setting-field"><span>Embed color (hex)</span><input id="verifyColor" maxlength="7" value="' + esc(cfg.color) + '" placeholder="#5865F2"></label>' +
+        '<label class="setting-field"><span>Footer</span><input id="verifyFooter" maxlength="2048" value="' + esc(cfg.footer) + '"></label>' +
+        '<label class="setting-field"><span>Verify button text</span><input id="verifyButton" maxlength="80" value="' + esc(cfg.button_text) + '"></label>' +
+        '</section></div><div class="config-actions"><button class="primary" id="saveVerification">Save verification settings</button><span id="verificationMessage" class="muted" role="status"></span></div>';
+      document.getElementById('saveVerification').addEventListener('click', async () => {
+        const btn = document.getElementById('saveVerification'), status = document.getElementById('verificationMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/verification', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              enabled:document.getElementById('verifyEnabled').checked,
+              channel_id:document.getElementById('verifyChannel').value || null,
+              role_id:document.getElementById('verifyRole').value || null,
+              title:document.getElementById('verifyTitle').value,
+              description:document.getElementById('verifyDescription').value,
+              color:document.getElementById('verifyColor').value,
+              footer:document.getElementById('verifyFooter').value,
+              button_text:document.getElementById('verifyButton').value
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) { status.textContent = error.message; }
+        finally { btn.disabled = false; }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
   async function chooseServer(server) {
     selected = server;
     renderServers();
@@ -269,6 +324,7 @@
       renderOverview(data);
       await loadSecurity(server);
       await loadWelcome(server);
+      await loadVerification(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
