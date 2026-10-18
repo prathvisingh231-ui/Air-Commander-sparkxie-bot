@@ -812,6 +812,13 @@ async def init_db():
                         data JSONB NOT NULL,
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
+                    CREATE TABLE IF NOT EXISTS air_guild_backups(
+                        guild_id BIGINT NOT NULL,
+                        backup_id TEXT NOT NULL,
+                        archive BYTEA NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY(guild_id, backup_id)
+                    );
                 """)
 
             print("✅ Air Commander PostgreSQL database initialized.")
