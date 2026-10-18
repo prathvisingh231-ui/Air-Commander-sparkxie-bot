@@ -399,9 +399,14 @@ def setup(bot):
             return await interaction.response.send_message("Use this in a server.", ephemeral=True)
         if not _admin(interaction.user):
             return await interaction.response.send_message("Manage Server permission required.", ephemeral=True)
-        files = _local_backups(interaction.guild.id)[:15]
-        lines = [f"{p.stem} — {p.stat().st_size:,} bytes" for p in files]
-        await interaction.response.send_message("\n".join(lines) if lines else "No backups found on this running instance. Render local files can reset after redeploy.", ephemeral=True)
+        local = {p.stem: p.stat().st_size for p in _local_backups(interaction.guild.id)}
+        try:
+            for item in await _stored_backups(interaction.guild.id):
+                local.setdefault(item["backup_id"], item["size_bytes"])
+        except Exception as exc:
+            print(f"[Backup] Persistent list failed: {type(exc).__name__}: {exc}", flush=True)
+        lines = [f"{backup_id} — {size:,} bytes" for backup_id, size in list(local.items())[:15]]
+        await interaction.response.send_message("\n".join(lines) if lines else "No backups found. PostgreSQL must be connected for persistent archive storage.", ephemeral=True)
 
     @group.command(name="restore", description="Restore a backup ID (server owner only)")
     @app_commands.describe(backup_id="Backup ID from /backup list for this server")
@@ -413,11 +418,12 @@ def setup(bot):
         if not BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != str(interaction.guild.id):
             return await interaction.response.send_message("Invalid backup ID or it belongs to another server.", ephemeral=True)
         path = _guild_folder(interaction.guild.id) / (backup_id + ".zip")
-        if not path.is_file():
-            return await interaction.response.send_message("Backup ID not found on this instance. Render local storage may reset after redeploy.", ephemeral=True)
+        raw = path.read_bytes() if path.is_file() else await _read_backup(interaction.guild.id, backup_id)
+        if raw is None:
+            return await interaction.response.send_message("Backup ID not found in local or PostgreSQL storage.", ephemeral=True)
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            manifest, result, count = await _restore_archive(path.read_bytes(), interaction.guild.id)
+            manifest, result, count = await _restore_archive(raw, interaction.guild.id)
             await interaction.followup.send(f"Restore finished for {interaction.guild.name}. Config files: {count}. {result}\nCreated at: {manifest.get('created_at')}", ephemeral=True)
         except Exception as exc:
             print(f"[Backup] Restore failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}", flush=True)
