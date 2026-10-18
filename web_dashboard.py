@@ -751,7 +751,8 @@ def register_dashboard(app, bot) -> None:
             "ignored_roles": ignored_roles,
         })
         try:
-            leveling.save_data(leveling.DATA)
+            if leveling.save_data(leveling.DATA) is False:
+                return jsonify({"error": "save_failed", "message": "Could not save leveling settings."}), 500
         except (OSError, TypeError, ValueError) as exc:
             print(f"Dashboard leveling save failed: {type(exc).__name__}: {exc}", flush=True)
             return jsonify({"error": "save_failed", "message": "Could not save leveling settings."}), 500
