@@ -630,6 +630,8 @@
       await loadGiveawayTemplates(server);
       await loadYouTubeAlerts(server);
       await loadAIChannel(server);
+      await loadBackups(server);
+      await loadCommandPermissions(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
