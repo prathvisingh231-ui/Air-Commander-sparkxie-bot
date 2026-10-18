@@ -16,7 +16,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for, send_file
+import io
 
 DISCORD_API = "https://discord.com/api/v10"
 MANAGE_GUILD = 1 << 5
@@ -1193,6 +1194,73 @@ def register_dashboard(app, bot) -> None:
             return jsonify({"error": "save_failed", "message": "Could not confirm YouTube settings were saved."}), 500
         return jsonify({"ok": True, "message": "YouTube alert settings saved. Existing tracked feed cursors were preserved; new channels start from their latest upload."})
 
+
+    @dashboard.route("/api/guild/<guild_id>/config/backups", methods=["GET", "POST"])
+    def api_guild_backups(guild_id: str):
+        auth = _current_auth()
+        if not auth: return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id): return jsonify({"error": "invalid_guild_id"}), 400
+        try: managed = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError: return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in managed: return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None: return jsonify({"error": "bot_not_in_guild"}), 404
+        user = auth.get("user") or {}
+        is_owner = str(user.get("id", "")) == str(guild.owner_id)
+        try: import backup_system as backup
+        except Exception as exc:
+            print("Dashboard backup module unavailable: " + type(exc).__name__, flush=True)
+            return jsonify({"error": "backup_module_unavailable"}), 503
+        if request.method == "GET":
+            files = backup._local_backups(guild.id)[:15]
+            return jsonify({"backups": [{"id": p.stem, "size_bytes": p.stat().st_size, "modified_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")} for p in files], "is_owner": is_owner, "database_connected": bool(getattr(backup.db, "_pool", None)), "note": "Render local files may reset after redeploy. Download backup ZIPs and store them safely."})
+        expected, supplied = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
+        if not expected or not supplied or not secrets.compare_digest(expected, supplied): return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True) or {}
+        if payload.get("action") == "create":
+            try:
+                memory, manifest = asyncio.run_coroutine_threadsafe(backup._build_backup(guild), bot.loop).result(timeout=180)
+                backup_id = backup._make_id(guild.id)
+                path = backup._guild_folder(guild.id) / (backup_id + ".zip")
+                path.write_bytes(memory.getvalue())
+                backup._prune(guild.id)
+                return jsonify({"ok": True, "id": backup_id, "size_bytes": path.stat().st_size, "manifest": manifest, "message": "Backup created. Download a copy because Render local files may reset after redeploy."})
+            except Exception as exc:
+                print("Dashboard backup creation failed: " + type(exc).__name__ + ": " + str(exc), flush=True)
+                return jsonify({"error": "backup_failed", "message": "Backup creation failed: " + type(exc).__name__}), 500
+        if payload.get("action") == "restore":
+            if not is_owner: return jsonify({"error": "owner_only", "message": "Only this server\u2019s actual owner can restore a backup."}), 403
+            backup_id = str(payload.get("backup_id") or "")
+            if not backup.BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != guild_id: return jsonify({"error": "invalid_backup_id", "message": "Invalid backup ID or it belongs to another server."}), 400
+            path = backup._guild_folder(guild.id) / (backup_id + ".zip")
+            if not path.is_file(): return jsonify({"error": "backup_not_found", "message": "Backup not found on this running instance."}), 404
+            try:
+                manifest, db_result, count = asyncio.run_coroutine_threadsafe(backup._restore_archive(path.read_bytes(), guild.id), bot.loop).result(timeout=240)
+                return jsonify({"ok": True, "message": "Restore finished. Config files merged: " + str(count) + ". " + str(db_result), "created_at": manifest.get("created_at")})
+            except Exception as exc:
+                print("Dashboard backup restore failed for guild " + guild_id + ": " + type(exc).__name__ + ": " + str(exc), flush=True)
+                return jsonify({"error": "restore_failed", "message": "Restore failed: " + type(exc).__name__ + ". Check service logs before retrying."}), 500
+        return jsonify({"error": "invalid_action"}), 400
+
+    @dashboard.get("/api/guild/<guild_id>/config/backups/<backup_id>/download")
+    def api_download_guild_backup(guild_id: str, backup_id: str):
+        auth = _current_auth()
+        if not auth: return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id): return jsonify({"error": "invalid_guild_id"}), 400
+        try: managed = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError: return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in managed: return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None: return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import backup_system as backup
+            if not backup.BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != guild_id: return jsonify({"error": "invalid_backup_id"}), 400
+            path = backup._guild_folder(guild.id) / (backup_id + ".zip")
+            if not path.is_file(): return jsonify({"error": "backup_not_found"}), 404
+            return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip", conditional=True)
+        except Exception as exc:
+            print("Dashboard backup download failed: " + type(exc).__name__, flush=True)
+            return jsonify({"error": "download_failed"}), 500
 
     @dashboard.get("/api/health")
     def api_health():
