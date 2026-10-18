@@ -912,6 +912,117 @@ def register_dashboard(app, bot) -> None:
         return jsonify({"ok": True, "message": "Giveaway templates saved. Existing giveaways and entries were not changed."})
 
 
+    @dashboard.route("/api/guild/<guild_id>/config/ai-channel", methods=["GET", "POST"])
+    def api_ai_channel(guild_id: str):
+        """Manage the existing AI channel and enabled flag in guild_settings.data."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        import db
+        if not getattr(db, "_pool", None):
+            return jsonify({"error": "database_unavailable", "message": "PostgreSQL is not connected; AI settings were not changed."}), 503
+
+        async def read_settings():
+            row = await db._pool.fetchrow("SELECT data FROM guild_settings WHERE guild_id=$1", guild.id)
+            data = row["data"] if row else {}
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except (ValueError, TypeError):
+                    data = {}
+            return data if isinstance(data, dict) else {}
+
+        try:
+            data = asyncio.run_coroutine_threadsafe(read_settings(), bot.loop).result(timeout=15)
+        except Exception as exc:
+            print("Dashboard AI settings load failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "database_unavailable", "message": "Could not read AI settings from PostgreSQL."}), 503
+
+        if request.method == "GET":
+            channel_id = data.get("ai_channel_id")
+            try:
+                channel_id = str(int(channel_id)) if channel_id else ""
+            except (ValueError, TypeError):
+                channel_id = ""
+            return jsonify({
+                "channel_id": channel_id,
+                "enabled": str(data.get("ai_enabled", "false")).lower() == "true",
+                "channels": [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels],
+                "database_available": True,
+                "api_key_configured": bool(os.getenv("OPENAI_API_KEY")),
+            })
+
+        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+            return jsonify({"error": "invalid_json", "message": "Choose an AI channel and an enabled state."}), 400
+        raw_channel_id = payload.get("channel_id")
+        channel_id = None
+        if raw_channel_id not in (None, ""):
+            if isinstance(raw_channel_id, bool) or not str(raw_channel_id).isdigit():
+                return jsonify({"error": "invalid_channel", "message": "Select a valid text channel."}), 400
+            channel = guild.get_channel(int(raw_channel_id))
+            if channel is None or not getattr(channel, "type", None) or channel.type not in (getattr(__import__("discord"), "TextChannel"),):
+                # Thread/forum/voice channels are not accepted by the existing AI command.
+                return jsonify({"error": "invalid_channel", "message": "Choose a regular text channel from this server."}), 400
+            channel_id = channel.id
+        if payload["enabled"] and not channel_id:
+            return jsonify({"error": "channel_required", "message": "Choose an AI channel before enabling AI."}), 400
+
+        async def write_settings():
+            if channel_id:
+                await db._pool.execute(
+                    """INSERT INTO guild_settings (guild_id, prefix, data)
+                       VALUES ($1, ',', jsonb_build_object('ai_channel_id', $2::bigint, 'ai_enabled', $3::boolean))
+                       ON CONFLICT (guild_id) DO UPDATE
+                       SET data = COALESCE(guild_settings.data, '{}'::jsonb)
+                                  || jsonb_build_object('ai_channel_id', $2::bigint, 'ai_enabled', $3::boolean),
+                           updated_at = NOW()""",
+                    guild.id, channel_id, payload["enabled"],
+                )
+            else:
+                await db._pool.execute(
+                    """INSERT INTO guild_settings (guild_id, prefix, data)
+                       VALUES ($1, ',', jsonb_build_object('ai_enabled', false))
+                       ON CONFLICT (guild_id) DO UPDATE
+                       SET data = (COALESCE(guild_settings.data, '{}'::jsonb) - 'ai_channel_id')
+                                  || jsonb_build_object('ai_enabled', false),
+                           updated_at = NOW()""",
+                    guild.id,
+                )
+
+        try:
+            asyncio.run_coroutine_threadsafe(write_settings(), bot.loop).result(timeout=15)
+            verify = asyncio.run_coroutine_threadsafe(read_settings(), bot.loop).result(timeout=15)
+            if (channel_id and str(verify.get("ai_channel_id")) != str(channel_id)) or (not channel_id and verify.get("ai_channel_id")):
+                raise RuntimeError("AI settings verification failed")
+            if bool(verify.get("ai_enabled", False)) != (bool(payload["enabled"]) if channel_id else False):
+                raise RuntimeError("AI enabled state verification failed")
+            # Keep the running bot's in-memory channel cache in sync with dashboard edits.
+            import sys
+            bot_module = sys.modules.get("bot")
+            cache = getattr(bot_module, "_air_ai_channel_cache", None) if bot_module else None
+            if isinstance(cache, dict):
+                cache[guild.id] = channel_id
+        except Exception as exc:
+            print("Dashboard AI settings save failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not verify the AI settings save. Please retry."}), 500
+        return jsonify({"ok": True, "message": "AI channel settings saved. Existing commands and conversation code were not changed."})
+
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
