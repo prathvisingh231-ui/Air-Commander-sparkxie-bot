@@ -136,3 +136,60 @@ class DashboardAuthTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class DashboardPanelWiringTests(unittest.TestCase):
+    """Regression coverage for the missing-config-panels dashboard failure."""
+
+    def test_authenticated_dashboard_renders_all_config_panels_and_api_routes(self):
+        app = Flask(__name__)
+        app.secret_key = "test-only-secret"
+        web_dashboard.register_dashboard(app, FakeBot())
+        client = app.test_client()
+        sid = "test-dashboard-panels"
+        web_dashboard._AUTH_SESSIONS[sid] = {
+            "access_token": "test-token",
+            "user": {"id": "test-user", "username": "Tester"},
+            "expires_at": __import__("time").time() + 60,
+        }
+        panel_ids = (
+            "securityPanel", "welcomePanel", "verificationPanel", "ticketsPanel",
+            "giveawayTemplatesPanel", "backupsPanel", "youtubeAlertsPanel",
+            "aiChannelPanel", "levelingPanel", "commandPermissionsPanel",
+        )
+        api_paths = (
+            "/api/guild/<guild_id>/config/security",
+            "/api/guild/<guild_id>/config/welcome",
+            "/api/guild/<guild_id>/config/verification",
+            "/api/guild/<guild_id>/config/leveling",
+            "/api/guild/<guild_id>/config/tickets",
+            "/api/guild/<guild_id>/config/giveaway-templates",
+            "/api/guild/<guild_id>/config/ai-channel",
+            "/api/guild/<guild_id>/config/youtube-alerts",
+            "/api/guild/<guild_id>/config/backups",
+            "/api/guild/<guild_id>/config/command-permissions",
+        )
+        try:
+            with client.session_transaction() as sess:
+                sess["air_sid"] = sid
+            response = client.get("/dashboard")
+            self.assertEqual(response.status_code, 200)
+            rendered = response.get_data(as_text=True)
+            for panel_id in panel_ids:
+                with self.subTest(panel=panel_id):
+                    self.assertIn(panel_id, rendered)
+            for loader in (
+                "loadSecurity(server)", "loadWelcome(server)", "loadVerification(server)",
+                "loadLeveling(server)", "loadTickets(server)", "loadGiveawayTemplates(server)",
+                "loadYouTubeAlerts(server)", "loadAIChannel(server)", "loadBackups(server)",
+                "loadCommandPermissions(server)",
+            ):
+                with self.subTest(loader=loader):
+                    self.assertIn(loader, rendered)
+            registered_paths = {rule.rule for rule in app.url_map.iter_rules()}
+            for api_path in api_paths:
+                with self.subTest(api_path=api_path):
+                    self.assertIn(api_path, registered_paths)
+        finally:
+            web_dashboard._AUTH_SESSIONS.pop(sid, None)
