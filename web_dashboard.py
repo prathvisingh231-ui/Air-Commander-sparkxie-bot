@@ -758,6 +758,84 @@ def register_dashboard(app, bot) -> None:
             return jsonify({"error": "save_failed", "message": "Could not save leveling settings."}), 500
         return jsonify({"ok": True, "message": "Leveling settings saved. Existing member XP and rewards were preserved."})
 
+    @dashboard.route("/api/guild/<guild_id>/config/tickets", methods=["GET", "POST"])
+    def api_ticket_config(guild_id: str):
+        """Read and update the existing ticket module settings."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import snipe
+            data = snipe.load_data()
+            guild_data = snipe.ensure_guild(data, guild.id)
+        except Exception as exc:
+            print("Dashboard tickets load failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "tickets_unavailable"}), 503
+        config, panel = guild_data.get("config", {}), guild_data.get("panel", {})
+        discord_module = __import__("discord")
+        if request.method == "GET":
+            return jsonify({
+                "config": {"support_role_id": str(config.get("support_role_id") or ""), "log_channel_id": str(config.get("log_channel_id") or ""), "ticket_category_id": str(config.get("ticket_category_id") or ""), "transcript": bool(config.get("transcript", True)), "naming": str(config.get("naming") or "ticket-{username}")},
+                "panel": {"title": str(panel.get("title") or ""), "description": str(panel.get("description") or ""), "color": "#{:06X}".format(int(panel.get("color", 0x5865F2)) & 0xFFFFFF), "footer": str(panel.get("footer") or ""), "channel_id": str(panel.get("channel_id") or "")},
+                "categories": [{"key": str(k), "name": str(v.get("name") or k), "emoji": str(v.get("emoji") or "🎫"), "description": str(v.get("description") or "")} for k, v in guild_data.get("categories", {}).items()],
+                "channels": [{"id": str(ch.id), "name": ch.name, "type": "category" if isinstance(ch, discord_module.CategoryChannel) else "text"} for ch in guild.channels if isinstance(ch, (discord_module.TextChannel, discord_module.CategoryChannel))],
+                "roles": [{"id": str(role.id), "name": role.name} for role in guild.roles if not role.is_default() and not role.managed],
+            })
+        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or not isinstance(payload.get("config", {}), dict) or not isinstance(payload.get("panel", {}), dict):
+            return jsonify({"error": "invalid_json"}), 400
+        raw_config, raw_panel = payload.get("config", {}), payload.get("panel", {})
+        def resolve_id(value, allowed_type):
+            if value in (None, ""): return None
+            if isinstance(value, bool) or not str(value).isdigit(): raise ValueError
+            obj = guild.get_role(int(value)) if allowed_type is discord_module.Role else guild.get_channel(int(value))
+            if not isinstance(obj, allowed_type): raise ValueError
+            return int(value)
+        try:
+            support_role_id = resolve_id(raw_config.get("support_role_id"), discord_module.Role)
+            log_channel_id = resolve_id(raw_config.get("log_channel_id"), discord_module.TextChannel)
+            ticket_category_id = resolve_id(raw_config.get("ticket_category_id"), discord_module.CategoryChannel)
+            panel_channel_id = resolve_id(raw_panel.get("channel_id"), discord_module.TextChannel)
+            transcript = raw_config.get("transcript", config.get("transcript", True))
+            if not isinstance(transcript, bool): raise ValueError
+            naming = str(raw_config.get("naming", config.get("naming", "ticket-{username}"))).strip()
+            title = str(raw_panel.get("title", panel.get("title", ""))).strip()
+            description = str(raw_panel.get("description", panel.get("description", ""))).strip()
+            footer = str(raw_panel.get("footer", panel.get("footer", ""))).strip()
+            color_text = str(raw_panel.get("color", "#5865F2")).strip()
+            if not naming or len(naming) > 80 or not re.fullmatch(r"[A-Za-z0-9{} _-]+", naming): raise ValueError
+            if not title or len(title) > 256 or len(description) > 4000 or len(footer) > 2048: raise ValueError
+            if not re.fullmatch(r"#?[0-9a-fA-F]{6}", color_text): raise ValueError
+            color = int(color_text.lstrip("#"), 16)
+        except (ValueError, TypeError, OverflowError):
+            return jsonify({"error": "invalid_config", "message": "Check channel/role selections, naming, panel text and hex color."}), 400
+        config.update({"support_role_id": support_role_id, "log_channel_id": log_channel_id, "ticket_category_id": ticket_category_id, "transcript": transcript, "naming": naming})
+        panel.update({"title": title, "description": description, "footer": footer, "color": color, "channel_id": panel_channel_id})
+        guild_data["config"], guild_data["panel"] = config, panel
+        data[str(guild.id)] = guild_data
+        try:
+            snipe.save_data(data)
+            if str(guild.id) not in snipe.load_data(): raise OSError("Save verification failed")
+        except Exception as exc:
+            print("Dashboard tickets save failed: " + str(type(exc).__name__), flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not confirm ticket settings were saved."}), 500
+        return jsonify({"ok": True, "message": "Ticket settings saved. Existing ticket records were preserved. Repost the panel in Discord to update its message."})
+
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
