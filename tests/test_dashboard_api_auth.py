@@ -90,6 +90,7 @@ class DashboardAuthTests(unittest.TestCase):
     def test_all_config_write_routes_require_csrf(self):
         class Guild:
             id = 123456789012345
+            owner_id = 999999999999999
 
         class ReadyBot(FakeBot):
             guilds = [Guild()]
