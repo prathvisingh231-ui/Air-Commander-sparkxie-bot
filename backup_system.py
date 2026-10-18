@@ -281,6 +281,53 @@ async def _restore_archive(raw, guild_id):
         written += 1
     return manifest, db_result, written
 
+async def _store_backup(guild_id, backup_id, raw):
+    """Persist the ZIP archive in PostgreSQL so Render redeploys don't erase it."""
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return False
+    await pool.execute(
+        """INSERT INTO air_guild_backups(guild_id, backup_id, archive, created_at)
+           VALUES($1, $2, $3, NOW())
+           ON CONFLICT(guild_id, backup_id) DO UPDATE
+           SET archive=EXCLUDED.archive, created_at=EXCLUDED.created_at""",
+        int(guild_id), str(backup_id), bytes(raw),
+    )
+    # Retain the newest 10 archives per guild in persistent storage.
+    await pool.execute(
+        """DELETE FROM air_guild_backups
+           WHERE guild_id=$1 AND backup_id NOT IN (
+             SELECT backup_id FROM air_guild_backups
+             WHERE guild_id=$1 ORDER BY created_at DESC LIMIT 10
+           )""",
+        int(guild_id),
+    )
+    return True
+
+
+async def _stored_backups(guild_id, limit=15):
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return []
+    rows = await pool.fetch(
+        """SELECT backup_id, octet_length(archive) AS size_bytes, created_at
+           FROM air_guild_backups WHERE guild_id=$1
+           ORDER BY created_at DESC LIMIT $2""",
+        int(guild_id), max(1, min(int(limit), 50)),
+    )
+    return [dict(row) for row in rows]
+
+
+async def _read_backup(guild_id, backup_id):
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return None
+    return await pool.fetchval(
+        "SELECT archive FROM air_guild_backups WHERE guild_id=$1 AND backup_id=$2",
+        int(guild_id), str(backup_id),
+    )
+
+
 def _local_backups(guild_id):
     folder = _guild_folder(guild_id)
     return sorted(
@@ -307,7 +354,13 @@ async def _send_create(guild, interaction=None, ctx=None):
     memory, manifest = await _build_backup(guild)
     backup_id = _make_id(guild.id)
     path = _guild_folder(guild.id) / (backup_id + ".zip")
-    path.write_bytes(memory.getvalue())
+    raw = memory.getvalue()
+    path.write_bytes(raw)
+    persistent = False
+    try:
+        persistent = await _store_backup(guild.id, backup_id, raw)
+    except Exception as exc:
+        print(f"[Backup] PostgreSQL archive persistence failed: {type(exc).__name__}: {exc}", flush=True)
     _prune(guild.id)
     complete = manifest["database_included"] and not manifest.get("warning")
     status = "COMPLETE" if complete else "PARTIAL — read warning"
@@ -315,7 +368,8 @@ async def _send_create(guild, interaction=None, ctx=None):
         f"Backup ID: {backup_id}\nServer: {guild.name} ({guild.id})\nStatus: {status}\n"
         f"Guild-scoped JSON files: {manifest['json_files_with_guild_data']}\n"
         f"Database tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes\n"
-        "Use /backup list to see IDs. Only this server's owner can restore."
+        "Use /backup list to see IDs. Only this server's owner can restore.\n"
+        f"Persistent PostgreSQL archive: {'yes' if persistent else 'no — download a copy before redeploy'}"
     )
     if manifest.get("warning"):
         msg += "\nWarning: " + manifest["warning"][:900]
