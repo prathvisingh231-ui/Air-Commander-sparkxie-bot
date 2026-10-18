@@ -660,6 +660,103 @@ def register_dashboard(app, bot) -> None:
             return jsonify({"error": "save_failed", "message": "Could not save verification settings."}), 500
         return jsonify({"ok": True, "message": "Verification settings saved. To refresh an already-posted panel, run /verify post in Discord."})
 
+
+    @dashboard.route("/api/guild/<guild_id>/config/leveling", methods=["GET", "POST"])
+    def api_leveling_config(guild_id: str):
+        """Configure existing Air Leveling settings without touching member XP data."""
+        auth = _current_auth()
+        if not auth:
+            return jsonify({"error": "login_required"}), 401
+        if not re.fullmatch(r"[0-9]{15,22}", guild_id):
+            return jsonify({"error": "invalid_guild_id"}), 400
+        try:
+            allowed_ids = {str(g.get("id")) for g in _managed_guilds(auth)}
+        except RuntimeError:
+            return jsonify({"error": "discord_unavailable"}), 502
+        if guild_id not in allowed_ids:
+            return jsonify({"error": "forbidden"}), 403
+        guild = bot.get_guild(int(guild_id))
+        if guild is None:
+            return jsonify({"error": "bot_not_in_guild"}), 404
+        try:
+            import leveling
+        except Exception:
+            return jsonify({"error": "leveling_module_unavailable"}), 503
+
+        cfg = leveling.guild_config(guild.id)
+        if request.method == "GET":
+            return jsonify({
+                "enabled": bool(cfg.get("enabled", True)),
+                "xp_per_message": int(cfg.get("xp_per_message", 15)),
+                "cooldown": int(cfg.get("cooldown", 60)),
+                "announce": bool(cfg.get("announce", True)),
+                "announce_channel": str(cfg.get("announce_channel") or ""),
+                "ignored_channels": [str(value) for value in cfg.get("ignored_channels", [])],
+                "ignored_roles": [str(value) for value in cfg.get("ignored_roles", [])],
+                "channels": [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels],
+                "roles": [{"id": str(role.id), "name": role.name} for role in guild.roles if not role.is_default() and not role.managed],
+                "max_level": int(getattr(leveling, "MAX_LEVEL", 200)),
+            })
+
+        expected_csrf = session.get("air_csrf", "")
+        supplied_csrf = request.headers.get("X-CSRF-Token", "")
+        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+            return jsonify({"error": "csrf_failed"}), 400
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "invalid_json"}), 400
+
+        def bounded_int(value, low, high):
+            if isinstance(value, bool):
+                raise ValueError
+            number = int(value)
+            if number < low or number > high:
+                raise ValueError
+            return number
+
+        try:
+            enabled = payload.get("enabled", bool(cfg.get("enabled", True)))
+            announce = payload.get("announce", bool(cfg.get("announce", True)))
+            if not isinstance(enabled, bool) or not isinstance(announce, bool):
+                raise ValueError
+            xp_per_message = bounded_int(payload.get("xp_per_message", cfg.get("xp_per_message", 15)), 1, 500)
+            cooldown = bounded_int(payload.get("cooldown", cfg.get("cooldown", 60)), 0, 3600)
+            raw_channel = payload.get("announce_channel", cfg.get("announce_channel"))
+            if raw_channel in ("", None):
+                announce_channel = None
+            else:
+                announce_channel = bounded_int(raw_channel, 1, 10**22)
+                if not isinstance(guild.get_channel(announce_channel), __import__("discord").TextChannel):
+                    raise ValueError
+            raw_ignored_channels = payload.get("ignored_channels", cfg.get("ignored_channels", []))
+            raw_ignored_roles = payload.get("ignored_roles", cfg.get("ignored_roles", []))
+            if not isinstance(raw_ignored_channels, list) or not isinstance(raw_ignored_roles, list):
+                raise ValueError
+            ignored_channels = list(dict.fromkeys(bounded_int(value, 1, 10**22) for value in raw_ignored_channels))
+            ignored_roles = list(dict.fromkeys(bounded_int(value, 1, 10**22) for value in raw_ignored_roles))
+            if any(not isinstance(guild.get_channel(value), __import__("discord").TextChannel) for value in ignored_channels):
+                raise ValueError
+            if any(guild.get_role(value) is None or guild.get_role(value).is_default() or guild.get_role(value).managed for value in ignored_roles):
+                raise ValueError
+        except (ValueError, TypeError, OverflowError):
+            return jsonify({"error": "invalid_config", "message": "Check XP, cooldown, announcement channel, and ignored channel/role selections."}), 400
+
+        cfg.update({
+            "enabled": enabled,
+            "xp_per_message": xp_per_message,
+            "cooldown": cooldown,
+            "announce": announce,
+            "announce_channel": announce_channel,
+            "ignored_channels": ignored_channels,
+            "ignored_roles": ignored_roles,
+        })
+        try:
+            leveling.save_data(leveling.DATA)
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"Dashboard leveling save failed: {type(exc).__name__}: {exc}", flush=True)
+            return jsonify({"error": "save_failed", "message": "Could not save leveling settings."}), 500
+        return jsonify({"ok": True, "message": "Leveling settings saved. Existing member XP and rewards were preserved."})
+
     @dashboard.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "discord_ready": bool(bot.is_ready())})
