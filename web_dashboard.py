@@ -1232,7 +1232,11 @@ def register_dashboard(app, bot) -> None:
                 path = backup._guild_folder(guild.id) / (backup_id + ".zip")
                 raw = memory.getvalue()
                 path.write_bytes(raw)
-                persistent = asyncio.run_coroutine_threadsafe(backup._store_backup(guild.id, backup_id, raw), bot.loop).result(timeout=60)
+                try:
+                    persistent = asyncio.run_coroutine_threadsafe(backup._store_backup(guild.id, backup_id, raw), bot.loop).result(timeout=60)
+                except Exception as storage_exc:
+                    persistent = False
+                    print("Dashboard backup persistence failed: " + type(storage_exc).__name__, flush=True)
                 backup._prune(guild.id)
                 return jsonify({"ok": True, "id": backup_id, "size_bytes": len(raw), "persistent": bool(persistent), "manifest": manifest, "message": "Backup created and stored in PostgreSQL." if persistent else "Backup created locally, but PostgreSQL archive storage is unavailable. Download a copy before redeploy."})
             except Exception as exc:
