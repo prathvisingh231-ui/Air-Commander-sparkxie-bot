@@ -1151,14 +1151,17 @@ def register_dashboard(app, bot) -> None:
                 new_channels[yt_id] = {
                     "name": str(old.get("name") or item.get("name") or "YouTube Channel")[:100],
                     "channel_id": yt_id,
-                    "discord_channel_id": target_id if target_id else (old.get("discord_channel_id") or default_channel),
-                    "ping_role_id": role_id if role_id else (old.get("ping_role_id") or ping_role),
+                    "discord_channel_id": target_id if target_id else default_channel,
+                    "ping_role_id": role_id if role_id else ping_role,
                     "last_video_id": old.get("last_video_id"),
                 }
         except (ValueError, TypeError, OverflowError):
             return jsonify({"error": "invalid_config", "message": "Check YouTube channel IDs, Discord text channels, roles and custom message length."}), 400
 
         # Verify newly added feeds before committing, matching the existing command's RSS-first behavior.
+        if payload["enabled"] and any(not info.get("discord_channel_id") for info in new_channels.values()):
+            return jsonify({"error": "alert_channel_required", "message": "Choose a default alert channel or set a channel override for every tracked creator before enabling alerts."}), 400
+
         additions = [cid for cid in new_channels if cid not in cfg.get("channels", {})]
         for yt_id in additions:
             try:
