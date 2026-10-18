@@ -142,7 +142,7 @@
     try {
       const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/security');
       const a = cfg.automode || {}, n = cfg.antinuke || {}, l = cfg.antilink || {};
-      const field = (label, key, value, min, max) => '<label class="setting-field"><span>' + esc(label) + '</span><input type="number" data-auto="' + esc(key) + '" value="' + esc(value) + '" min="' + min + '" max="' + max + '"></label>';
+      const field = (label, key, value, min, max, group='auto') => '<label class="setting-field"><span>' + esc(label) + '</span><input type="number" data-' + group + '="' + esc(key) + '" value="' + esc(value) + '" min="' + min + '" max="' + max + '"></label>';
       const toggle = (label, key, checked, group) => '<label class="setting-toggle"><input type="checkbox" data-' + group + '="' + esc(key) + '"' + (checked ? ' checked' : '') + '> <span>' + esc(label) + '</span></label>';
       editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>AutoMode</h3>' +
         toggle('Enable AutoMode', 'enabled', a.enabled, 'auto') +
@@ -155,8 +155,8 @@
         '</section><section class="config-sub"><h3>AntiNuke</h3>' +
         toggle('Enable AntiNuke', 'enabled', n.enabled, 'nuke') +
         '<label class="setting-field"><span>Response action</span><select data-nuke="action"><option value="ban">Ban</option><option value="kick">Kick</option><option value="timeout">Timeout</option><option value="strip">Strip roles</option></select></label>' +
-        field('Detection window (seconds)', 'window', n.window, 3, 60) +
-        field('Log channel ID (optional)', 'log_channel_id', n.log_channel_id || '', 1, 999999999999999999) +
+        field('Detection window (seconds)', 'window', n.window, 3, 60, 'nuke') +
+        field('Log channel ID (optional)', 'log_channel_id', n.log_channel_id || '', 1, 999999999999999999, 'nuke') +
         '<p class="muted" style="font-size:12px">Thresholds remain at their current values for this first panel.</p></section>' +
         '<section class="config-sub"><h3>AntiLink</h3>' +
         toggle('Enable AntiLink', 'enabled', l.enabled, 'link') +
@@ -164,7 +164,7 @@
         toggle('Warn the member', 'warning_enabled', l.warning_enabled, 'link') +
         toggle('Send member a DM', 'dm_enabled', l.dm_enabled, 'link') +
         Object.entries(l.types || {}).map(([key,value]) => toggle('Block ' + key, key, value, 'linktype')).join('') +
-        field('Log channel ID (optional)', 'log_channel_id', l.log_channel_id || '', 1, 999999999999999999) +
+        field('Log channel ID (optional)', 'log_channel_id', l.log_channel_id || '', 1, 999999999999999999, 'link') +
         '</section></div>' +
         '<div class="config-actions"><button class="primary" id="saveSecurity">Save security settings</button><span id="securityMessage" class="muted" role="status"></span></div>';
       editor.querySelector('[data-nuke="action"]').value = n.action || 'ban';
