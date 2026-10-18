@@ -856,6 +856,11 @@ def register_dashboard(app, bot) -> None:
         guild = bot.get_guild(int(guild_id))
         if guild is None:
             return jsonify({"error": "bot_not_in_guild"}), 404
+        if request.method == "POST":
+            expected_csrf = session.get("air_csrf", "")
+            supplied_csrf = request.headers.get("X-CSRF-Token", "")
+            if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
+                return jsonify({"error": "csrf_failed"}), 400
         try:
             import db
             future = asyncio.run_coroutine_threadsafe(db.get_guild_data(guild.id, "giveaway_templates", {}), bot.loop)
@@ -866,9 +871,6 @@ def register_dashboard(app, bot) -> None:
             return jsonify({"error": "giveaway_database_unavailable"}), 503
         if request.method == "GET":
             return jsonify({"templates": templates, "roles": [{"id": str(r.id), "name": r.name} for r in guild.roles if not r.is_default() and not r.managed]})
-        expected_csrf, supplied_csrf = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
-        if not expected_csrf or not supplied_csrf or not secrets.compare_digest(expected_csrf, supplied_csrf):
-            return jsonify({"error": "csrf_failed"}), 400
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or not isinstance(payload.get("templates"), list):
             return jsonify({"error": "invalid_json"}), 400
