@@ -55,6 +55,30 @@ class DashboardAuthTests(unittest.TestCase):
         self.assertEqual(read_response.get_json().get("error"), "login_required")
         self.assertEqual(write_response.get_json().get("error"), "login_required")
 
+    def test_authenticated_user_cannot_access_unmanaged_guild(self):
+        sid = "test-auth-session"
+        web_dashboard._AUTH_SESSIONS[sid] = {
+            "access_token": "test-token",
+            "user": {"id": "test-user", "username": "Tester"},
+            "expires_at": __import__("time").time() + 60,
+        }
+        try:
+            with self.client.session_transaction() as sess:
+                sess["air_sid"] = sid
+            with mock.patch.object(web_dashboard, "_managed_guilds", return_value=[]):
+                response = self.client.get("/api/guild/123456789012345/overview")
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.get_json().get("error"), "forbidden")
+        finally:
+            web_dashboard._AUTH_SESSIONS.pop(sid, None)
+
+    def test_backup_download_requires_login(self):
+        response = self.client.get(
+            "/api/guild/123456789012345/config/backups/AC-123456789012345-abcdef/download"
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.get_json().get("error"), "login_required")
+
     def test_api_responses_include_security_headers(self):
         response = self.client.get("/api/guilds")
         self.assertEqual(response.headers.get("X-Content-Type-Options"), "nosniff")
