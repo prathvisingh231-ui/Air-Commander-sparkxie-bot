@@ -141,7 +141,7 @@
     editor.innerHTML = '<div class="loading">Loading security settings…</div>';
     try {
       const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/security');
-      const a = cfg.automode || {}, n = cfg.antinuke || {};
+      const a = cfg.automode || {}, n = cfg.antinuke || {}, l = cfg.antilink || {};
       const field = (label, key, value, min, max) => '<label class="setting-field"><span>' + esc(label) + '</span><input type="number" data-auto="' + esc(key) + '" value="' + esc(value) + '" min="' + min + '" max="' + max + '"></label>';
       const toggle = (label, key, checked, group) => '<label class="setting-toggle"><input type="checkbox" data-' + group + '="' + esc(key) + '"' + (checked ? ' checked' : '') + '> <span>' + esc(label) + '</span></label>';
       editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>AutoMode</h3>' +
@@ -157,7 +157,15 @@
         '<label class="setting-field"><span>Response action</span><select data-nuke="action"><option value="ban">Ban</option><option value="kick">Kick</option><option value="timeout">Timeout</option><option value="strip">Strip roles</option></select></label>' +
         field('Detection window (seconds)', 'window', n.window, 3, 60) +
         field('Log channel ID (optional)', 'log_channel_id', n.log_channel_id || '', 1, 999999999999999999) +
-        '<p class="muted" style="font-size:12px">Thresholds remain at their current values for this first panel.</p></section></div>' +
+        '<p class="muted" style="font-size:12px">Thresholds remain at their current values for this first panel.</p></section>' +
+        '<section class="config-sub"><h3>AntiLink</h3>' +
+        toggle('Enable AntiLink', 'enabled', l.enabled, 'link') +
+        toggle('Delete detected links', 'delete_enabled', l.delete_enabled, 'link') +
+        toggle('Warn the member', 'warning_enabled', l.warning_enabled, 'link') +
+        toggle('Send member a DM', 'dm_enabled', l.dm_enabled, 'link') +
+        Object.entries(l.types || {}).map(([key,value]) => toggle('Block ' + key, key, value, 'linktype')).join('') +
+        field('Log channel ID (optional)', 'log_channel_id', l.log_channel_id || '', 1, 999999999999999999) +
+        '</section></div>' +
         '<div class="config-actions"><button class="primary" id="saveSecurity">Save security settings</button><span id="securityMessage" class="muted" role="status"></span></div>';
       editor.querySelector('[data-nuke="action"]').value = n.action || 'ban';
       document.getElementById('saveSecurity').addEventListener('click', async () => {
@@ -171,11 +179,16 @@
           log_channel_id:val('auto','log_channel_id') || null};
         const nuke = {enabled:checked('nuke','enabled'),action:val('nuke','action'),
           window:Number(val('nuke','window')),log_channel_id:val('nuke','log_channel_id') || null};
+        const linkTypes = {};
+        editor.querySelectorAll('[data-linktype]').forEach(el => { linkTypes[el.dataset.linktype] = el.checked; });
+        const antilink = {enabled:checked('link','enabled'),delete_enabled:checked('link','delete_enabled'),
+          warning_enabled:checked('link','warning_enabled'),dm_enabled:checked('link','dm_enabled'),
+          types:linkTypes,log_channel_id:val('link','log_channel_id') || null};
         try {
           const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/security', {
             method:'POST', credentials:'same-origin',
             headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
-            body:JSON.stringify({automode:auto,antinuke:nuke})
+            body:JSON.stringify({automode:auto,antinuke:nuke,antilink:antilink})
           });
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
