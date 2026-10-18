@@ -1213,8 +1213,15 @@ def register_dashboard(app, bot) -> None:
             print("Dashboard backup module unavailable: " + type(exc).__name__, flush=True)
             return jsonify({"error": "backup_module_unavailable"}), 503
         if request.method == "GET":
-            files = backup._local_backups(guild.id)[:15]
-            return jsonify({"backups": [{"id": p.stem, "size_bytes": p.stat().st_size, "modified_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")} for p in files], "is_owner": is_owner, "database_connected": bool(getattr(backup.db, "_pool", None)), "note": "Render local files may reset after redeploy. Download backup ZIPs and store them safely."})
+            entries = {p.stem: {"id": p.stem, "size_bytes": p.stat().st_size, "modified_at": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds"), "persistent": False} for p in backup._local_backups(guild.id)}
+            try:
+                stored = asyncio.run_coroutine_threadsafe(backup._stored_backups(guild.id), bot.loop).result(timeout=20)
+                for item in stored:
+                    entries[item["backup_id"]] = {"id": item["backup_id"], "size_bytes": item["size_bytes"], "modified_at": item["created_at"].isoformat(timespec="seconds"), "persistent": True}
+            except Exception as exc:
+                print("Dashboard persistent backup list failed: " + type(exc).__name__, flush=True)
+            files = sorted(entries.values(), key=lambda x: x["modified_at"], reverse=True)[:15]
+            return jsonify({"backups": files, "is_owner": is_owner, "database_connected": bool(getattr(backup.db, "_pool", None)), "persistent_storage": bool(getattr(backup.db, "_pool", None)), "note": "Backups are stored in PostgreSQL when connected; download an extra copy for safety."})
         expected, supplied = session.get("air_csrf", ""), request.headers.get("X-CSRF-Token", "")
         if not expected or not supplied or not secrets.compare_digest(expected, supplied): return jsonify({"error": "csrf_failed"}), 400
         payload = request.get_json(silent=True) or {}
@@ -1223,9 +1230,11 @@ def register_dashboard(app, bot) -> None:
                 memory, manifest = asyncio.run_coroutine_threadsafe(backup._build_backup(guild), bot.loop).result(timeout=180)
                 backup_id = backup._make_id(guild.id)
                 path = backup._guild_folder(guild.id) / (backup_id + ".zip")
-                path.write_bytes(memory.getvalue())
+                raw = memory.getvalue()
+                path.write_bytes(raw)
+                persistent = asyncio.run_coroutine_threadsafe(backup._store_backup(guild.id, backup_id, raw), bot.loop).result(timeout=60)
                 backup._prune(guild.id)
-                return jsonify({"ok": True, "id": backup_id, "size_bytes": path.stat().st_size, "manifest": manifest, "message": "Backup created. Download a copy because Render local files may reset after redeploy."})
+                return jsonify({"ok": True, "id": backup_id, "size_bytes": len(raw), "persistent": bool(persistent), "manifest": manifest, "message": "Backup created and stored in PostgreSQL." if persistent else "Backup created locally, but PostgreSQL archive storage is unavailable. Download a copy before redeploy."})
             except Exception as exc:
                 print("Dashboard backup creation failed: " + type(exc).__name__ + ": " + str(exc), flush=True)
                 return jsonify({"error": "backup_failed", "message": "Backup creation failed: " + type(exc).__name__}), 500
@@ -1234,9 +1243,10 @@ def register_dashboard(app, bot) -> None:
             backup_id = str(payload.get("backup_id") or "")
             if not backup.BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != guild_id: return jsonify({"error": "invalid_backup_id", "message": "Invalid backup ID or it belongs to another server."}), 400
             path = backup._guild_folder(guild.id) / (backup_id + ".zip")
-            if not path.is_file(): return jsonify({"error": "backup_not_found", "message": "Backup not found on this running instance."}), 404
+            raw = path.read_bytes() if path.is_file() else asyncio.run_coroutine_threadsafe(backup._read_backup(guild.id, backup_id), bot.loop).result(timeout=30)
+            if raw is None: return jsonify({"error": "backup_not_found", "message": "Backup not found in local or PostgreSQL storage."}), 404
             try:
-                manifest, db_result, count = asyncio.run_coroutine_threadsafe(backup._restore_archive(path.read_bytes(), guild.id), bot.loop).result(timeout=240)
+                manifest, db_result, count = asyncio.run_coroutine_threadsafe(backup._restore_archive(raw, guild.id), bot.loop).result(timeout=240)
                 return jsonify({"ok": True, "message": "Restore finished. Config files merged: " + str(count) + ". " + str(db_result), "created_at": manifest.get("created_at")})
             except Exception as exc:
                 print("Dashboard backup restore failed for guild " + guild_id + ": " + type(exc).__name__ + ": " + str(exc), flush=True)
@@ -1257,8 +1267,11 @@ def register_dashboard(app, bot) -> None:
             import backup_system as backup
             if not backup.BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != guild_id: return jsonify({"error": "invalid_backup_id"}), 400
             path = backup._guild_folder(guild.id) / (backup_id + ".zip")
-            if not path.is_file(): return jsonify({"error": "backup_not_found"}), 404
-            return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip", conditional=True)
+            if path.is_file():
+                return send_file(path, as_attachment=True, download_name=path.name, mimetype="application/zip", conditional=True)
+            raw = asyncio.run_coroutine_threadsafe(backup._read_backup(guild.id, backup_id), bot.loop).result(timeout=30)
+            if raw is None: return jsonify({"error": "backup_not_found"}), 404
+            return send_file(io.BytesIO(bytes(raw)), as_attachment=True, download_name=backup_id + ".zip", mimetype="application/zip")
         except Exception as exc:
             print("Dashboard backup download failed: " + type(exc).__name__, flush=True)
             return jsonify({"error": "download_failed"}), 500
