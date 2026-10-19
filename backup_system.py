@@ -236,6 +236,41 @@ async def _restore_db(payload, guild_id):
                 print(f"[Backup] Restore failed in {table}: {type(exc).__name__}: {exc}", flush=True)
     return f"Rows merged: {restored}; errors: {len(errors)}" + (f" ({', '.join(errors[:8])})" if errors else "")
 
+def _prepare_config_restores(configs, guild_id):
+    """Validate and stage every JSON merge before any database/file mutation."""
+    if not isinstance(configs, dict):
+        raise ValueError("Invalid config fragments in backup.")
+    root_dir = Path(".").resolve()
+    prepared = []
+    for relative, fragments in configs.items():
+        if not isinstance(relative, str) or not isinstance(fragments, list):
+            raise ValueError("Invalid config fragment entry.")
+        rel = Path(relative)
+        if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".json" or any(p in EXCLUDED for p in rel.parts):
+            raise ValueError("Unsafe config path in backup.")
+        target = (root_dir / rel).resolve()
+        if target == root_dir or root_dir not in target.parents:
+            raise ValueError("Config path escapes the project.")
+        if target.exists():
+            current = json.loads(target.read_text(encoding="utf-8"))
+        else:
+            current = {}
+        for fragment in fragments:
+            if not isinstance(fragment, dict):
+                raise ValueError("Invalid config fragment in backup.")
+            path = fragment.get("path", [])
+            if not isinstance(path, list) or not path or any(
+                not isinstance(part, (str, int)) or isinstance(part, bool) for part in path
+            ):
+                raise ValueError("Invalid config fragment path.")
+            if str(guild_id) not in [str(part) for part in path]:
+                raise ValueError("Config fragment does not match this guild.")
+            if not _set_fragment(current, path, fragment.get("value")):
+                raise ValueError("Could not safely merge a guild config fragment.")
+        prepared.append((target, current))
+    return prepared
+
+
 async def _restore_archive(raw, guild_id):
     if len(raw) > MAX_ARCHIVE_BYTES:
         raise ValueError("Backup exceeds the 100 MB limit.")
@@ -249,34 +284,21 @@ async def _restore_archive(raw, guild_id):
     if not required.issubset(z.namelist()):
         raise ValueError("Backup metadata is missing.")
     manifest = json.loads(z.read("manifest.json"))
-    if manifest.get("format") != "air-commander-guild-backup-v2":
+    if not isinstance(manifest, dict) or manifest.get("format") != "air-commander-guild-backup-v2":
         raise ValueError("This is not a guild-scoped backup.")
     if int(manifest.get("guild_id", 0)) != int(guild_id):
         raise PermissionError("Cross-server restore is blocked; this backup belongs to another server.")
     configs = json.loads(z.read("guild_json_fragments.json"))
     db_payload = json.loads(z.read("database_tables.json"))
+    if not isinstance(db_payload, dict) or not isinstance(db_payload.get("tables", {}), dict):
+        raise ValueError("Invalid database tables in backup.")
+    # Preflight all JSON paths and merge operations before touching PostgreSQL.
+    prepared_configs = _prepare_config_restores(configs, guild_id)
     if db_payload.get("tables") and not getattr(db, "_pool", None):
         raise RuntimeError("PostgreSQL is disconnected. No restore changes were applied.")
     db_result = await _restore_db(db_payload, guild_id)
     written = 0
-    root_dir = Path(".").resolve()
-    for relative, fragments in configs.items():
-        rel = Path(relative)
-        if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".json" or any(p in EXCLUDED for p in rel.parts):
-            raise ValueError("Unsafe config path in backup.")
-        target = (root_dir / rel).resolve()
-        if target != root_dir and root_dir not in target.parents:
-            raise ValueError("Config path escapes the project.")
-        if target.exists():
-            current = json.loads(target.read_text(encoding="utf-8"))
-        else:
-            current = {}
-        for fragment in fragments:
-            path = fragment.get("path", [])
-            if str(guild_id) not in [str(part) for part in path]:
-                raise ValueError("Config fragment does not match this guild.")
-            if not _set_fragment(current, path, fragment.get("value")):
-                raise ValueError("Could not safely merge a guild config fragment.")
+    for target, current in prepared_configs:
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix(target.suffix + ".restore-tmp")
         temp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
