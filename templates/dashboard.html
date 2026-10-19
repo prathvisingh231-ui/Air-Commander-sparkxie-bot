@@ -434,7 +434,41 @@
     }
   }
 
-  async function loadCommandPermissions(server) {\n    const editor = document.getElementById('commandPermissionsEditor');\n    if (!editor) return;\n    editor.innerHTML = '<div class="loading">Loading command permissions…</div>';\n    const endpoint = '/api/guild/' + encodeURIComponent(server.id) + '/config/command-permissions';\n    try {\n      const cfg = await api(endpoint);\n      const commandOptions = (cfg.commands || []).map(item => '<option value="' + esc(item.name) + '">' + esc(item.name) + (item.enabled ? ' · restricted' : '') + '</option>').join('');\n      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Select command</h3><label class="setting-field"><span>Command</span><select id="cpCommand">' + commandOptions + '</select></label><label class="setting-field"><span><input type="checkbox" id="cpEnabled"> Enable role restriction</span></label><p class="muted" style="font-size:12px">When enabled, only selected roles can run the command. Server members with Administrator or Manage Server bypass the restriction.</p></section><section class="config-sub"><h3>Allowed roles</h3><div id="cpRoles" style="display:grid;gap:8px;max-height:260px;overflow:auto"></div><div class="config-actions"><button class="primary" id="saveCommandPermissions">Save restriction</button><button class="secondary" id="clearCommandPermissions">Remove restriction</button></div></section></div><p id="cpStatus" class="muted" role="status"></p><p class="muted" style="font-size:12px">' + esc(cfg.note || '') + '</p>';\n      const commandSelect = document.getElementById('cpCommand'), enabled = document.getElementById('cpEnabled'), rolesWrap = document.getElementById('cpRoles');\n      const renderPolicy = () => {\n        const item = (cfg.commands || []).find(row => row.name === commandSelect.value) || {enabled:false,role_ids:[]};\n        enabled.checked = Boolean(item.enabled);\n        rolesWrap.innerHTML = (cfg.roles || []).map(role => '<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" class="cpRole" value="' + esc(role.id) + '" ' + ((item.role_ids || []).includes(role.id) ? 'checked' : '') + '> ' + esc(role.name) + '</label>').join('') || '<span class="muted">No assignable roles found.</span>';\n      };\n      commandSelect.addEventListener("change", renderPolicy); renderPolicy();\n      async function savePolicy(turnOn) {\n        const status = document.getElementById('cpStatus'), button = document.getElementById('saveCommandPermissions');\n        const roleIds = Array.from(rolesWrap.querySelectorAll('.cpRole:checked')).map(input => input.value);\n        if (turnOn && !roleIds.length) { status.textContent = 'Select at least one allowed role first.'; return; }\n        if (button) button.disabled = true; status.textContent = 'Saving…';\n        try {\n          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({command:commandSelect.value,enabled:turnOn,role_ids:roleIds})});\n          const result = await response.json().catch(() => ({}));\n          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');\n          status.textContent = result.message || 'Saved.';\n          await loadCommandPermissions(server);\n        } catch (error) { status.textContent = error.message; }\n        finally { const b = document.getElementById('saveCommandPermissions'); if (b) b.disabled = false; }\n      }\n      document.getElementById('saveCommandPermissions').addEventListener('click', () => savePolicy(enabled.checked));\n      document.getElementById('clearCommandPermissions').addEventListener('click', () => savePolicy(false));\n    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }\n  }\n  async function loadBackups(server) {
+  async function loadCommandPermissions(server) {
+    const editor = document.getElementById('commandPermissionsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading command permissions…</div>';
+    const endpoint = '/api/guild/' + encodeURIComponent(server.id) + '/config/command-permissions';
+    try {
+      const cfg = await api(endpoint);
+      const commandOptions = (cfg.commands || []).map(item => '<option value="' + esc(item.name) + '">' + esc(item.name) + (item.enabled ? ' · restricted' : '') + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Select command</h3><label class="setting-field"><span>Command</span><select id="cpCommand">' + commandOptions + '</select></label><label class="setting-field"><span><input type="checkbox" id="cpEnabled"> Enable role restriction</span></label><p class="muted" style="font-size:12px">When enabled, only selected roles can run the command. Server members with Administrator or Manage Server bypass the restriction.</p></section><section class="config-sub"><h3>Allowed roles</h3><div id="cpRoles" style="display:grid;gap:8px;max-height:260px;overflow:auto"></div><div class="config-actions"><button class="primary" id="saveCommandPermissions">Save restriction</button><button class="secondary" id="clearCommandPermissions">Remove restriction</button></div></section></div><p id="cpStatus" class="muted" role="status"></p><p class="muted" style="font-size:12px">' + esc(cfg.note || '') + '</p>';
+      const commandSelect = document.getElementById('cpCommand'), enabled = document.getElementById('cpEnabled'), rolesWrap = document.getElementById('cpRoles');
+      const renderPolicy = () => {
+        const item = (cfg.commands || []).find(row => row.name === commandSelect.value) || {enabled:false,role_ids:[]};
+        enabled.checked = Boolean(item.enabled);
+        rolesWrap.innerHTML = (cfg.roles || []).map(role => '<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" class="cpRole" value="' + esc(role.id) + '" ' + ((item.role_ids || []).includes(role.id) ? 'checked' : '') + '> ' + esc(role.name) + '</label>').join('') || '<span class="muted">No assignable roles found.</span>';
+      };
+      commandSelect.addEventListener("change", renderPolicy); renderPolicy();
+      async function savePolicy(turnOn) {
+        const status = document.getElementById('cpStatus'), button = document.getElementById('saveCommandPermissions');
+        const roleIds = Array.from(rolesWrap.querySelectorAll('.cpRole:checked')).map(input => input.value);
+        if (turnOn && !roleIds.length) { status.textContent = 'Select at least one allowed role first.'; return; }
+        if (button) button.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({command:commandSelect.value,enabled:turnOn,role_ids:roleIds})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          await loadCommandPermissions(server);
+        } catch (error) { status.textContent = error.message; }
+        finally { const b = document.getElementById('saveCommandPermissions'); if (b) b.disabled = false; }
+      }
+      document.getElementById('saveCommandPermissions').addEventListener('click', () => savePolicy(enabled.checked));
+      document.getElementById('clearCommandPermissions').addEventListener('click', () => savePolicy(false));
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+  async function loadBackups(server) {
     const editor = document.getElementById('backupsEditor');
     if (!editor) return;
     editor.innerHTML = '<div class="loading">Loading backups…</div>';
