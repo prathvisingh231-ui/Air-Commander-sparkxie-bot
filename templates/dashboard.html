@@ -645,7 +645,7 @@
     } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
   }
 
-  async async function chooseServer(server) {
+  async function chooseServer(server) {
     selected = server;
     renderServers();
     if (!server.bot_present) {
