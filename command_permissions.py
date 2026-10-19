@@ -1,30 +1,149 @@
+"""Guild-scoped role allowlists for prefix and slash commands.
+
+No restriction is applied unless a server admin enables one for a command.
+Server administrators retain an emergency bypass.
+"""
 from __future__ import annotations
-import time, math, random, json, re
-from datetime import datetime, timezone
+
+import json
+from pathlib import Path
+
 import discord
+from discord import app_commands
 from discord.ext import commands
 
-TITLE='🔐 Command Permissions'
-KEY='commandpermissions'
+TITLE = "🔐 Command Permissions"
+DATA_FILE = Path("data/command_permissions.json")
+DATA: dict = {}
+
 
 def _embed(desc, color=0x5865F2):
-    e=discord.Embed(title=TITLE, description=desc, color=color)
-    e.set_footer(text="AirMarshal Commander • Air Commander")
-    return e
+    embed = discord.Embed(title=TITLE, description=desc, color=color)
+    embed.set_footer(text="AirMarshal Commander • Air Commander")
+    return embed
+
+
+def load_data():
+    global DATA
+    try:
+        loaded = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        DATA = loaded if isinstance(loaded, dict) else {}
+    except (OSError, ValueError, TypeError):
+        DATA = {}
+    return DATA
+
+
+def save_data(data=None):
+    global DATA
+    if data is not None:
+        DATA = data
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = DATA_FILE.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(DATA, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(DATA_FILE)
+
+
+def _policy(guild_id, command_name):
+    guild = DATA.get(str(guild_id), {})
+    policies = guild.get("commands", {}) if isinstance(guild, dict) else {}
+    policy = policies.get(command_name, {}) if isinstance(policies, dict) else {}
+    if not isinstance(policy, dict) or not policy.get("enabled"):
+        return None
+    role_ids = policy.get("role_ids", [])
+    try:
+        return {int(value) for value in role_ids}
+    except (TypeError, ValueError):
+        return set()
+
+
+def _allowed(member, guild_id, command_name):
+    role_ids = _policy(guild_id, command_name)
+    if role_ids is None:
+        return True
+    permissions = getattr(member, "guild_permissions", None)
+    if permissions and (permissions.administrator or permissions.manage_guild):
+        return True
+    member_roles = {int(role.id) for role in getattr(member, "roles", [])}
+    return bool(member_roles.intersection(role_ids))
+
+
+def _all_policies_allow(member, guild_id, command_names):
+    """Require every matching enabled policy to allow access (specific + parent)."""
+    for name in dict.fromkeys(command_names):
+        if _policy(guild_id, name) is not None and not _allowed(member, guild_id, name):
+            return False
+    return True
+
 
 def setup(bot):
-    # Commands are intentionally unique; existing moderation/utility commands are retained.
-    if bot.get_command('cmdperm') is None:
-        @bot.command(name='cmdperm')
-        async def _prefix(ctx, *, value: str = ""):
-            await _run(ctx, value)
-    if bot.tree.get_command('cmdperm') is None:
-        @bot.tree.command(name='cmdperm', description='Per-command permission settings.')
-        async def _slash(interaction: discord.Interaction, value: str = ""):
-            await _run(interaction, value)
+    load_data()
+    bot._air_command_permissions_data = DATA
 
-async def _run(target, value=""):
-    send = target.response.send_message if isinstance(target, discord.Interaction) else target.send
-    if isinstance(target, discord.Interaction) and target.response.is_done():
-        send = target.followup.send
-    await send(embed=_embed('**Per-command permission settings.**\\n\\nConfiguration input: `{value}`\\n\\nUse this command as the control point for the module. Existing Air Commander commands are preserved.'.format(value=value)))
+    # Keep the existing command name and both interfaces.
+    if bot.get_command("cmdperm") is None:
+        @bot.command(name="cmdperm")
+        @commands.guild_only()
+        async def _prefix(ctx, *, value: str = ""):
+            if not ctx.author.guild_permissions.manage_guild and not ctx.author.guild_permissions.administrator:
+                return await ctx.send("Manage Server permission required.")
+            await ctx.send(embed=_embed(
+                "Command restrictions are managed in the Air Commander Dashboard. "
+                "Open Dashboard → Command Permissions to configure role allowlists."
+            ))
+
+    if bot.tree.get_command("cmdperm") is None:
+        @bot.tree.command(name="cmdperm", description="View command permission settings.")
+        @app_commands.guild_only()
+        async def _slash(interaction: discord.Interaction):
+            perms = interaction.user.guild_permissions
+            if not (perms.manage_guild or perms.administrator):
+                return await interaction.response.send_message("Manage Server permission required.", ephemeral=True)
+            await interaction.response.send_message(embed=_embed(
+                "Command restrictions are managed in the Air Commander Dashboard. "
+                "Open Dashboard → Command Permissions to configure role allowlists."
+            ), ephemeral=True)
+
+    if not getattr(bot, "_air_command_permissions_prefix_check", False):
+        async def prefix_permission_check(ctx):
+            if not ctx.guild or not ctx.command:
+                return True
+            # Apply every configured policy from the invoked command through all parent groups.
+            candidates = [ctx.command.qualified_name]
+            parent = getattr(ctx.command, "parent", None)
+            while parent is not None:
+                candidates.append(parent.qualified_name)
+                parent = getattr(parent, "parent", None)
+            candidates.append(ctx.command.name)
+            if not _all_policies_allow(ctx.author, ctx.guild.id, candidates):
+                await ctx.send("You do not have a role allowed to use this command.")
+                return False
+            return True
+        bot.add_check(prefix_permission_check)
+        bot._air_command_permissions_prefix_check = True
+
+    if not getattr(bot, "_air_command_permissions_slash_check", False):
+        tree = bot.tree
+        original_check = tree.interaction_check
+
+        async def slash_permission_check(interaction: discord.Interaction):
+            base_allowed = await original_check(interaction)
+            if not base_allowed or not interaction.guild or not interaction.command:
+                return base_allowed
+            command = interaction.command
+            # Check the full subcommand, its top-level group, and its leaf name.
+            # This lets admins restrict either one nested command or an entire group.
+            names = [command.qualified_name]
+            parent = getattr(command, "parent", None)
+            while parent is not None:
+                names.append(parent.qualified_name)
+                parent = getattr(parent, "parent", None)
+            names.append(command.name)
+            allowed = _all_policies_allow(interaction.user, interaction.guild.id, names)
+            if not allowed and not interaction.response.is_done():
+                await interaction.response.send_message("You do not have a role allowed to use this command.", ephemeral=True)
+            return allowed
+
+        tree.interaction_check = slash_permission_check
+        bot._air_command_permissions_slash_check = True
+
+    print("Command permissions loaded: per-guild role allowlists enabled for prefix and slash commands.", flush=True)

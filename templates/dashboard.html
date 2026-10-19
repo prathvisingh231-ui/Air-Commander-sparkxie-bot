@@ -14,7 +14,8 @@
     main{max-width:1200px;margin:0 auto;padding:42px 24px 64px}.eyebrow{font-size:12px;font-weight:750;text-transform:uppercase;letter-spacing:.12em;color:var(--blue)}h1{font-size:clamp(28px,4vw,40px);line-height:1.12;letter-spacing:-.045em;margin:8px 0 12px}h2{font-size:18px;letter-spacing:-.02em;margin:0}.muted{color:var(--muted)}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px}.hero p{max-width:620px;margin:0;color:var(--muted)}
     .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 2px 8px #17203305}.login-card{max-width:520px;margin:10vh auto;padding:38px;text-align:center}.login-icon{width:66px;height:66px;border-radius:20px;background:#eaf0ff;display:grid;place-items:center;font-size:31px;margin:0 auto 22px}.primary{display:inline-flex;align-items:center;justify-content:center;gap:10px;background:var(--blue);color:#fff;border:0;border-radius:11px;padding:12px 18px;font-weight:700;cursor:pointer;transition:background .15s}.primary:hover{background:var(--blue2)}.primary:disabled{opacity:.55;cursor:wait}.secondary{border:1px solid var(--line);background:#fff;border-radius:10px;padding:10px 13px;font-weight:650;cursor:pointer}.error{background:#fff1f0;border:1px solid #ffd1cc;color:var(--red);border-radius:12px;padding:12px 14px;margin:16px 0}
     .layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px;align-items:start}.server-panel{padding:18px}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.count{font-size:12px;color:var(--muted);background:#f1f4f9;padding:4px 8px;border-radius:999px}.server-list{display:grid;gap:8px}.server-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:12px;padding:10px;cursor:pointer;color:var(--ink)}.server-item:hover{background:#f6f8fc}.server-item.active{background:#eef3ff;border-color:#d8e3ff}.server-icon{width:40px;height:40px;flex:none;border-radius:12px;object-fit:cover;background:#eef1f7;display:grid;place-items:center;font-weight:750;color:#5c6b85}.server-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.server-state{font-size:11px;color:var(--muted)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#98a2b3;margin-right:5px}.dot.good{background:#12a66a}.main-panel{min-width:0}.welcome-card{padding:24px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:20px}.welcome-card p{margin:6px 0 0;color:var(--muted)}.server-large{display:flex;align-items:center;gap:14px}.server-large img,.server-large .server-icon{width:58px;height:58px;border-radius:16px}.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 9px;border-radius:999px;background:#eaf8f1;color:var(--green);font-size:12px;font-weight:750;white-space:nowrap}.pill.off{background:#f2f4f7;color:#667085}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}.stat{padding:18px}.stat-top{font-size:12px;color:var(--muted);font-weight:650}.stat-value{font-size:27px;font-weight:780;letter-spacing:-.04em;margin-top:8px}.stat-foot{font-size:11px;color:var(--muted);margin-top:2px}.features{padding:22px}.feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:17px}.feature{border:1px solid var(--line);border-radius:13px;padding:15px;display:flex;align-items:center;justify-content:space-between;gap:10px}.feature-name{font-weight:700;font-size:13px}.feature-desc{font-size:11px;color:var(--muted);margin-top:3px}.status{font-size:11px;font-weight:750;border-radius:999px;padding:5px 8px;white-space:nowrap}.status.on{color:#067647;background:#e8f8ef}.status.off{color:#667085;background:#f2f4f7}.empty{padding:30px 18px;text-align:center;color:var(--muted);font-size:13px}.notice{margin-top:15px;background:#f5f7fb;border-radius:12px;padding:12px 14px;font-size:12px;color:var(--muted)}.loading{padding:35px;text-align:center;color:var(--muted)}.footer{margin-top:26px;text-align:center;color:#8a94a6;font-size:12px}
-    @media(max-width:850px){.layout{grid-template-columns:1fr}.server-panel{order:0}.main-panel{order:1}.server-list{grid-template-columns:repeat(2,minmax(0,1fr))}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:flex-start;flex-direction:column}.welcome-card{align-items:flex-start;flex-direction:column}}
+    .config-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.config-sub{border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}.config-sub h3{margin:0 0 12px;font-size:15px}.setting-field{display:grid;gap:6px;margin:12px 0;font-size:12px;color:var(--muted);font-weight:650}.setting-field input,.setting-field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;background:#fff;color:var(--ink);font:inherit}.setting-toggle{display:flex;gap:9px;align-items:center;margin:10px 0;font-size:13px;font-weight:650}.config-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.config-actions .primary{padding:10px 14px}.config-actions .primary:disabled{opacity:.6}
+    @media(max-width:850px){.config-columns{grid-template-columns:1fr}.layout{grid-template-columns:1fr}.server-panel{order:0}.main-panel{order:1}.server-list{grid-template-columns:repeat(2,minmax(0,1fr))}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:flex-start;flex-direction:column}.welcome-card{align-items:flex-start;flex-direction:column}}
     @media(max-width:520px){main{padding:28px 14px 44px}.topbar{padding:0 14px;height:64px}.brand small{display:none}.user-label{display:none}.server-list{grid-template-columns:1fr}.feature-grid{grid-template-columns:1fr}.login-card{margin:8vh 14px;padding:28px 20px}.stat{padding:14px}.stat-value{font-size:24px}}
   </style>
 </head>
@@ -119,6 +120,19 @@
       '</div>' +
       '<div class="panel features"><div class="section-heading"><div><h2>Feature status</h2><div class="muted" style="font-size:12px;margin-top:4px">Read-only status from the bot’s current configuration files</div></div><span class="count">' + (data.features || []).length + ' modules</span></div>' +
       '<div class="feature-grid">' + features + '</div>' +
+      '<div class="panel features" style="margin-top:18px" id="securityPanel"><div class="section-heading"><div><h2>Security configuration</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure AutoMode and AntiNuke for this server</div></div><span class="count">Editable</span></div><div id="securityEditor" class="loading">Loading security settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="welcomePanel"><div class="section-heading"><div><h2>Welcome & join role</h2><div class="muted" style="font-size:12px;margin-top:4px">Choose the welcome channel, message and role given to new members</div></div><span class="count">Editable</span></div><div id="welcomeEditor" class="loading">Loading welcome settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="verificationPanel"><div class="section-heading"><div><h2>Button verification</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Verify button, role and embed</div></div><span class="count">Editable</span></div><div id="verificationEditor" class="loading">Loading verification settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="ticketsPanel"><div class="section-heading"><div><h2>Tickets · Templates & Panels</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing Air Commander ticket template and panel</div></div><span class="count">Editable</span></div><div id="ticketsEditor" class="loading">Loading ticket settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="giveawayTemplatesPanel"><div class="section-heading"><div><h2>Giveaways · Templates</h2><div class="muted" style="font-size:12px;margin-top:4px">Reusable prizes, duration, winners and role requirements</div></div><span class="count">Editable</span></div><div id="giveawayTemplatesEditor" class="loading">Loading giveaway templates…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="backupsPanel"><div class="section-heading"><div><h2>Backups & Recovery</h2><div class="muted" style="font-size:12px;margin-top:4px">Create, download and owner-only restore of guild backups</div></div><span class="count">Protected</span></div><div id="backupsEditor" class="loading">Loading backup list…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="youtubeAlertsPanel"><div class="section-heading"><div><h2>YouTube Alerts</h2><div class="muted" style="font-size:12px;margin-top:4px">RSS uploads, Shorts and live alerts for tracked creators</div></div><span class="count">Editable</span></div><div id="youtubeAlertsEditor" class="loading">Loading YouTube alert settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="aiChannelPanel"><div class="section-heading"><div><h2>AI Channel</h2><div class="muted" style="font-size:12px;margin-top:4px">Configure the existing mention/reply AI chat channel</div></div><span class="count">Editable</span></div><div id="aiChannelEditor" class="loading">Loading AI channel settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="levelingPanel"><div class="section-heading"><div><h2>Air Leveling</h2><div class="muted" style="font-size:12px;margin-top:4px">XP rates, cooldowns, announcements and ignored channels/roles</div></div><span class="count">Editable</span></div><div id="levelingEditor" class="loading">Loading leveling settings…</div></div>' +
+      '<div class="panel features" style="margin-top:18px" id="commandPermissionsPanel"><div class="section-heading"><div><h2>Command Permissions</h2><div class="muted" style="font-size:12px;margin-top:4px">Restrict individual prefix and slash commands by role</div></div><span class="count">Editable</span></div><div id="commandPermissionsEditor" class="loading">Loading command permissions…</div></div>' +
+      '<div class="panel features" style="margin-top:18px"><div class="section-heading"><div><h2>More modules</h2><div class="muted" style="font-size:12px;margin-top:4px">Additional configuration panels are being added in stages.</div></div></div><div class="feature-grid">' +
+      [] .map(name => '<div class="feature"><div><div class="feature-name">' + esc(name) + '</div><div class="feature-desc">Existing bot module · settings panel pending</div></div><span class="status off">Coming next</span></div>').join('') +
+      '</div></div>' +
       '<div class="notice">Runtime: ' + (bot.ready ? 'Connected' : 'Not connected') +
       (bot.latency_ms !== null ? ' · Gateway latency: ' + fmt(bot.latency_ms) + ' ms' : '') +
       ' · PostgreSQL pool: ' + (data.database.configured_pool ? 'available' : 'not connected') +
@@ -128,6 +142,507 @@
 
   function stat(label, value, foot) {
     return '<div class="panel stat"><div class="stat-top">' + esc(label) + '</div><div class="stat-value">' + esc(value) + '</div><div class="stat-foot">' + esc(foot) + '</div></div>';
+  }
+
+  async function loadSecurity(server) {
+    const editor = document.getElementById('securityEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading security settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/security');
+      const a = cfg.automode || {}, n = cfg.antinuke || {}, l = cfg.antilink || {};
+      const field = (label, key, value, min, max, group='auto') => '<label class="setting-field"><span>' + esc(label) + '</span><input type="number" data-' + group + '="' + esc(key) + '" value="' + esc(value) + '" min="' + min + '" max="' + max + '"></label>';
+      const toggle = (label, key, checked, group) => '<label class="setting-toggle"><input type="checkbox" data-' + group + '="' + esc(key) + '"' + (checked ? ' checked' : '') + '> <span>' + esc(label) + '</span></label>';
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>AutoMode</h3>' +
+        toggle('Enable AutoMode', 'enabled', a.enabled, 'auto') +
+        toggle('Link protection', 'link_protection', a.link_protection, 'auto') +
+        field('Messages for spam', 'spam_messages', a.spam_messages, 2, 30) +
+        field('Spam time window (seconds)', 'spam_window', a.spam_window, 2, 60) +
+        field('Mention limit', 'mention_limit', a.mention_limit, 2, 30) +
+        field('Duplicate message limit', 'duplicate_limit', a.duplicate_limit, 2, 15) +
+        field('Log channel ID (optional)', 'log_channel_id', a.log_channel_id || '', 1, 999999999999999999) +
+        '</section><section class="config-sub"><h3>AntiNuke</h3>' +
+        toggle('Enable AntiNuke', 'enabled', n.enabled, 'nuke') +
+        '<label class="setting-field"><span>Response action</span><select data-nuke="action"><option value="ban">Ban</option><option value="kick">Kick</option><option value="timeout">Timeout</option><option value="strip">Strip roles</option></select></label>' +
+        field('Detection window (seconds)', 'window', n.window, 3, 60, 'nuke') +
+        field('Log channel ID (optional)', 'log_channel_id', n.log_channel_id || '', 1, 999999999999999999, 'nuke') +
+        '<p class="muted" style="font-size:12px">Thresholds remain at their current values for this first panel.</p></section>' +
+        '<section class="config-sub"><h3>AntiLink</h3>' +
+        toggle('Enable AntiLink', 'enabled', l.enabled, 'link') +
+        toggle('Delete detected links', 'delete_enabled', l.delete_enabled, 'link') +
+        toggle('Warn the member', 'warning_enabled', l.warning_enabled, 'link') +
+        toggle('Send member a DM', 'dm_enabled', l.dm_enabled, 'link') +
+        Object.entries(l.types || {}).map(([key,value]) => toggle('Block ' + key, key, value, 'linktype')).join('') +
+        field('Log channel ID (optional)', 'log_channel_id', l.log_channel_id || '', 1, 999999999999999999, 'link') +
+        '</section></div>' +
+        '<div class="config-actions"><button class="primary" id="saveSecurity">Save security settings</button><span id="securityMessage" class="muted" role="status"></span></div>';
+      editor.querySelector('[data-nuke="action"]').value = n.action || 'ban';
+      document.getElementById('saveSecurity').addEventListener('click', async () => {
+        const btn = document.getElementById('saveSecurity'), message = document.getElementById('securityMessage');
+        btn.disabled = true; message.textContent = 'Saving…';
+        const val = (group,key) => editor.querySelector('[data-' + group + '="' + key + '"]')?.value;
+        const checked = (group,key) => !!editor.querySelector('[data-' + group + '="' + key + '"]')?.checked;
+        const auto = {enabled:checked('auto','enabled'),link_protection:checked('auto','link_protection'),
+          spam_messages:Number(val('auto','spam_messages')),spam_window:Number(val('auto','spam_window')),
+          mention_limit:Number(val('auto','mention_limit')),duplicate_limit:Number(val('auto','duplicate_limit')),
+          log_channel_id:val('auto','log_channel_id') || null};
+        const nuke = {enabled:checked('nuke','enabled'),action:val('nuke','action'),
+          window:Number(val('nuke','window')),log_channel_id:val('nuke','log_channel_id') || null};
+        const linkTypes = {};
+        editor.querySelectorAll('[data-linktype]').forEach(el => { linkTypes[el.dataset.linktype] = el.checked; });
+        const antilink = {enabled:checked('link','enabled'),delete_enabled:checked('link','delete_enabled'),
+          warning_enabled:checked('link','warning_enabled'),dm_enabled:checked('link','dm_enabled'),
+          types:linkTypes,log_channel_id:val('link','log_channel_id') || null};
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/security', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({automode:auto,antinuke:nuke,antilink:antilink})
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          message.textContent = 'Saved successfully.';
+        } catch (error) { message.textContent = error.message; }
+        finally { btn.disabled = false; }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
+  async function loadWelcome(server) {
+    const editor = document.getElementById('welcomeEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading welcome settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/welcome');
+      const options = (items, selected, emptyLabel) =>
+        '<option value="">' + esc(emptyLabel) + '</option>' + items.map(item =>
+          '<option value="' + esc(item.id) + '"' + (String(item.id) === String(selected) ? ' selected' : '') + '>' + esc(item.name) + '</option>'
+        ).join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Welcome message</h3>' +
+        '<label class="setting-field"><span>Send welcome message in</span><select id="welcomeChannel">' +
+        options(cfg.channels || [], cfg.channel_id, 'Disabled — no channel') + '</select></label>' +
+        '<label class="setting-field"><span>Existing welcome embed</span><select id="welcomeEmbed">' +
+        '<option value="">None — message only is disabled by the current welcome module</option>' +
+        (cfg.embeds || []).map(item => '<option value="' + esc(item.name) + '"' + (item.name === cfg.active_embed ? ' selected' : '') + '>' + esc(item.label) + '</option>').join('') +
+        '</select></label>' +
+        '<label class="setting-field"><span>Message text</span><textarea id="welcomeMessage" rows="5" maxlength="2000" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit;resize:vertical" placeholder="Welcome {user} to {server}!">' +
+        esc(cfg.message || '') + '</textarea></label>' +
+        '<p class="muted" style="font-size:12px">Variables: {user}, {username}, {displayname}, {server}, {membercount}. Select an existing embed for the current welcome module to send this message on join.</p>' +
+        '</section><section class="config-sub"><h3>Automatic join role</h3>' +
+        '<label class="setting-field"><span>Role assigned to new members</span><select id="joinRole">' +
+        options(cfg.roles || [], cfg.join_role_id, 'No automatic role') + '</select></label>' +
+        '<p class="muted" style="font-size:12px">Air Commander needs Manage Roles, and its highest role must be above the selected role.</p></section></div>' +
+        '<div class="config-actions"><button class="primary" id="saveWelcome">Save welcome settings</button><span id="welcomeMessageStatus" class="muted" role="status"></span></div>';
+      document.getElementById('saveWelcome').addEventListener('click', async () => {
+        const btn = document.getElementById('saveWelcome');
+        const status = document.getElementById('welcomeMessageStatus');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/welcome', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              channel_id:document.getElementById('welcomeChannel').value || null,
+              message:document.getElementById('welcomeMessage').value,
+              join_role_id:document.getElementById('joinRole').value || null,
+              active_embed:document.getElementById('welcomeEmbed').value || null
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
+
+  async function loadVerification(server) {
+    const editor = document.getElementById('verificationEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading verification settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/verification');
+      const options = (items, selected, emptyLabel, roleMode=false) =>
+        '<option value="">' + esc(emptyLabel) + '</option>' + items.map(item => {
+          const disabled = roleMode && !item.assignable;
+          return '<option value="' + esc(item.id) + '"' + (String(item.id) === String(selected) ? ' selected' : '') +
+            (disabled ? ' disabled' : '') + '>' + esc(item.name) + (disabled ? ' (role hierarchy)' : '') + '</option>';
+        }).join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Panel & role</h3>' +
+        '<label class="setting-toggle"><input type="checkbox" id="verifyEnabled"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable button verification</span></label>' +
+        '<label class="setting-field"><span>Panel channel</span><select id="verifyChannel">' + options(cfg.channels || [], cfg.channel_id, 'Choose a text channel') + '</select></label>' +
+        '<label class="setting-field"><span>Verified member role</span><select id="verifyRole">' + options(cfg.roles || [], cfg.role_id, 'Choose a role', true) + '</select></label>' +
+        '<p class="muted" style="font-size:12px">Only roles below Air Commander’s highest role can be assigned. Saving settings does not post a new message.</p>' +
+        '</section><section class="config-sub"><h3>Embed appearance</h3>' +
+        '<label class="setting-field"><span>Title</span><input id="verifyTitle" maxlength="256" value="' + esc(cfg.title) + '"></label>' +
+        '<label class="setting-field"><span>Description</span><textarea id="verifyDescription" rows="4" maxlength="4000" style="width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit;resize:vertical">' + esc(cfg.description) + '</textarea></label>' +
+        '<label class="setting-field"><span>Embed color (hex)</span><input id="verifyColor" maxlength="7" value="' + esc(cfg.color) + '" placeholder="#5865F2"></label>' +
+        '<label class="setting-field"><span>Footer</span><input id="verifyFooter" maxlength="2048" value="' + esc(cfg.footer) + '"></label>' +
+        '<label class="setting-field"><span>Verify button text</span><input id="verifyButton" maxlength="80" value="' + esc(cfg.button_text) + '"></label>' +
+        '</section></div><div class="config-actions"><button class="primary" id="saveVerification">Save verification settings</button><span id="verificationMessage" class="muted" role="status"></span></div>';
+      document.getElementById('saveVerification').addEventListener('click', async () => {
+        const btn = document.getElementById('saveVerification'), status = document.getElementById('verificationMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/verification', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              enabled:document.getElementById('verifyEnabled').checked,
+              channel_id:document.getElementById('verifyChannel').value || null,
+              role_id:document.getElementById('verifyRole').value || null,
+              title:document.getElementById('verifyTitle').value,
+              description:document.getElementById('verifyDescription').value,
+              color:document.getElementById('verifyColor').value,
+              footer:document.getElementById('verifyFooter').value,
+              button_text:document.getElementById('verifyButton').value
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) { status.textContent = error.message; }
+        finally { btn.disabled = false; }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
+
+  async function loadLeveling(server) {
+    const editor = document.getElementById('levelingEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading leveling settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/leveling');
+      const optionList = (items, selected, emptyLabel) =>
+        '<option value="">' + esc(emptyLabel) + '</option>' + items.map(item =>
+          '<option value="' + esc(item.id) + '"' + (String(item.id) === String(selected) ? ' selected' : '') + '>' + esc(item.name) + '</option>'
+        ).join('');
+      const multiList = (id, items, selected) => '<select id="' + id + '" multiple size="5" style="min-height:112px">' +
+        items.map(item => '<option value="' + esc(item.id) + '"' + (selected.includes(String(item.id)) ? ' selected' : '') + '>' + esc(item.name) + '</option>').join('') +
+        '</select><p class="muted" style="font-size:12px">Hold Ctrl (Windows) or Command (Mac) to select multiple items.</p>';
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>XP & status</h3>' +
+        '<label class="setting-toggle"><input id="levelEnabled" type="checkbox"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable Air Leveling</span></label>' +
+        '<label class="setting-field"><span>XP per message (1–500)</span><input id="levelXp" type="number" min="1" max="500" value="' + esc(cfg.xp_per_message) + '"></label>' +
+        '<label class="setting-field"><span>XP cooldown in seconds (0–3600)</span><input id="levelCooldown" type="number" min="0" max="3600" value="' + esc(cfg.cooldown) + '"></label>' +
+        '<label class="setting-toggle"><input id="levelAnnounce" type="checkbox"' + (cfg.announce ? ' checked' : '') + '> <span>Announce level-ups</span></label>' +
+        '<label class="setting-field"><span>Level-up announcement channel</span><select id="levelChannel">' + optionList(cfg.channels || [], cfg.announce_channel, 'Use the current chat channel') + '</select></label>' +
+        '<p class="muted" style="font-size:12px">Level cap: ' + esc(cfg.max_level || 200) + '. This panel does not reset XP, rewards, quests or season progress.</p>' +
+        '</section><section class="config-sub"><h3>Ignore locations & roles</h3>' +
+        '<label class="setting-field"><span>Ignored text channels</span>' + multiList('levelIgnoredChannels', cfg.channels || [], (cfg.ignored_channels || []).map(String)) + '</label>' +
+        '<label class="setting-field"><span>Ignored roles</span>' + multiList('levelIgnoredRoles', cfg.roles || [], (cfg.ignored_roles || []).map(String)) + '</label>' +
+        '</section></div><div class="config-actions"><button class="primary" id="saveLeveling">Save leveling settings</button><span id="levelingMessage" class="muted" role="status"></span></div>';
+      document.getElementById('saveLeveling').addEventListener('click', async () => {
+        const btn = document.getElementById('saveLeveling'), status = document.getElementById('levelingMessage');
+        const selectedValues = id => Array.from(document.getElementById(id).selectedOptions).map(item => item.value);
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/leveling', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              enabled:document.getElementById('levelEnabled').checked,
+              xp_per_message:document.getElementById('levelXp').value,
+              cooldown:document.getElementById('levelCooldown').value,
+              announce:document.getElementById('levelAnnounce').checked,
+              announce_channel:document.getElementById('levelChannel').value || null,
+              ignored_channels:selectedValues('levelIgnoredChannels'),
+              ignored_roles:selectedValues('levelIgnoredRoles')
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) { status.textContent = error.message; }
+        finally { btn.disabled = false; }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
+  async function loadTickets(server) {
+    const editor = document.getElementById('ticketsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading ticket settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/tickets');
+      const c = cfg.config || {}, p = cfg.panel || {}, channels = cfg.channels || [], roles = cfg.roles || [];
+      const optionList = (items, selected, label, type) => '<option value="">' + esc(label) + '</option>' +
+        items.filter(item => !type || item.type === type).map(item => '<option value="' + esc(item.id) + '"' +
+          (String(item.id) === String(selected) ? ' selected' : '') + '>' + esc(item.name) + '</option>').join('');
+      const roleList = '<option value="">Select support role</option>' + roles.map(item => '<option value="' + esc(item.id) + '"' +
+        (String(item.id) === String(c.support_role_id) ? ' selected' : '') + '>' + esc(item.name) + '</option>').join('');
+      const categorySummary = (cfg.categories || []).map(item => '<div class="feature"><div><div class="feature-name">' +
+        esc((item.emoji || '🎫') + ' ' + item.name) + '</div><div class="feature-desc">' + esc(item.description || 'No description') +
+        '</div></div><span class="status on">' + esc(item.key) + '</span></div>').join('') || '<p class="muted">No ticket categories configured.</p>';
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Ticket template</h3>' +
+        '<label class="setting-field"><span>Support team role</span><select id="ticketSupportRole">' + roleList + '</select></label>' +
+        '<label class="setting-field"><span>Ticket logging channel</span><select id="ticketLogChannel">' + optionList(channels, c.log_channel_id, 'Select a channel', 'text') + '</select></label>' +
+        '<label class="setting-field"><span>Ticket category</span><select id="ticketCategory">' + optionList(channels, c.ticket_category_id, 'Select a category', 'category') + '</select></label>' +
+        '<label class="setting-field"><span>Ticket channel name</span><input id="ticketNaming" maxlength="80" value="' + esc(c.naming || 'ticket-{username}') + '"></label>' +
+        '<label class="setting-toggle"><input id="ticketTranscript" type="checkbox"' + (c.transcript ? ' checked' : '') + '> <span>Store ticket transcripts</span></label>' +
+        '<p class="muted" style="font-size:12px">Placeholders supported by the current bot: {username}, {user}, {category}, {userid}.</p>' +
+        '</section><section class="config-sub"><h3>Ticket panel</h3>' +
+        '<label class="setting-field"><span>Panel channel</span><select id="ticketPanelChannel">' + optionList(channels, p.channel_id, 'Choose a panel channel', 'text') + '</select></label>' +
+        '<label class="setting-field"><span>Panel title</span><input id="ticketPanelTitle" maxlength="256" value="' + esc(p.title || '') + '"></label>' +
+        '<label class="setting-field"><span>Panel description</span><textarea id="ticketPanelDescription" rows="4" maxlength="4000">' + esc(p.description || '') + '</textarea></label>' +
+        '<label class="setting-field"><span>Embed color (hex)</span><input id="ticketPanelColor" maxlength="7" value="' + esc(p.color || '#5865F2') + '" placeholder="#5865F2"></label>' +
+        '<label class="setting-field"><span>Footer</span><input id="ticketPanelFooter" maxlength="2048" value="' + esc(p.footer || '') + '"></label>' +
+        '</section></div><section class="config-sub" style="margin-top:14px"><h3>Existing ticket categories</h3>' + categorySummary +
+        '<p class="muted" style="font-size:12px;margin-top:10px">This bot currently has one shared ticket configuration. Advanced per-template switches, access rules, forms, ratings, claims and concurrent-ticket limits are not implemented in its ticket engine yet, so they are not shown as working controls here.</p></section>' +
+        '<div class="config-actions"><button class="primary" id="saveTickets">Save ticket settings</button><span id="ticketsMessage" class="muted" role="status"></span></div>';
+      document.getElementById('saveTickets').addEventListener('click', async () => {
+        const btn = document.getElementById('saveTickets'), status = document.getElementById('ticketsMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/tickets', {
+            method:'POST', credentials:'same-origin',
+            headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"},
+            body:JSON.stringify({
+              config:{support_role_id:document.getElementById('ticketSupportRole').value || null,
+                log_channel_id:document.getElementById('ticketLogChannel').value || null,
+                ticket_category_id:document.getElementById('ticketCategory').value || null,
+                naming:document.getElementById('ticketNaming').value,
+                transcript:document.getElementById('ticketTranscript').checked},
+              panel:{channel_id:document.getElementById('ticketPanelChannel').value || null,
+                title:document.getElementById('ticketPanelTitle').value,
+                description:document.getElementById('ticketPanelDescription').value,
+                color:document.getElementById('ticketPanelColor').value,
+                footer:document.getElementById('ticketPanelFooter').value}
+            })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved successfully.';
+        } catch (error) { status.textContent = error.message; }
+        finally { btn.disabled = false; }
+      });
+    } catch (error) {
+      editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>';
+    }
+  }
+
+  async function loadCommandPermissions(server) {
+    const editor = document.getElementById('commandPermissionsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading command permissions…</div>';
+    const endpoint = '/api/guild/' + encodeURIComponent(server.id) + '/config/command-permissions';
+    try {
+      const cfg = await api(endpoint);
+      const commandOptions = (cfg.commands || []).map(item => '<option value="' + esc(item.name) + '">' + esc(item.name) + (item.enabled ? ' · restricted' : '') + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Select command</h3><label class="setting-field"><span>Command</span><select id="cpCommand">' + commandOptions + '</select></label><label class="setting-field"><span><input type="checkbox" id="cpEnabled"> Enable role restriction</span></label><p class="muted" style="font-size:12px">When enabled, only selected roles can run the command. Server members with Administrator or Manage Server bypass the restriction.</p></section><section class="config-sub"><h3>Allowed roles</h3><div id="cpRoles" style="display:grid;gap:8px;max-height:260px;overflow:auto"></div><div class="config-actions"><button class="primary" id="saveCommandPermissions">Save restriction</button><button class="secondary" id="clearCommandPermissions">Remove restriction</button></div></section></div><p id="cpStatus" class="muted" role="status"></p><p class="muted" style="font-size:12px">' + esc(cfg.note || '') + '</p>';
+      const commandSelect = document.getElementById('cpCommand'), enabled = document.getElementById('cpEnabled'), rolesWrap = document.getElementById('cpRoles');
+      const renderPolicy = () => {
+        const item = (cfg.commands || []).find(row => row.name === commandSelect.value) || {enabled:false,role_ids:[]};
+        enabled.checked = Boolean(item.enabled);
+        rolesWrap.innerHTML = (cfg.roles || []).map(role => '<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" class="cpRole" value="' + esc(role.id) + '" ' + ((item.role_ids || []).includes(role.id) ? 'checked' : '') + '> ' + esc(role.name) + '</label>').join('') || '<span class="muted">No assignable roles found.</span>';
+      };
+      commandSelect.addEventListener("change", renderPolicy); renderPolicy();
+      async function savePolicy(turnOn) {
+        const status = document.getElementById('cpStatus'), button = document.getElementById('saveCommandPermissions');
+        const roleIds = Array.from(rolesWrap.querySelectorAll('.cpRole:checked')).map(input => input.value);
+        if (turnOn && !roleIds.length) { status.textContent = 'Select at least one allowed role first.'; return; }
+        if (button) button.disabled = true; status.textContent = 'Saving…';
+        try {
+          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({command:commandSelect.value,enabled:turnOn,role_ids:roleIds})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          await loadCommandPermissions(server);
+        } catch (error) { status.textContent = error.message; }
+        finally { const b = document.getElementById('saveCommandPermissions'); if (b) b.disabled = false; }
+      }
+      document.getElementById('saveCommandPermissions').addEventListener('click', () => savePolicy(enabled.checked));
+      document.getElementById('clearCommandPermissions').addEventListener('click', () => savePolicy(false));
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+  async function loadBackups(server) {
+    const editor = document.getElementById('backupsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading backups…</div>';
+    const endpoint = '/api/guild/' + encodeURIComponent(server.id) + '/config/backups';
+    try {
+      const cfg = await api(endpoint);
+      const rows = (cfg.backups || []).map(item => '<div class="config-sub" style="margin-top:10px"><div class="feature-name" style="overflow-wrap:anywhere">' + esc(item.id) + '</div><div class="feature-desc">' + Number(item.size_bytes || 0).toLocaleString() + ' bytes · ' + esc(item.modified_at || '') + '</div><div class="config-actions"><a class="secondary" href="' + endpoint + '/' + encodeURIComponent(item.id) + '/download">Download ZIP</a>' + (cfg.is_owner ? '<button class="secondary" data-restore-backup="' + esc(item.id) + '">Restore this backup</button>' : '') + '</div></div>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Create backup</h3><p class="muted" style="font-size:13px">Uses the existing guild-scoped JSON and PostgreSQL backup engine.</p><p class="muted" style="font-size:12px">' + (cfg.database_connected ? 'PostgreSQL is connected.' : 'Warning: PostgreSQL is disconnected; database rows cannot be included.') + '</p><button class="primary" id="createGuildBackup">Create backup now</button></section><section class="config-sub"><h3>Recovery permissions</h3><p class="muted" style="font-size:13px">Manage Server admins can create/list/download. Restore is available only to the actual Discord server owner.</p><p class="muted" style="font-size:12px">' + esc(cfg.note || '') + '</p></section></div><div class="config-actions"><button class="secondary" id="refreshGuildBackups">Refresh list</button><span id="backupMessage" class="muted" role="status"></span></div><h3 style="margin-top:18px">Recent backups</h3>' + (rows || '<p class="muted">No backups found on this running instance.</p>');
+      document.getElementById('createGuildBackup').addEventListener('click', async () => {
+        const btn = document.getElementById('createGuildBackup'), status = document.getElementById('backupMessage');
+        btn.disabled = true; status.textContent = 'Creating backup… this may take a while.';
+        try {
+          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({action:'create'})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Backup creation failed');
+          await loadBackups(server);
+      await loadCommandPermissions(server);
+          const msg = document.getElementById('backupMessage'); if (msg) msg.textContent = result.message || ('Created ' + result.id);
+        } catch (error) { status.textContent = error.message; }
+        finally { const b = document.getElementById('createGuildBackup'); if (b) b.disabled = false; }
+      });
+      document.getElementById('refreshGuildBackups').addEventListener('click', () => loadBackups(server));
+      editor.querySelectorAll('[data-restore-backup]').forEach(btn => btn.addEventListener('click', async () => {
+        const backupId = btn.dataset.restoreBackup;
+        const confirmation = prompt('RESTORE WARNING: this merges the selected backup into stored configuration/database rows.' + String.fromCharCode(10,10) + 'Type the exact backup ID to confirm:' + String.fromCharCode(10) + backupId);
+        if (confirmation !== backupId) return;
+        btn.disabled = true; const status = document.getElementById('backupMessage'); if (status) status.textContent = 'Restoring backup…';
+        try {
+          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({action:'restore',backup_id:backupId})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Restore failed');
+          if (status) status.textContent = result.message || 'Restore finished.';
+        } catch (error) { if (status) status.textContent = error.message; }
+        finally { btn.disabled = false; }
+      }));
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+  async function loadYouTubeAlerts(server) {
+    const editor = document.getElementById('youtubeAlertsEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading YouTube Alerts…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/youtube-alerts');
+      let tracked = (cfg.channels || []).map(item => ({...item}));
+      const channels = cfg.text_channels || [], roles = cfg.roles || [];
+      const channelOptions = selected => '<option value="">Use default / none</option>' + channels.map(ch => '<option value="' + esc(ch.id) + '"' + (String(ch.id) === String(selected || '') ? ' selected' : '') + '>#' + esc(ch.name) + '</option>').join('');
+      const roleOptions = selected => '<option value="">Use default / none</option>' + roles.map(role => '<option value="' + esc(role.id) + '"' + (String(role.id) === String(selected || '') ? ' selected' : '') + '>' + esc(role.name) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>General settings</h3><label class="setting-toggle"><input type="checkbox" id="youtubeAlertsEnabled"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable YouTube Alerts</span></label><label class="setting-field"><span>Default alert channel</span><select id="youtubeDefaultChannel">' + channelOptions(cfg.default_channel) + '</select></label><label class="setting-field"><span>Default ping role</span><select id="youtubePingRole">' + roleOptions(cfg.ping_role) + '</select></label><label class="setting-field"><span>Custom message (optional)</span><textarea id="youtubeCustomMessage" maxlength="1000" rows="3" placeholder="Add a message to each alert">' + esc(cfg.custom_message || '') + '</textarea></label><p class="muted" style="font-size:12px">Checks the existing YouTube RSS feed every 45 seconds. Adding a channel initializes its latest upload so old videos are not announced.</p></section><section class="config-sub"><h3>Track a channel</h3><label class="setting-field"><span>YouTube Channel ID</span><input id="youtubeNewChannelId" maxlength="50" placeholder="UCxxxxxxxxxxxxxxxxxxxxxxxx"></label><p class="muted" style="font-size:12px">Use the Channel ID (starts with UC), not a display name or @handle.</p><button class="secondary" id="youtubeAddChannel">Add channel</button><div id="youtubeTrackedList" style="margin-top:16px"></div></section></div><div class="config-actions"><button class="primary" id="saveYouTubeAlerts">Save YouTube settings</button><span id="youtubeAlertsMessage" class="muted" role="status"></span></div>';
+      const renderTracked = () => {
+        const list = document.getElementById('youtubeTrackedList');
+        if (!tracked.length) { list.innerHTML = '<p class="muted">No YouTube channels tracked yet.</p>'; return; }
+        list.innerHTML = tracked.map((item, index) => '<div class="config-sub" style="margin-top:10px"><div class="feature-name">' + esc(item.name || item.id) + '</div><div class="feature-desc" style="overflow-wrap:anywhere">' + esc(item.id) + '</div><div class="config-columns"><label class="setting-field"><span>Alert channel override</span><select data-yt-channel="' + index + '">' + channelOptions(item.discord_channel_id) + '</select></label><label class="setting-field"><span>Ping role override</span><select data-yt-role="' + index + '">' + roleOptions(item.ping_role_id) + '</select></label></div><button class="secondary" data-yt-remove="' + index + '">Remove channel</button></div>').join('');
+        list.querySelectorAll('[data-yt-remove]').forEach(btn => btn.addEventListener('click', () => { tracked.splice(Number(btn.dataset.ytRemove), 1); renderTracked(); }));
+      };
+      renderTracked();
+      document.getElementById('youtubeAddChannel').addEventListener('click', () => {
+        const input = document.getElementById('youtubeNewChannelId'), value = input.value.trim().replace(/^https?:\/\/(www\.)?youtube\.com\/channel\//i, '').replace(/\/$/, '');
+        if (!/^UC[A-Za-z0-9_-]{20,}$/.test(value)) { document.getElementById('youtubeAlertsMessage').textContent = 'Enter a valid YouTube Channel ID starting with UC.'; return; }
+        if (tracked.some(item => item.id === value)) { document.getElementById('youtubeAlertsMessage').textContent = 'That channel is already tracked.'; return; }
+        if (tracked.length >= 50) { document.getElementById('youtubeAlertsMessage').textContent = 'Maximum 50 tracked channels.'; return; }
+        tracked.push({id:value, name:value, discord_channel_id:'', ping_role_id:''}); input.value = ''; renderTracked();
+        document.getElementById('youtubeAlertsMessage').textContent = 'Channel added to the draft. Save settings to verify its RSS feed.';
+      });
+      document.getElementById('saveYouTubeAlerts').addEventListener('click', async () => {
+        const btn = document.getElementById('saveYouTubeAlerts'), status = document.getElementById('youtubeAlertsMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          tracked = tracked.map((item, index) => ({...item, discord_channel_id:document.querySelector('[data-yt-channel="' + index + '"]')?.value || null, ping_role_id:document.querySelector('[data-yt-role="' + index + '"]')?.value || null}));
+          const payload = {enabled:document.getElementById('youtubeAlertsEnabled').checked, default_channel:document.getElementById('youtubeDefaultChannel').value || null, ping_role:document.getElementById('youtubePingRole').value || null, custom_message:document.getElementById('youtubeCustomMessage').value, channels:tracked.map(item => ({id:item.id, name:item.name, discord_channel_id:item.discord_channel_id || null, ping_role_id:item.ping_role_id || null}))};
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/youtube-alerts', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify(payload)});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          await loadBackups(server);
+      await loadYouTubeAlerts(server);
+        } catch (error) { status.textContent = error.message; } finally { const b = document.getElementById('saveYouTubeAlerts'); if (b) b.disabled = false; }
+      });
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+
+  async function loadAIChannel(server) {
+    const editor = document.getElementById('aiChannelEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading AI settings…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/ai-channel');
+      const channels = cfg.channels || [];
+      const options = '<option value="">No channel selected</option>' + channels.map(ch => '<option value="' + esc(ch.id) + '"' + (String(ch.id) === String(cfg.channel_id || '') ? ' selected' : '') + '>#' + esc(ch.name) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Chat channel</h3><label class="setting-field"><span>AI text channel</span><select id="aiChannelSelect">' + options + '</select></label><label class="setting-toggle"><input type="checkbox" id="aiEnabledToggle"' + (cfg.enabled ? ' checked' : '') + '> <span>Enable AI mention/reply chat</span></label><p class="muted" style="font-size:12px">Members can chat by mentioning the bot or replying to its message in the configured channel. This does not change other bot commands.</p></section><section class="config-sub"><h3>AI availability</h3><p class="muted" style="font-size:13px">' + (cfg.api_key_configured ? 'OPENAI_API_KEY is configured in the running service.' : 'OPENAI_API_KEY is not configured in the running service.') + '</p><p class="muted" style="font-size:12px">A configured key may still have insufficient quota. Dashboard settings do not bypass API billing or quota limits.</p></section></div><div class="config-actions"><button class="primary" id="saveAIChannel">Save AI settings</button><button class="secondary" id="removeAIChannel">Remove channel & disable</button><span id="aiChannelMessage" class="muted" role="status"></span></div>';
+      const save = async remove => {
+        const saveBtn = document.getElementById('saveAIChannel'), removeBtn = document.getElementById('removeAIChannel'), status = document.getElementById('aiChannelMessage');
+        saveBtn.disabled = true; removeBtn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const channelId = remove ? null : document.getElementById('aiChannelSelect').value || null;
+          const enabled = remove ? false : document.getElementById('aiEnabledToggle').checked;
+          const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/ai-channel', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({channel_id:channelId, enabled})});
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+          status.textContent = result.message || 'Saved.';
+          if (remove) {
+            document.getElementById('aiChannelSelect').value = '';
+            document.getElementById('aiEnabledToggle').checked = false;
+          }
+        } catch (error) { status.textContent = error.message; }
+        finally {
+          const a = document.getElementById('saveAIChannel'), b = document.getElementById('removeAIChannel');
+          if (a) a.disabled = false; if (b) b.disabled = false;
+        }
+      };
+      document.getElementById('saveAIChannel').addEventListener('click', () => save(false));
+      document.getElementById('removeAIChannel').addEventListener('click', () => save(true));
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
+  }
+
+  async function loadGiveawayTemplates(server) {
+    const editor = document.getElementById('giveawayTemplatesEditor');
+    if (!editor) return;
+    editor.innerHTML = '<div class="loading">Loading giveaway templates…</div>';
+    try {
+      const cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/giveaway-templates');
+      let templates = Object.entries(cfg.templates || {}).map(([key, value]) => ({...value, key}));
+      const roles = cfg.roles || [];
+      const roleOptions = selected => '<option value="">No role requirement</option>' + roles.map(role => '<option value="' + esc(role.id) + '"' + (String(role.id) === String(selected || '') ? ' selected' : '') + '>' + esc(role.name) + '</option>').join('');
+      const selectOptions = '<option value="">Create a new template…</option>' + templates.map(t => '<option value="' + esc(t.key) + '">' + esc(t.name || t.key) + '</option>').join('');
+      editor.innerHTML = '<div class="config-columns"><section class="config-sub"><h3>Saved templates</h3><label class="setting-field"><span>Select template</span><select id="giveawayTemplateSelect">' + selectOptions + '</select></label><p class="muted" style="font-size:12px">Up to 25 templates. Running giveaways are not changed.</p><div>' + (templates.map(t => '<div class="feature"><div><div class="feature-name">' + esc(t.name || t.key) + '</div><div class="feature-desc">' + esc(t.prize || 'No prize') + ' · ' + esc(String(t.winners || 1)) + ' winner(s) · ' + esc(String(t.duration_hours || 24)) + 'h</div></div></div>').join('') || '<p class="muted">No saved templates yet.</p>') + '</div></section><section class="config-sub"><h3>Template editor</h3>' +
+        '<label class="setting-field"><span>Template name</span><input id="giveawayTemplateName" maxlength="40" placeholder="e.g. Nitro Drop"></label>' +
+        '<label class="setting-field"><span>Prize</span><input id="giveawayTemplatePrize" maxlength="200" placeholder="Prize name"></label>' +
+        '<div class="config-columns"><label class="setting-field"><span>Winners (1–25)</span><input id="giveawayTemplateWinners" type="number" min="1" max="25" value="1"></label><label class="setting-field"><span>Duration hours (1–720)</span><input id="giveawayTemplateDuration" type="number" min="1" max="720" value="24"></label></div>' +
+        '<label class="setting-field"><span>Required role</span><select id="giveawayRequiredRole">' + roleOptions('') + '</select></label>' +
+        '<label class="setting-field"><span>Bonus-entry role</span><select id="giveawayBonusRole">' + roleOptions('') + '</select></label>' +
+        '<label class="setting-field"><span>Bonus entries (1–100)</span><input id="giveawayBonusEntries" type="number" min="1" max="100" value="2"></label>' +
+        '<label class="setting-field"><span>Image URL (HTTPS, optional)</span><input id="giveawayImageUrl" type="url" maxlength="1000"></label>' +
+        '<label class="setting-field"><span>Thumbnail URL (HTTPS, optional)</span><input id="giveawayThumbnailUrl" type="url" maxlength="1000"></label>' +
+        '</section></div><div class="config-actions"><button class="primary" id="saveGiveawayTemplate">Save template</button><button class="secondary" id="deleteGiveawayTemplate">Delete selected</button><span id="giveawayTemplatesMessage" class="muted" role="status"></span></div>';
+      const byKey = key => templates.find(t => t.key === key);
+      const fillForm = t => {
+        document.getElementById('giveawayTemplateName').value = t?.name || '';
+        document.getElementById('giveawayTemplatePrize').value = t?.prize || '';
+        document.getElementById('giveawayTemplateWinners').value = t?.winners || 1;
+        document.getElementById('giveawayTemplateDuration').value = t?.duration_hours || 24;
+        document.getElementById('giveawayRequiredRole').value = t?.required_role_id ? String(t.required_role_id) : '';
+        document.getElementById('giveawayBonusRole').value = t?.bonus_role_id ? String(t.bonus_role_id) : '';
+        document.getElementById('giveawayBonusEntries').value = t?.bonus_entries || 2;
+        document.getElementById('giveawayImageUrl').value = t?.image_url || '';
+        document.getElementById('giveawayThumbnailUrl').value = t?.thumbnail_url || '';
+      };
+      document.getElementById('giveawayTemplateSelect').addEventListener('change', event => fillForm(byKey(event.target.value)));
+      const sendTemplates = async list => {
+        const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/giveaway-templates', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify({templates:list})});
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.message || result.error || 'Save failed');
+        return result;
+      };
+      document.getElementById('saveGiveawayTemplate').addEventListener('click', async () => {
+        const btn = document.getElementById('saveGiveawayTemplate'), status = document.getElementById('giveawayTemplatesMessage');
+        btn.disabled = true; status.textContent = 'Saving…';
+        try {
+          const item = {name:document.getElementById('giveawayTemplateName').value.trim(), prize:document.getElementById('giveawayTemplatePrize').value.trim(), winners:Number(document.getElementById('giveawayTemplateWinners').value), duration_hours:Number(document.getElementById('giveawayTemplateDuration').value), required_role_id:document.getElementById('giveawayRequiredRole').value || null, bonus_role_id:document.getElementById('giveawayBonusRole').value || null, bonus_entries:Number(document.getElementById('giveawayBonusEntries').value), image_url:document.getElementById('giveawayImageUrl').value.trim() || null, thumbnail_url:document.getElementById('giveawayThumbnailUrl').value.trim() || null};
+          if (!item.name || !item.prize) throw new Error('Enter template name and prize.');
+          const key = item.name.toLowerCase(), selectedKey = document.getElementById('giveawayTemplateSelect').value;
+          if (templates.some(t => t.key === key) && selectedKey !== key) throw new Error('A template with this name already exists.');
+          let list = templates.filter(t => t.key !== selectedKey && t.key !== key).map(t => ({name:t.name, prize:t.prize, winners:t.winners, duration_hours:t.duration_hours, required_role_id:t.required_role_id || null, bonus_role_id:t.bonus_role_id || null, bonus_entries:t.bonus_entries || 2, image_url:t.image_url || null, thumbnail_url:t.thumbnail_url || null}));
+          list.push(item); if (list.length > 25) throw new Error('Maximum 25 templates per server.');
+          const result = await sendTemplates(list); status.textContent = result.message || 'Saved.'; await loadGiveawayTemplates(server);
+        } catch (error) { status.textContent = error.message; } finally { btn.disabled = false; }
+      });
+      document.getElementById('deleteGiveawayTemplate').addEventListener('click', async () => {
+        const selectedKey = document.getElementById('giveawayTemplateSelect').value, status = document.getElementById('giveawayTemplatesMessage'), btn = document.getElementById('deleteGiveawayTemplate');
+        if (!selectedKey) { status.textContent = 'Select a saved template first.'; return; }
+        btn.disabled = true; status.textContent = 'Deleting…';
+        try { const list = templates.filter(t => t.key !== selectedKey).map(t => ({name:t.name, prize:t.prize, winners:t.winners, duration_hours:t.duration_hours, required_role_id:t.required_role_id || null, bonus_role_id:t.bonus_role_id || null, bonus_entries:t.bonus_entries || 2, image_url:t.image_url || null, thumbnail_url:t.thumbnail_url || null})); const result = await sendTemplates(list); status.textContent = result.message || 'Deleted.'; await loadGiveawayTemplates(server); }
+        catch (error) { status.textContent = error.message; } finally { btn.disabled = false; }
+      });
+    } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
   }
 
   async function chooseServer(server) {
@@ -141,6 +656,16 @@
     try {
       const data = await api('/api/guild/' + encodeURIComponent(server.id) + '/overview');
       renderOverview(data);
+      await loadSecurity(server);
+      await loadWelcome(server);
+      await loadVerification(server);
+      await loadLeveling(server);
+      await loadTickets(server);
+      await loadGiveawayTemplates(server);
+      await loadYouTubeAlerts(server);
+      await loadAIChannel(server);
+      await loadBackups(server);
+      await loadCommandPermissions(server);
     } catch (error) {
       overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
