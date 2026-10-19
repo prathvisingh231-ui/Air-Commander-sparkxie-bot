@@ -91,6 +91,21 @@ async def db_fetchval(query, *args):
         return None
 
 
+async def log_activity(guild_id, channel_id, user_id):
+    """Compatibility helper for bot.py's message-activity listener."""
+    return await log_command(
+        guild_id=guild_id,
+        user_id=user_id,
+        username=None,
+        command_name="message_activity",
+        command_type="message",
+        arguments="",
+        channel_id=channel_id,
+        channel_name=None,
+        success=True,
+    )
+
+
 # ============================================================
 # JSON HELPERS
 # ============================================================
@@ -127,10 +142,14 @@ async def init_db():
         return True
 
     database_url = (os.getenv("DATABASE_URL") or DATABASE_URL or "").strip()
+    # Accept a URI pasted with matching outer quotes, but do not expose it in logs.
+    if len(database_url) >= 2 and database_url[0] == database_url[-1] and database_url[0] in ("'", '"'):
+        database_url = database_url[1:-1].strip()
+
     if not database_url:
         _last_init_error = "DATABASE_URL is missing or empty in this running service."
         print("❌ DATABASE_URL is missing/empty in the running Render service environment.")
-        print("   Add the Render Postgres INTERNAL connection URL to the bot service's DATABASE_URL variable.")
+        print("   Set DATABASE_URL to the complete PostgreSQL connection URI.")
         return False
 
     # Accept both common PostgreSQL URL schemes.
@@ -138,9 +157,17 @@ async def init_db():
         database_url = "postgresql://" + database_url[len("postgres://"):]
 
     parsed = urlparse(database_url)
-    if not parsed.hostname or not parsed.path.strip("/"):
-        _last_init_error = "DATABASE_URL format is invalid; expected a PostgreSQL connection URL."
-        print("❌ DATABASE_URL format is invalid. Expected postgresql://USER:PASSWORD@HOST:PORT/DATABASE.")
+    if parsed.scheme not in ("postgres", "postgresql") or not parsed.hostname or not parsed.path.strip("/"):
+        _last_init_error = "DATABASE_URL format is invalid; expected a complete PostgreSQL URL."
+        # Print only safe indicators, never the URI/password itself.
+        print(
+            "❌ DATABASE_URL format is invalid. "
+            f"scheme={parsed.scheme or '(missing)'}, "
+            f"host_present={bool(parsed.hostname)}, "
+            f"database_present={bool(parsed.path.strip('/'))}. "
+            "Expected postgresql://USER:PASSWORD@HOST:PORT/DATABASE."
+        )
+        print("   Paste the full connection URI, not only the host, password, or placeholder text.")
         return False
     host = (parsed.hostname or "").lower()
 
