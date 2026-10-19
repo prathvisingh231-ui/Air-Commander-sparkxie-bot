@@ -176,6 +176,8 @@ class DashboardPanelWiringTests(unittest.TestCase):
             response = client.get("/dashboard")
             self.assertEqual(response.status_code, 200)
             rendered = response.get_data(as_text=True)
+            self.assertIn("async function chooseServer(server)", rendered)
+            self.assertNotIn("function chooseServer(server)", rendered)
             for panel_id in panel_ids:
                 with self.subTest(panel=panel_id):
                     self.assertIn(panel_id, rendered)
