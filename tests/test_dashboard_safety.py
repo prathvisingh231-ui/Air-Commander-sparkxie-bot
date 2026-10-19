@@ -7,7 +7,7 @@ import io
 import json
 import unittest
 import zipfile
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import backup_system
 import command_permissions
@@ -67,14 +67,17 @@ class BackupSafetyTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(PermissionError, "Cross-server restore is blocked"):
             await backup_system._restore_archive(raw, 111111111111111)
 
-    async def test_restore_rejects_path_traversal_before_writing(self):
+    async def test_restore_rejects_path_traversal_before_any_database_write(self):
         raw = make_archive(
             111111111111111,
             configs={"../outside.json": [{"path": ["111111111111111"], "value": {"unsafe": True}}]},
-            tables={"tables": {}, "primary_keys": {}},
+            tables={"tables": {"guild_settings": [{"guild_id": 111111111111111}]}, "primary_keys": {}},
         )
-        with self.assertRaisesRegex(ValueError, "Unsafe config path"):
-            await backup_system._restore_archive(raw, 111111111111111)
+        with patch.object(backup_system.db, "_pool", object()), \
+             patch.object(backup_system, "_restore_db", new_callable=AsyncMock) as restore_db:
+            with self.assertRaisesRegex(ValueError, "Unsafe config path"):
+                await backup_system._restore_archive(raw, 111111111111111)
+            restore_db.assert_not_awaited()
 
     async def test_restore_rejects_non_zip_data(self):
         with self.assertRaisesRegex(ValueError, "Invalid ZIP backup"):
