@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f9fc">
+  <meta name="theme-color" content="#06111c">
   <title>Air Commander • Dashboard</title>
   <style>
     :root{color-scheme:light;--ink:#172033;--muted:#667085;--line:#e5eaf2;--bg:#f7f9fc;--card:#fff;--blue:#3867e8;--blue2:#234bc2;--green:#16845b;--red:#b42318}
@@ -17,6 +17,26 @@
     .config-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.config-sub{border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}.config-sub h3{margin:0 0 12px;font-size:15px}.setting-field{display:grid;gap:6px;margin:12px 0;font-size:12px;color:var(--muted);font-weight:650}.setting-field input,.setting-field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;background:#fff;color:var(--ink);font:inherit}.setting-toggle{display:flex;gap:9px;align-items:center;margin:10px 0;font-size:13px;font-weight:650}.config-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}.config-actions .primary{padding:10px 14px}.config-actions .primary:disabled{opacity:.6}
     @media(max-width:850px){.config-columns{grid-template-columns:1fr}.layout{grid-template-columns:1fr}.server-panel{order:0}.main-panel{order:1}.server-list{grid-template-columns:repeat(2,minmax(0,1fr))}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:flex-start;flex-direction:column}.welcome-card{align-items:flex-start;flex-direction:column}}
     @media(max-width:520px){main{padding:28px 14px 44px}.topbar{padding:0 14px;height:64px}.brand small{display:none}.user-label{display:none}.server-list{grid-template-columns:1fr}.feature-grid{grid-template-columns:1fr}.login-card{margin:8vh 14px;padding:28px 20px}.stat{padding:14px}.stat-value{font-size:24px}}
+  
+    /* Aviation / Cyber Command Center visual layer. Dashboard API and module logic remain unchanged. */
+    :root{color-scheme:dark;--ink:#e8f4ff;--muted:#91a8bd;--line:#20384b;--bg:#06111c;--card:#0b1b29;--blue:#22d3ee;--blue2:#06b6d4;--green:#35e6a4;--red:#ff7385}
+    body{background:radial-gradient(ellipse at 75% -15%,#10354a 0,transparent 38%),var(--bg);color:var(--ink)}
+    .topbar{background:rgba(6,17,28,.92);border-bottom:1px solid #1c394d;backdrop-filter:blur(18px)}
+    .brandmark,.login-icon{background:linear-gradient(145deg,#0e3549,#0b2335);color:#4be7f6;border:1px solid #23576c;box-shadow:inset 0 0 20px #22d3ee12}
+    .brand small{color:#7f9bb0}.avatar{background:#10384a;border:1px solid #276177}.logout,.secondary{background:#0d2232;border:1px solid #29475a;color:#d9edfb}.logout:hover,.secondary:hover{border-color:#27cce4;background:#103044}
+    .primary{background:linear-gradient(110deg,#16b8d0,#22d3ee);color:#03131e;box-shadow:0 5px 22px #22d3ee20}.primary:hover{background:linear-gradient(110deg,#22d3ee,#67e8f9)}
+    main{max-width:1400px;padding-top:34px}.eyebrow{color:#3edff1;display:flex;align-items:center;gap:9px}.eyebrow-pip,.mini-led{width:7px;height:7px;border-radius:50%;background:#42efc0;box-shadow:0 0 12px #42efc0;display:inline-block;flex:none}
+    h1{font-weight:780;letter-spacing:-.055em}.panel{background:linear-gradient(145deg,#0d2030,#091724);border-color:#1e3b50;box-shadow:0 14px 38px #00000020}
+    .command-hero{position:relative;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:30px;align-items:center;min-height:310px;padding:clamp(26px,4vw,48px);margin-bottom:24px;border:1px solid #21475c;border-radius:24px;background:linear-gradient(112deg,#0c2232 0%,#0a1b2a 55%,#0b2b3c 100%);box-shadow:0 22px 60px #00000024}
+    .command-hero:before{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 49.8%,#2bd9f00b 50%,transparent 50.2%),linear-gradient(#2bd9f008 1px,transparent 1px),linear-gradient(90deg,#2bd9f008 1px,transparent 1px);background-size:auto,32px 32px,32px 32px;mask-image:linear-gradient(90deg,transparent,#000)}
+    .hero-copy{position:relative;z-index:1}.hero-copy h1{font-size:clamp(38px,5vw,62px);line-height:.99;margin:18px 0}.hero-copy h1 span{color:#35d9ee;text-shadow:0 0 28px #22d3ee20}.hero-copy p{max-width:550px;color:#9ab2c6;font-size:15px;line-height:1.8}.hero-actions{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:24px}.hero-actions .primary{padding:12px 17px}.hero-note{font-size:11px;color:#8ca8bc;display:flex;align-items:center;gap:8px}
+    .hero-visual{height:245px;position:relative;display:grid;place-items:center;min-width:0}.radar-grid{width:min(230px,70%);aspect-ratio:1;border:1px solid #2acde333;border-radius:50%;position:relative;display:grid;place-items:center;background:radial-gradient(circle,#22d3ee12 0%,transparent 68%);box-shadow:0 0 65px #22d3ee0c}
+    .radar-ring{position:absolute;border:1px solid #35d9ee25;border-radius:50%}.ring-one{inset:14%}.ring-two{inset:29%}.ring-three{inset:44%}.radar-cross{position:absolute;background:#2ad8ee20}.cross-x{height:1px;width:100%}.cross-y{width:1px;height:100%}.radar-sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 15deg,transparent 0 72%,#22d3ee18 87%,#22d3ee03 100%);animation:radar-turn 12s linear infinite}.radar-center{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;color:#49e7f4;font-size:25px;background:#0c2a3a;border:1px solid #2bcfe45c;box-shadow:0 0 30px #22d3ee20}.radar-point{position:absolute;width:6px;height:6px;border-radius:50%;background:#4df0c0;box-shadow:0 0 12px #4df0c0}.point-one{top:26%;right:24%}.point-two{bottom:25%;left:28%;background:#22d3ee;box-shadow:0 0 12px #22d3ee}.point-three{top:49%;right:12%;width:4px;height:4px}.visual-label{position:absolute;left:0;right:0;display:flex;justify-content:space-between;color:#7193a9;font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.13em}.visual-top{top:0}.visual-bottom{bottom:4px;align-items:center}.visual-line{height:1px;width:42px;background:#25d7ed}.visual-chip{position:absolute;right:-2px;bottom:38px;display:flex;gap:10px;align-items:center;padding:11px 14px;background:#0a1b29e8;border:1px solid #28546a;border-radius:12px;box-shadow:0 12px 28px #0004}.chip-icon{font-size:22px;color:#35d9ee}.visual-chip b,.visual-chip small{display:block}.visual-chip b{font:10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.1em;color:#d8f5ff}.visual-chip small{font-size:10px;color:#88a7bb;margin-top:3px}
+    @keyframes radar-turn{to{transform:rotate(360deg)}}
+    .layout{grid-template-columns:285px minmax(0,1fr);gap:18px}.server-panel{background:#091925;padding:18px}.section-heading h2{font-size:15px;letter-spacing:-.01em}.count{color:#9db6c9;background:#10283a;border:1px solid #1d3b50}.server-item{color:#d8e9f6}.server-item:hover{background:#10283a}.server-item.active{background:#0e3042;border-color:#24748a;box-shadow:inset 3px 0 #22d3ee}.server-icon{background:#112c3e;color:#65ddeb}.dot{background:#526c7e}.dot.good{background:#35e6a4;box-shadow:0 0 8px #35e6a444}.welcome-card{padding:22px;background:linear-gradient(115deg,#0d2637,#0a1a28)}.server-large p{color:#8ca8bc}.pill{background:#103a32;color:#5ef0ba;border:1px solid #1e6c55}.pill.off{background:#192b39;color:#91a8bd;border-color:#2c4354}.stats{gap:14px}.stat{position:relative;overflow:hidden;padding:19px;background:linear-gradient(145deg,#0e2434,#091925)}.stat:after{content:"";position:absolute;top:0;left:18px;right:18px;height:1px;background:linear-gradient(90deg,transparent,#22d3ee65,transparent)}.stat-top{color:#8da9bd}.stat-value{color:#e9faff;font-variant-numeric:tabular-nums}.stat-foot{color:#7290a5}.features{padding:22px}.feature,.config-sub{background:#0b1e2c;border-color:#1d3a4d}.feature{border-radius:12px}.feature-name{color:#dceefa}.feature-desc{color:#85a2b7}.status.on{color:#57e9b4;background:#10372e;border:1px solid #1e634d}.status.off{color:#91a7b9;background:#172a38;border:1px solid #2a4152}.notice{background:#102535;color:#9ab3c6;border:1px solid #1d3c50}.muted,.loading,.footer{color:#87a2b7}.footer{padding:18px 0}.empty{color:#9ab2c5}.error{background:#351e2a;border-color:#763b4c;color:#ffb5c1}.setting-field{color:#94adbf}.setting-field input,.setting-field select{background:#071724;color:#e4f5ff;border-color:#29475a}.setting-field input:focus,.setting-field select:focus{outline:2px solid #22d3ee55;border-color:#22d3ee}.setting-toggle{color:#d2e6f2}.config-actions .primary{color:#03131e}.login-card{background:linear-gradient(145deg,#0d2637,#081724);border-color:#22465b}.login-card .muted{color:#9ab2c5}
+    @media(max-width:850px){.command-hero{grid-template-columns:1fr;gap:12px}.hero-visual{height:205px}.visual-chip{right:4%}.layout{grid-template-columns:1fr}.server-panel{order:0}.main-panel{order:1}}
+    @media(max-width:520px){.command-hero{padding:24px 20px;min-height:0;border-radius:18px}.hero-copy h1{font-size:42px}.hero-visual{height:190px}.visual-chip{right:-4px;bottom:20px;padding:8px 10px}.hero-note{font-size:10px}.stats{gap:9px}.stat{padding:14px}.features{padding:16px}.visual-label{font-size:9px}}
+
   </style>
 </head>
 <body>
@@ -46,7 +66,20 @@
 </main>
 {% else %}
 <main>
-  <div class="hero"><div><div class="eyebrow">Workspace overview</div><h1>Your servers, at a glance.</h1><p>Select a server to view bot health, server stats and the status of available protection and community modules.</p></div><button class="secondary" id="refreshBtn">↻ Refresh</button></div>
+  <section class="command-hero">
+    <div class="hero-copy">
+      <div class="eyebrow"><span class="eyebrow-pip"></span> AIR COMMANDER / OPERATIONS CENTER</div>
+      <h1>Command your<br><span>community.</span></h1>
+      <p>One flight deck for server health, protection systems and community tools. Select a server to inspect its live overview and configuration.</p>
+      <div class="hero-actions"><button class="primary" id="refreshBtn"><span aria-hidden="true">↻</span> Refresh systems</button><span class="hero-note"><span class="mini-led"></span> Discord-authenticated workspace</span></div>
+    </div>
+    <div class="hero-visual" aria-label="Air Commander control center illustration">
+      <div class="radar-grid"><div class="radar-ring ring-one"></div><div class="radar-ring ring-two"></div><div class="radar-ring ring-three"></div><div class="radar-cross cross-x"></div><div class="radar-cross cross-y"></div><div class="radar-sweep"></div><div class="radar-center">✈</div><span class="radar-point point-one"></span><span class="radar-point point-two"></span><span class="radar-point point-three"></span></div>
+      <div class="visual-label visual-top"><span>AC / 01</span><span>COMMAND DECK</span></div>
+      <div class="visual-label visual-bottom"><span class="visual-line"></span><span>SERVER OPERATIONS</span></div>
+      <div class="visual-chip"><span class="chip-icon">⌁</span><span><b>CONTROL LAYER</b><small>Modules · Permissions · Health</small></span></div>
+    </div>
+  </section>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
   <div class="layout">
     <aside class="panel server-panel">
