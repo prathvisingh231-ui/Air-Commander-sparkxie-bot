@@ -47,11 +47,15 @@ def _json_request(url: str, *, method: str = "GET", data: dict | None = None,
         raise RuntimeError("Could not reach Discord. Please retry.") from exc
 
 
+DEFAULT_DASHBOARD_BASE_URL = "https://air-commander-sparkxie-bot-850o.onrender.com"
+
+
 def _base_url() -> str:
     configured = (os.getenv("DASHBOARD_BASE_URL") or "").strip().rstrip("/")
     if configured:
         return configured
-    return request.url_root.rstrip("/")
+    # Use the canonical Render origin so OAuth does not depend on proxy headers.
+    return DEFAULT_DASHBOARD_BASE_URL
 
 
 def _redirect_uri() -> str:
