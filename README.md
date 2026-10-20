@@ -34,16 +34,15 @@ Environment variables:
 - OPENAI_API_KEY (required for the /ai chat command)
 - OPENAI_MODEL (optional; defaults to gpt-4o-mini)
 
-Render Postgres should be in the same region as the bot. Render provides an internal connection URL for same-region services; use that for the bot. citeturn0search1
+Render Postgres should be in the same region as the bot. Render provides an internal connection URL for same-region services; use that for the bot.
 
-Do not commit secrets or a local .env file. Use Render Environment Variables. citeturn0search3
+Do not commit secrets or a local .env file. Use Render Environment Variables.
 
 ## Discord setup
 
 Enable the Server Members Intent in the Discord Developer Portal because GhostScan/member data uses the guild member cache.
 
 Invite the bot with the applications.commands scope and the permissions required by the features you enable.
-
 
 ## AI chat channel
 
@@ -56,13 +55,11 @@ The existing `/ai prompt:` command remains available for private AI answers. Ser
 
 In the configured channel, members can mention **Air Commander** or reply to one of its messages to chat. The bot uses a short per-user cooldown and stores the channel setting in PostgreSQL, so it survives redeploys. The bot needs Message Content Intent enabled in code and in the Discord Developer Portal.
 
-
 ### Slash-command troubleshooting
 
 - Set `GUILD_ID` in Render to the numeric ID of your test Discord server for fast guild command updates.
 - After deployment, the bot owner can run `,syncslash` inside the target server. It copies the current registered commands to that server, syncs them, and reports the commands Discord confirms.
 - The startup log now prints the actual commands fetched back from Discord after syncing, including the `/youtube` subcommands.
-
 
 ## PostgreSQL persistence and recovery
 
@@ -78,7 +75,6 @@ In the configured channel, members can mention **Air Commander** or reply to one
 - `,syncslash` is an owner-only manual global sync and clears old guild-scoped copies in the server where it is run to prevent duplicate entries.
 - On startup, the bot also cleans stale guild-scoped copies across servers it has joined.
 
-
 ## New maintenance commands
 
 - `/config status` shows the server setup dashboard.
@@ -92,10 +88,11 @@ In the configured channel, members can mention **Air Commander** or reply to one
 
 Closing a ticket generates a transcript when enabled, sends it to the configured ticket log channel when available, logs the close event, and then attempts to delete the ticket channel after 3 seconds. The bot needs Manage Channels permission. A failed delete is reported in Render logs.
 
-
 ## Website dashboard (Discord OAuth2)
 
-The Flask health server now also serves the Air Commander web dashboard at `/` and `/dashboard`. It is hosted by the same Render service and keeps the existing `python bot.py` start command.
+The dashboard is served by the existing Render service at:
+- Dashboard: https://air-commander-sparkxie-bot-850o.onrender.com/dashboard
+- OAuth callback: https://air-commander-sparkxie-bot-850o.onrender.com/oauth/callback
 
 ### Render environment variables
 
@@ -103,11 +100,15 @@ Set these in the existing Render web service:
 - `DISCORD_CLIENT_ID`: Application ID from Discord Developer Portal (not the bot token).
 - `DISCORD_CLIENT_SECRET`: OAuth2 client secret for that application.
 - `DASHBOARD_SECRET_KEY`: long random secret used to sign browser sessions; keep it private.
-- `DASHBOARD_BASE_URL`: `https://air-commander-sparkxie-bot.onrender.com` (no trailing slash).
+- `DASHBOARD_BASE_URL`: `https://air-commander-sparkxie-bot-850o.onrender.com` (no trailing slash).
 - `DASHBOARD_COOKIE_SECURE`: `true` for HTTPS (default).
 
-In Discord Developer Portal → OAuth2, add this exact redirect URL:
-`https://air-commander-sparkxie-bot.onrender.com/oauth/callback`
+In Discord Developer Portal → OAuth2 → Redirects, add this exact URL:
+`https://air-commander-sparkxie-bot-850o.onrender.com/oauth/callback`
+
+The `DASHBOARD_BASE_URL` value and the Discord OAuth2 redirect URL must match this current Render domain exactly. Remove the old `air-commander-sparkxie-bot.onrender.com/oauth/callback` redirect if the old service is no longer used. Do not put the callback path into `DASHBOARD_BASE_URL`; it should end at the domain.
+
+If Discord still reports “Invalid OAuth2 redirect_uri”, update both locations above and redeploy/restart the Render service. If the login reaches the dashboard but then fails, verify that `DISCORD_CLIENT_ID` is the same application's Application ID and `DISCORD_CLIENT_SECRET` belongs to that same application.
 
 The initial dashboard is intentionally **read-only**: it lists servers where the signed-in user has Manage Server or Administrator permission and displays bot status, basic server statistics and current feature configuration. It does not write to module JSON files or change existing bot settings. Server access is rechecked by the backend for each overview request. OAuth tokens are held server-side in process memory rather than stored in the browser cookie; signing out clears the session.
 
