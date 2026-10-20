@@ -2551,30 +2551,20 @@ class TicketSystem(commands.Cog):
 
             return
 
-        if not is_admin(
-            interaction.user
-        ):
+        if not is_admin(interaction.user):
+            global_role_id = guild_data["config"].get("support_role_id")
+            category_key = ticket.get("category")
+            category_data = guild_data["categories"].get(category_key, {})
+            category_role_id = category_data.get("support_role_id")
+            member_role_ids = {role.id for role in interaction.user.roles}
+            is_global_staff = bool(global_role_id and int(global_role_id) in member_role_ids)
+            is_category_staff = bool(category_role_id and int(category_role_id) in member_role_ids)
 
-            support_role_id = (
-                guild_data["config"].get(
-                    "support_role_id"
-                )
-            )
-
-            if (
-                not support_role_id
-                or not any(
-                    role.id == int(
-                        support_role_id
-                    )
-                    for role in interaction.user.roles
-                )
-            ):
-
+            if not (is_global_staff or is_category_staff):
                 await interaction.response.send_message(
-                    "❌ You are not part of the support team."
+                    "❌ You are not assigned to this ticket category's staff team.",
+                    ephemeral=True
                 )
-
                 return
 
         ticket["claimed_by"] = (
@@ -3434,30 +3424,19 @@ class TicketSystem(commands.Cog):
 
             return
 
-        if not is_admin(
-            ctx.author
-        ):
+        if not is_admin(ctx.author):
+            global_role_id = guild_data["config"].get("support_role_id")
+            category_key = ticket.get("category")
+            category_data = guild_data["categories"].get(category_key, {})
+            category_role_id = category_data.get("support_role_id")
+            member_role_ids = {role.id for role in ctx.author.roles}
+            is_global_staff = bool(global_role_id and int(global_role_id) in member_role_ids)
+            is_category_staff = bool(category_role_id and int(category_role_id) in member_role_ids)
 
-            support_role_id = (
-                guild_data["config"].get(
-                    "support_role_id"
-                )
-            )
-
-            if (
-                not support_role_id
-                or not any(
-                    role.id == int(
-                        support_role_id
-                    )
-                    for role in ctx.author.roles
-                )
-            ):
-
+            if not (is_global_staff or is_category_staff):
                 await ctx.send(
-                    "❌ You are not support staff."
+                    "❌ You are not assigned to this ticket category's staff team."
                 )
-
                 return
 
         ticket[
