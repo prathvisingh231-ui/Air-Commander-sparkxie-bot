@@ -92,7 +92,11 @@ async def db_fetchval(query, *args):
 
 
 async def log_activity(guild_id, channel_id, user_id):
-    """Compatibility helper for bot.py's message-activity listener."""
+    """Record lightweight message activity using the existing command log table.
+
+    This compatibility helper matches the call in bot.py. It safely no-ops
+    when PostgreSQL is unavailable, consistent with the other DB helpers.
+    """
     return await log_command(
         guild_id=guild_id,
         user_id=user_id,
@@ -142,14 +146,15 @@ async def init_db():
         return True
 
     database_url = (os.getenv("DATABASE_URL") or DATABASE_URL or "").strip()
-    # Accept a URI pasted with matching outer quotes, but do not expose it in logs.
+    # Render environment values are sometimes pasted with wrapping quotes.
+    # Remove only matching outer quotes; never print the secret itself.
     if len(database_url) >= 2 and database_url[0] == database_url[-1] and database_url[0] in ("'", '"'):
         database_url = database_url[1:-1].strip()
 
     if not database_url:
         _last_init_error = "DATABASE_URL is missing or empty in this running service."
         print("❌ DATABASE_URL is missing/empty in the running Render service environment.")
-        print("   Set DATABASE_URL to the complete PostgreSQL connection URI.")
+        print("   Set it to the complete Supabase Session Pooler or Render PostgreSQL connection URL.")
         return False
 
     # Accept both common PostgreSQL URL schemes.
@@ -159,15 +164,15 @@ async def init_db():
     parsed = urlparse(database_url)
     if parsed.scheme not in ("postgres", "postgresql") or not parsed.hostname or not parsed.path.strip("/"):
         _last_init_error = "DATABASE_URL format is invalid; expected a complete PostgreSQL URL."
-        # Print only safe indicators, never the URI/password itself.
+        # Log only safe, non-secret parts so configuration mistakes can be diagnosed.
         print(
             "❌ DATABASE_URL format is invalid. "
             f"scheme={parsed.scheme or '(missing)'}, "
             f"host_present={bool(parsed.hostname)}, "
             f"database_present={bool(parsed.path.strip('/'))}. "
-            "Expected postgresql://USER:PASSWORD@HOST:PORT/DATABASE."
+            "Expected a complete postgresql://USER:PASSWORD@HOST:PORT/DATABASE URL."
         )
-        print("   Paste the full connection URI, not only the host, password, or placeholder text.")
+        print("   In Render, paste the full connection URI, not just the host, password, or placeholder text.")
         return False
     host = (parsed.hostname or "").lower()
 
@@ -838,6 +843,13 @@ async def init_db():
                         file_name TEXT PRIMARY KEY,
                         data JSONB NOT NULL,
                         updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE TABLE IF NOT EXISTS air_guild_backups(
+                        guild_id BIGINT NOT NULL,
+                        backup_id TEXT NOT NULL,
+                        archive BYTEA NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        PRIMARY KEY(guild_id, backup_id)
                     );
                 """)
 
