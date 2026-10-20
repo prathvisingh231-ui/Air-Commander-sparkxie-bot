@@ -28,6 +28,17 @@ class DashboardAuthTests(unittest.TestCase):
         web_dashboard.register_dashboard(self.app, FakeBot())
         self.client = self.app.test_client()
 
+    def test_oauth_callback_uses_canonical_render_url_when_base_url_is_unset(self):
+        with mock.patch.dict("os.environ", {"DASHBOARD_BASE_URL": ""}):
+            self.assertEqual(
+                web_dashboard._base_url(),
+                "https://air-commander-sparkxie-bot-850o.onrender.com",
+            )
+            self.assertEqual(
+                web_dashboard._redirect_uri(),
+                "https://air-commander-sparkxie-bot-850o.onrender.com/oauth/callback",
+            )
+
     def test_guild_list_requires_login(self):
         response = self.client.get("/api/guilds")
         self.assertEqual(response.status_code, 401)
