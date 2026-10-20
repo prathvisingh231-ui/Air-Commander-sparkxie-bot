@@ -652,7 +652,7 @@
     if (!editor) return;
     try {
       let cfg = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole');
-      let panels = cfg.panels || [], selectedName = panels.length ? panels[0].name : '', draftRoles = [];
+      let panels = cfg.panels || [], selectedName = panels.length ? panels[0].name : '', draftRoles = null;
       const roleOptions = '<option value="">Choose a server role…</option>' + (cfg.roles || []).map(r => '<option value="' + esc(r.id) + '">' + esc(r.name) + '</option>').join('');
       async function sendSelfRole(payload) {
         const response = await fetch('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-CSRF-Token':"{{ csrf_token }}"}, body:JSON.stringify(payload)});
@@ -666,12 +666,12 @@
           editor.innerHTML = '<div class="config-sub"><h3>Create a self-role panel</h3><label class="setting-field">Panel name<input id="srNewName" maxlength="32" placeholder="member-roles"></label><div class="config-actions"><button class="primary" id="srCreate">Create panel</button><span id="srStatus" class="muted" role="status"></span></div></div>';
           document.getElementById('srCreate')?.addEventListener('click', async () => {
             const name = document.getElementById('srNewName').value.trim(), btn = document.getElementById('srCreate'); btn.disabled = true;
-            try { await sendSelfRole({action:'create', name}); const fresh = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole'); cfg = fresh; panels = fresh.panels || []; selectedName = name; draftRoles = []; render(); }
+            try { await sendSelfRole({action:'create', name}); const fresh = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole'); cfg = fresh; panels = fresh.panels || []; selectedName = name; draftRoles = null; render(); }
             catch (e) { document.getElementById('srStatus').textContent = e.message; btn.disabled = false; }
           });
           return;
         }
-        if (!draftRoles.length) draftRoles = (p.roles || []).map(x => ({...x}));
+        if (draftRoles === null) draftRoles = (p.roles || []).map(x => ({...x}));
         editor.innerHTML = '<label class="setting-field">Panel<select id="srPanelSelect">' + panels.map(x => '<option value="' + esc(x.name) + '"' + (x.name === selectedName ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</select></label>' +
           '<div class="config-columns"><section class="config-sub"><h3>Embed appearance</h3>' +
           '<label class="setting-field">Title<input id="srTitle" maxlength="256" value="' + esc(p.title || '') + '"></label>' +
@@ -681,7 +681,7 @@
           '<label class="setting-field">Role<select id="srRole">' + roleOptions + '</select></label><label class="setting-field">Button label<input id="srLabel" maxlength="80" placeholder="Member"></label><label class="setting-field">Emoji (optional)<input id="srEmoji" maxlength="100" placeholder="🎮"></label>' +
           '<div class="config-actions"><button class="secondary" id="srAddRole" ' + (draftRoles.length >= 25 ? 'disabled' : '') + '>Add role</button><button class="primary" id="srSave">Save panel</button><button class="secondary" id="srDelete">Delete panel</button><span id="srStatus" class="muted" role="status"></span></div></section></div>' +
           '<div class="notice">Saving updates the existing SelfRole configuration. To publish or refresh the Discord message, use <code>/selfrole send</code> in Discord.</div>';
-        document.getElementById('srPanelSelect')?.addEventListener('change', e => { selectedName = e.target.value; draftRoles = []; render(); });
+        document.getElementById('srPanelSelect')?.addEventListener('change', e => { selectedName = e.target.value; draftRoles = null; render(); });
         document.querySelectorAll('[data-sr-remove]').forEach(btn => btn.addEventListener('click', () => { draftRoles.splice(Number(btn.dataset.srRemove), 1); render(); }));
         document.getElementById('srAddRole')?.addEventListener('click', () => {
           const role_id = document.getElementById('srRole').value, label = document.getElementById('srLabel').value.trim(), emoji = document.getElementById('srEmoji').value.trim();
@@ -698,7 +698,7 @@
         document.getElementById('srDelete')?.addEventListener('click', async () => {
           if (!confirm('Delete SelfRole panel "' + selectedName + '"?')) return;
           const btn = document.getElementById('srDelete'); btn.disabled = true;
-          try { await sendSelfRole({action:'delete', name:selectedName}); const fresh = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole'); cfg = fresh; panels = fresh.panels || []; selectedName = panels.length ? panels[0].name : ''; draftRoles = []; render(); }
+          try { await sendSelfRole({action:'delete', name:selectedName}); const fresh = await api('/api/guild/' + encodeURIComponent(server.id) + '/config/selfrole'); cfg = fresh; panels = fresh.panels || []; selectedName = panels.length ? panels[0].name : ''; draftRoles = null; render(); }
           catch (e) { document.getElementById('srStatus').textContent = e.message; btn.disabled = false; }
         });
       };
