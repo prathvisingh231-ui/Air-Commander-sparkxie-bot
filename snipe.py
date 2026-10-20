@@ -693,6 +693,12 @@ class TicketSystem(commands.Cog):
         parent=ticket
     )
 
+    role = app_commands.Group(
+        name="role",
+        description="Manage category-specific ticket staff roles.",
+        parent=ticket
+    )
+
     def __init__(self, bot):
 
         self.bot = bot
@@ -1009,17 +1015,29 @@ class TicketSystem(commands.Cog):
                 )
         }
 
+        # The global support role remains available in every ticket.
+        staff_roles = {}
         if support_role:
+            staff_roles[support_role.id] = support_role
 
-            overwrites[support_role] = (
-                discord.PermissionOverwrite(
-                    view_channel=True,
-                    send_messages=True,
-                    read_message_history=True,
-                    manage_messages=True,
-                    attach_files=True,
-                    embed_links=True
-                )
+        # A category may override/add its own specialist staff role.
+        category_role_id = category_data.get("support_role_id")
+        if category_role_id:
+            try:
+                category_role = guild.get_role(int(category_role_id))
+            except (TypeError, ValueError):
+                category_role = None
+            if category_role:
+                staff_roles[category_role.id] = category_role
+
+        for staff_role in staff_roles.values():
+            overwrites[staff_role] = discord.PermissionOverwrite(
+                view_channel=True,
+                send_messages=True,
+                read_message_history=True,
+                manage_messages=True,
+                attach_files=True,
+                embed_links=True
             )
 
         if guild.me:
@@ -1159,11 +1177,19 @@ class TicketSystem(commands.Cog):
         )
 
         content = member.mention
-
+        mention_roles = []
         if support_role:
-            content += (
-                f" {support_role.mention}"
-            )
+            mention_roles.append(support_role)
+        category_role_id = category_data.get("support_role_id")
+        if category_role_id:
+            try:
+                category_role = guild.get_role(int(category_role_id))
+            except (TypeError, ValueError):
+                category_role = None
+            if category_role and all(r.id != category_role.id for r in mention_roles):
+                mention_roles.append(category_role)
+        if mention_roles:
+            content += " " + " ".join(role.mention for role in mention_roles)
 
         try:
 
@@ -2138,6 +2164,124 @@ class TicketSystem(commands.Cog):
         )
 
     # ========================================================
+    # CATEGORY STAFF ROLE COMMANDS
+    # ========================================================
+
+    @role.command(
+        name="set",
+        description="Set the staff role for one ticket category."
+    )
+    @app_commands.describe(
+        category_key="Exact key from /ticket category list",
+        staff_role="Role allowed to view and handle this category's tickets."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_role_set(
+        self,
+        interaction: discord.Interaction,
+        category_key: str,
+        staff_role: discord.Role
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ This command can only be used in a server.", ephemeral=True
+            )
+
+        data = load_data()
+        guild_data = ensure_guild(data, interaction.guild.id)
+        categories = guild_data["categories"]
+        matched_key = next(
+            (key for key in categories if key.lower() == category_key.strip().lower()),
+            None
+        )
+        if matched_key is None:
+            available = ", ".join(f"`{key}`" for key in categories) or "none"
+            return await interaction.response.send_message(
+                f"❌ Category key `{category_key}` not found. Available keys: {available}",
+                ephemeral=True
+            )
+
+        categories[matched_key]["support_role_id"] = staff_role.id
+        save_data(data)
+        await interaction.response.send_message(
+            f"✅ Staff role for **{categories[matched_key].get('name', matched_key)}** "
+            f"(`{matched_key}`) set to {staff_role.mention}.",
+            ephemeral=True
+        )
+
+    @role.command(
+        name="remove",
+        description="Remove the category-specific staff role."
+    )
+    @app_commands.describe(
+        category_key="Exact key from /ticket category list"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_role_remove(
+        self,
+        interaction: discord.Interaction,
+        category_key: str
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ This command can only be used in a server.", ephemeral=True
+            )
+
+        data = load_data()
+        guild_data = ensure_guild(data, interaction.guild.id)
+        categories = guild_data["categories"]
+        matched_key = next(
+            (key for key in categories if key.lower() == category_key.strip().lower()),
+            None
+        )
+        if matched_key is None:
+            available = ", ".join(f"`{key}`" for key in categories) or "none"
+            return await interaction.response.send_message(
+                f"❌ Category key `{category_key}` not found. Available keys: {available}",
+                ephemeral=True
+            )
+
+        category = categories[matched_key]
+        old_role_id = category.pop("support_role_id", None)
+        save_data(data)
+        old_role = interaction.guild.get_role(int(old_role_id)) if old_role_id else None
+        role_label = old_role.mention if old_role else "category-specific role"
+        await interaction.response.send_message(
+            f"✅ Removed {role_label} from **{category.get('name', matched_key)}** "
+            f"(`{matched_key}`). The global support role is unchanged.",
+            ephemeral=True
+        )
+
+    @role.command(
+        name="list",
+        description="List category-specific ticket staff roles."
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_role_list(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "❌ This command can only be used in a server.", ephemeral=True
+            )
+
+        data = load_data()
+        guild_data = ensure_guild(data, interaction.guild.id)
+        embed = discord.Embed(
+            title="🎫 Category Staff Roles",
+            color=0x5865F2
+        )
+        lines = []
+        for key, category in list(guild_data["categories"].items())[:25]:
+            role_id = category.get("support_role_id")
+            role_obj = interaction.guild.get_role(int(role_id)) if role_id else None
+            role_text = role_obj.mention if role_obj else ("Not set" if not role_id else "Role not found")
+            lines.append(
+                f"**{category.get('name', key)}** — `{key}`\n"
+                f"🛡️ Staff role: {role_text}"
+            )
+        embed.description = "\n\n".join(lines) if lines else "No categories configured."
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ========================================================
     # CONFIG
     # ========================================================
 
@@ -2705,6 +2849,10 @@ class TicketSystem(commands.Cog):
                 "`,ticket category remove`\n"
                 "`,ticket category list`\n\n"
 
+                "`,ticket role set <category_key> @role`\n"
+                "`,ticket role remove <category_key>`\n"
+                "`,ticket role list`\n\n"
+
                 "`,ticket config`\n"
                 "`,ticket close`\n"
                 "`,ticket reopen`\n"
@@ -3155,6 +3303,88 @@ class TicketSystem(commands.Cog):
         await ctx.send(
             f"🗑️ Removed `{found_key}`."
         )
+
+    # ========================================================
+    # PREFIX CATEGORY STAFF ROLE GROUP
+    # ========================================================
+
+    @ticket_prefix.group(
+        name="role",
+        invoke_without_command=True
+    )
+    @commands.has_permissions(administrator=True)
+    async def prefix_role(self, ctx):
+        await ctx.send(
+            "🛡️ Use `,ticket role set <category_key> @role`, "
+            "`,ticket role remove <category_key>`, or `,ticket role list`."
+        )
+
+    @prefix_role.command(name="set")
+    @commands.has_permissions(administrator=True)
+    async def prefix_role_set(self, ctx, category_key: str, staff_role: discord.Role):
+        data = load_data()
+        guild_data = ensure_guild(data, ctx.guild.id)
+        categories = guild_data["categories"]
+        matched_key = next(
+            (key for key in categories if key.lower() == category_key.strip().lower()),
+            None
+        )
+        if matched_key is None:
+            available = ", ".join(f"`{key}`" for key in categories) or "none"
+            return await ctx.send(
+                f"❌ Category key `{category_key}` not found. Available keys: {available}"
+            )
+
+        categories[matched_key]["support_role_id"] = staff_role.id
+        save_data(data)
+        await ctx.send(
+            f"✅ Staff role for **{categories[matched_key].get('name', matched_key)}** "
+            f"(`{matched_key}`) set to {staff_role.mention}."
+        )
+
+    @prefix_role.command(name="remove")
+    @commands.has_permissions(administrator=True)
+    async def prefix_role_remove(self, ctx, category_key: str):
+        data = load_data()
+        guild_data = ensure_guild(data, ctx.guild.id)
+        categories = guild_data["categories"]
+        matched_key = next(
+            (key for key in categories if key.lower() == category_key.strip().lower()),
+            None
+        )
+        if matched_key is None:
+            available = ", ".join(f"`{key}`" for key in categories) or "none"
+            return await ctx.send(
+                f"❌ Category key `{category_key}` not found. Available keys: {available}"
+            )
+
+        category = categories[matched_key]
+        old_role_id = category.pop("support_role_id", None)
+        save_data(data)
+        old_role = ctx.guild.get_role(int(old_role_id)) if old_role_id else None
+        role_label = old_role.mention if old_role else "category-specific role"
+        await ctx.send(
+            f"✅ Removed {role_label} from **{category.get('name', matched_key)}** "
+            f"(`{matched_key}`). The global support role is unchanged."
+        )
+
+    @prefix_role.command(name="list")
+    @commands.has_permissions(administrator=True)
+    async def prefix_role_list(self, ctx):
+        data = load_data()
+        guild_data = ensure_guild(data, ctx.guild.id)
+        embed = discord.Embed(title="🎫 Category Staff Roles", color=0x5865F2)
+        lines = []
+        for key, category in list(guild_data["categories"].items())[:25]:
+            role_id = category.get("support_role_id")
+            role_obj = ctx.guild.get_role(int(role_id)) if role_id else None
+            role_text = role_obj.mention if role_obj else ("Not set" if not role_id else "Role not found")
+            lines.append(
+                f"**{category.get('name', key)}** — `{key}`\n"
+                f"🛡️ Staff role: {role_text}"
+            )
+        embed.description = "\n\n".join(lines) if lines else "No categories configured."
+        await ctx.send(embed=embed)
 
     # ========================================================
     # PREFIX CLOSE
