@@ -98,6 +98,9 @@ async def _dump_guild_db(guild_id):
         cols.setdefault(row["table_name"], []).append(row["column_name"])
     data, pks, skipped = {}, {}, []
     for table, columns in cols.items():
+        # Backup archives must not recursively embed prior backup ZIPs.
+        if table == "air_guild_backups":
+            continue
         scope = "guild_id" if "guild_id" in columns else ("server_id" if "server_id" in columns else None)
         if not scope:
             skipped.append(table)
@@ -233,6 +236,41 @@ async def _restore_db(payload, guild_id):
                 print(f"[Backup] Restore failed in {table}: {type(exc).__name__}: {exc}", flush=True)
     return f"Rows merged: {restored}; errors: {len(errors)}" + (f" ({', '.join(errors[:8])})" if errors else "")
 
+def _prepare_config_restores(configs, guild_id):
+    """Validate and stage every JSON merge before any database/file mutation."""
+    if not isinstance(configs, dict):
+        raise ValueError("Invalid config fragments in backup.")
+    root_dir = Path(".").resolve()
+    prepared = []
+    for relative, fragments in configs.items():
+        if not isinstance(relative, str) or not isinstance(fragments, list):
+            raise ValueError("Invalid config fragment entry.")
+        rel = Path(relative)
+        if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".json" or any(p in EXCLUDED for p in rel.parts):
+            raise ValueError("Unsafe config path in backup.")
+        target = (root_dir / rel).resolve()
+        if target == root_dir or root_dir not in target.parents:
+            raise ValueError("Config path escapes the project.")
+        if target.exists():
+            current = json.loads(target.read_text(encoding="utf-8"))
+        else:
+            current = {}
+        for fragment in fragments:
+            if not isinstance(fragment, dict):
+                raise ValueError("Invalid config fragment in backup.")
+            path = fragment.get("path", [])
+            if not isinstance(path, list) or not path or any(
+                not isinstance(part, (str, int)) or isinstance(part, bool) for part in path
+            ):
+                raise ValueError("Invalid config fragment path.")
+            if str(guild_id) not in [str(part) for part in path]:
+                raise ValueError("Config fragment does not match this guild.")
+            if not _set_fragment(current, path, fragment.get("value")):
+                raise ValueError("Could not safely merge a guild config fragment.")
+        prepared.append((target, current))
+    return prepared
+
+
 async def _restore_archive(raw, guild_id):
     if len(raw) > MAX_ARCHIVE_BYTES:
         raise ValueError("Backup exceeds the 100 MB limit.")
@@ -246,40 +284,74 @@ async def _restore_archive(raw, guild_id):
     if not required.issubset(z.namelist()):
         raise ValueError("Backup metadata is missing.")
     manifest = json.loads(z.read("manifest.json"))
-    if manifest.get("format") != "air-commander-guild-backup-v2":
+    if not isinstance(manifest, dict) or manifest.get("format") != "air-commander-guild-backup-v2":
         raise ValueError("This is not a guild-scoped backup.")
     if int(manifest.get("guild_id", 0)) != int(guild_id):
         raise PermissionError("Cross-server restore is blocked; this backup belongs to another server.")
     configs = json.loads(z.read("guild_json_fragments.json"))
     db_payload = json.loads(z.read("database_tables.json"))
+    if not isinstance(db_payload, dict) or not isinstance(db_payload.get("tables", {}), dict):
+        raise ValueError("Invalid database tables in backup.")
+    # Preflight all JSON paths and merge operations before touching PostgreSQL.
+    prepared_configs = _prepare_config_restores(configs, guild_id)
     if db_payload.get("tables") and not getattr(db, "_pool", None):
         raise RuntimeError("PostgreSQL is disconnected. No restore changes were applied.")
     db_result = await _restore_db(db_payload, guild_id)
     written = 0
-    root_dir = Path(".").resolve()
-    for relative, fragments in configs.items():
-        rel = Path(relative)
-        if rel.is_absolute() or ".." in rel.parts or rel.suffix.lower() != ".json" or any(p in EXCLUDED for p in rel.parts):
-            raise ValueError("Unsafe config path in backup.")
-        target = (root_dir / rel).resolve()
-        if target != root_dir and root_dir not in target.parents:
-            raise ValueError("Config path escapes the project.")
-        if target.exists():
-            current = json.loads(target.read_text(encoding="utf-8"))
-        else:
-            current = {}
-        for fragment in fragments:
-            path = fragment.get("path", [])
-            if str(guild_id) not in [str(part) for part in path]:
-                raise ValueError("Config fragment does not match this guild.")
-            if not _set_fragment(current, path, fragment.get("value")):
-                raise ValueError("Could not safely merge a guild config fragment.")
+    for target, current in prepared_configs:
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix(target.suffix + ".restore-tmp")
         temp.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(target)
         written += 1
     return manifest, db_result, written
+
+async def _store_backup(guild_id, backup_id, raw):
+    """Persist the ZIP archive in PostgreSQL so Render redeploys don't erase it."""
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return False
+    await pool.execute(
+        """INSERT INTO air_guild_backups(guild_id, backup_id, archive, created_at)
+           VALUES($1, $2, $3, NOW())
+           ON CONFLICT(guild_id, backup_id) DO UPDATE
+           SET archive=EXCLUDED.archive, created_at=EXCLUDED.created_at""",
+        int(guild_id), str(backup_id), bytes(raw),
+    )
+    # Retain the newest 10 archives per guild in persistent storage.
+    await pool.execute(
+        """DELETE FROM air_guild_backups
+           WHERE guild_id=$1 AND backup_id NOT IN (
+             SELECT backup_id FROM air_guild_backups
+             WHERE guild_id=$1 ORDER BY created_at DESC LIMIT 10
+           )""",
+        int(guild_id),
+    )
+    return True
+
+
+async def _stored_backups(guild_id, limit=15):
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return []
+    rows = await pool.fetch(
+        """SELECT backup_id, octet_length(archive) AS size_bytes, created_at
+           FROM air_guild_backups WHERE guild_id=$1
+           ORDER BY created_at DESC LIMIT $2""",
+        int(guild_id), max(1, min(int(limit), 50)),
+    )
+    return [dict(row) for row in rows]
+
+
+async def _read_backup(guild_id, backup_id):
+    pool = getattr(db, "_pool", None)
+    if pool is None:
+        return None
+    return await pool.fetchval(
+        "SELECT archive FROM air_guild_backups WHERE guild_id=$1 AND backup_id=$2",
+        int(guild_id), str(backup_id),
+    )
+
 
 def _local_backups(guild_id):
     folder = _guild_folder(guild_id)
@@ -307,7 +379,13 @@ async def _send_create(guild, interaction=None, ctx=None):
     memory, manifest = await _build_backup(guild)
     backup_id = _make_id(guild.id)
     path = _guild_folder(guild.id) / (backup_id + ".zip")
-    path.write_bytes(memory.getvalue())
+    raw = memory.getvalue()
+    path.write_bytes(raw)
+    persistent = False
+    try:
+        persistent = await _store_backup(guild.id, backup_id, raw)
+    except Exception as exc:
+        print(f"[Backup] PostgreSQL archive persistence failed: {type(exc).__name__}: {exc}", flush=True)
     _prune(guild.id)
     complete = manifest["database_included"] and not manifest.get("warning")
     status = "COMPLETE" if complete else "PARTIAL — read warning"
@@ -315,7 +393,8 @@ async def _send_create(guild, interaction=None, ctx=None):
         f"Backup ID: {backup_id}\nServer: {guild.name} ({guild.id})\nStatus: {status}\n"
         f"Guild-scoped JSON files: {manifest['json_files_with_guild_data']}\n"
         f"Database tables: {manifest['database_tables']}\nArchive size: {path.stat().st_size:,} bytes\n"
-        "Use /backup list to see IDs. Only this server's owner can restore."
+        "Use /backup list to see IDs. Only this server's owner can restore.\n"
+        f"Persistent PostgreSQL archive: {'yes' if persistent else 'no — download a copy before redeploy'}"
     )
     if manifest.get("warning"):
         msg += "\nWarning: " + manifest["warning"][:900]
@@ -345,9 +424,14 @@ def setup(bot):
             return await interaction.response.send_message("Use this in a server.", ephemeral=True)
         if not _admin(interaction.user):
             return await interaction.response.send_message("Manage Server permission required.", ephemeral=True)
-        files = _local_backups(interaction.guild.id)[:15]
-        lines = [f"{p.stem} — {p.stat().st_size:,} bytes" for p in files]
-        await interaction.response.send_message("\n".join(lines) if lines else "No backups found on this running instance. Render local files can reset after redeploy.", ephemeral=True)
+        local = {p.stem: p.stat().st_size for p in _local_backups(interaction.guild.id)}
+        try:
+            for item in await _stored_backups(interaction.guild.id):
+                local.setdefault(item["backup_id"], item["size_bytes"])
+        except Exception as exc:
+            print(f"[Backup] Persistent list failed: {type(exc).__name__}: {exc}", flush=True)
+        lines = [f"{backup_id} — {size:,} bytes" for backup_id, size in list(local.items())[:15]]
+        await interaction.response.send_message("\n".join(lines) if lines else "No backups found. PostgreSQL must be connected for persistent archive storage.", ephemeral=True)
 
     @group.command(name="restore", description="Restore a backup ID (server owner only)")
     @app_commands.describe(backup_id="Backup ID from /backup list for this server")
@@ -359,11 +443,12 @@ def setup(bot):
         if not BACKUP_ID_RE.fullmatch(backup_id) or backup_id.split("-")[1] != str(interaction.guild.id):
             return await interaction.response.send_message("Invalid backup ID or it belongs to another server.", ephemeral=True)
         path = _guild_folder(interaction.guild.id) / (backup_id + ".zip")
-        if not path.is_file():
-            return await interaction.response.send_message("Backup ID not found on this instance. Render local storage may reset after redeploy.", ephemeral=True)
+        raw = path.read_bytes() if path.is_file() else await _read_backup(interaction.guild.id, backup_id)
+        if raw is None:
+            return await interaction.response.send_message("Backup ID not found in local or PostgreSQL storage.", ephemeral=True)
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            manifest, result, count = await _restore_archive(path.read_bytes(), interaction.guild.id)
+            manifest, result, count = await _restore_archive(raw, interaction.guild.id)
             await interaction.followup.send(f"Restore finished for {interaction.guild.name}. Config files: {count}. {result}\nCreated at: {manifest.get('created_at')}", ephemeral=True)
         except Exception as exc:
             print(f"[Backup] Restore failed for guild {interaction.guild.id}: {type(exc).__name__}: {exc}", flush=True)
