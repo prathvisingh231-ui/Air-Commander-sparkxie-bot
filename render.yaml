@@ -16,7 +16,7 @@ services:
       - key: DASHBOARD_SECRET_KEY
         sync: false
       - key: DASHBOARD_BASE_URL
-        value: https://air-commander-sparkxie-bot.onrender.com
+        value: https://air-commander-sparkxie-bot-850o.onrender.com
       - key: DATABASE_URL
         fromDatabase:
           name: air-commander-db
