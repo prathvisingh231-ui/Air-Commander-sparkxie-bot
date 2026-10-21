@@ -69,6 +69,29 @@
     @media(max-width:520px){.welcome-card{padding:17px}.server-large{align-items:flex-start}.server-large p{overflow-wrap:anywhere;font-size:11px}.section-heading{align-items:flex-start}.feature{padding:13px}.status{font-size:10px}.config-sub{padding:13px}.config-actions button{width:100%;flex:none}}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
+  
+    /* Air Commander server control-panel navigation */
+    .layout{grid-template-columns:270px minmax(0,1fr);gap:18px}
+    .server-panel{position:sticky;top:88px;max-height:calc(100vh - 110px);overflow:auto;background:linear-gradient(180deg,#0b2030,#081622);border-color:#21465a}
+    .server-list{max-height:32vh;overflow:auto;padding-bottom:14px;border-bottom:1px solid #203b4e}
+    .module-nav{padding-top:16px}.module-nav-title{font-size:10px;letter-spacing:.16em;color:#66879d;font-weight:800;padding:0 10px 9px;text-transform:uppercase}
+    .module-nav button{width:100%;display:flex;align-items:center;gap:11px;text-align:left;padding:10px 12px;margin:3px 0;border:1px solid transparent;border-radius:10px;background:transparent;color:#a8c0d2;font-weight:700;font-size:13px;cursor:pointer;transition:all .16s}
+    .module-nav button:hover{background:#102d40;color:#e8f8ff}.module-nav button.active{color:#05202a;background:linear-gradient(100deg,#21c9df,#54e4f1);box-shadow:0 6px 20px #22d3ee20}
+    .module-nav .nav-icon{width:24px;text-align:center;font-size:16px}.module-nav .nav-count{margin-left:auto;font-size:10px;opacity:.75}
+    .module-page{display:none;animation:module-in .18s ease-out}.module-page.active{display:block}
+    .module-page>.features{margin-bottom:16px}.module-page-heading{padding:22px 24px;margin-bottom:16px;border:1px solid #21465a;border-radius:16px;background:linear-gradient(110deg,#0c2a3d,#0b1a2a)}
+    .module-page-heading .eyebrow{font-size:10px;letter-spacing:.18em}.module-page-heading h2{font-size:26px;margin:8px 0}.module-page-heading p{margin:0;color:#91aabd;font-size:13px}
+    .module-page .features{background:linear-gradient(145deg,#0c1e2d,#091724);border-color:#1e3b50}
+    .module-page .config-sub{background:#0a1926;border-color:#244257}.module-page .setting-field input,.module-page .setting-field select,.module-page textarea,.module-page select{background:#071521;color:#e6f4ff;border-color:#29485d}
+    .module-page input[type=checkbox]{accent-color:#22d3ee}.module-page .notice{background:#102638;color:#91adbf}
+    .module-page .secondary{background:#102638;color:#d6edf8;border-color:#2a4b60}
+    .module-page .section-heading .count{background:#102c3e;color:#82dbe8}
+    .overview-summary{display:block}.module-page .loading{background:#091a27;border-radius:12px}
+    @keyframes module-in{from{opacity:.65;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+    @media(max-width:850px){.layout{grid-template-columns:1fr}.server-panel{position:static;max-height:none}.server-list{max-height:220px}.module-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.module-nav-title{grid-column:1/-1}.module-nav button{margin:0}.module-page-heading{padding:18px}}
+    @media(max-width:520px){.module-nav{grid-template-columns:1fr 1fr}.module-nav button{font-size:12px;padding:9px}.module-nav .nav-icon{width:18px}}
+    @media(prefers-reduced-motion:reduce){.module-page{animation:none}.module-nav button{transition:none}}
+
   </style>
 </head>
 <body>
@@ -771,6 +794,71 @@
     } catch (error) { editor.innerHTML = '<div class="error">' + esc(error.message) + '</div>'; }
   }
 
+
+  function setupModuleNavigation() {
+    const host = document.querySelector('.server-panel');
+    const root = document.getElementById('overview');
+    if (!host || !root) return;
+    document.getElementById('moduleNav')?.remove();
+
+    const navItems = [
+      {id:'overview',label:'Overview',icon:'⌂',desc:'Server health and module status'},
+      {id:'security',label:'Security',icon:'⬡',desc:'AntiNuke, AutoMode and AntiLink',panels:['securityPanel']},
+      {id:'setup',label:'Server Setup',icon:'⚙',desc:'Welcome, roles and verification',panels:['welcomePanel','selfRolePanel','verificationPanel']},
+      {id:'moderation',label:'Moderation & Access',icon:'⛨',desc:'Tickets and command permissions',panels:['ticketsPanel','commandPermissionsPanel']},
+      {id:'community',label:'Community',icon:'✦',desc:'Leveling and giveaways',panels:['levelingPanel','giveawayTemplatesPanel']},
+      {id:'integrations',label:'Integrations',icon:'⌁',desc:'YouTube alerts and AI channel',panels:['youtubeAlertsPanel','aiChannelPanel']},
+      {id:'recovery',label:'Backup & Recovery',icon:'⟳',desc:'Guild backup tools',panels:['backupsPanel']}
+    ];
+    const nav = document.createElement('nav');
+    nav.className = 'module-nav';
+    nav.id = 'moduleNav';
+    nav.setAttribute('aria-label','Air Commander configuration');
+    nav.innerHTML = '<div class="module-nav-title">COMMAND MODULES</div>' + navItems.map(item =>
+      '<button type="button" data-page="'+item.id+'" title="'+item.desc+'"><span class="nav-icon">'+item.icon+'</span><span>'+item.label+'</span>'+(item.panels ? '<span class="nav-count">'+item.panels.length+'</span>' : '')+'</button>'
+    ).join('');
+    host.appendChild(nav);
+
+    const summary = document.createElement('div');
+    summary.className = 'overview-summary';
+    summary.id = 'overviewSummary';
+    const original = Array.from(root.children);
+    original.slice(0,3).forEach(node => summary.appendChild(node));
+    root.prepend(summary);
+
+    navItems.filter(item => item.panels).forEach(item => {
+      const page = document.createElement('section');
+      page.className = 'module-page';
+      page.id = 'modulePage-'+item.id;
+      page.innerHTML = '<div class="module-page-heading"><div class="eyebrow"><span class="eyebrow-pip"></span> AIR COMMANDER / CONFIGURATION</div><h2>'+item.label+'</h2><p>'+item.desc+'</p></div>';
+      item.panels.forEach(id => {
+        const panel = document.getElementById(id);
+        if (panel) page.appendChild(panel);
+      });
+      root.appendChild(page);
+    });
+
+    function activate(id) {
+      const isOverview = id === 'overview';
+      summary.style.display = isOverview ? 'block' : 'none';
+      navItems.filter(item => item.panels).forEach(item => {
+        const page = document.getElementById('modulePage-'+item.id);
+        if (page) page.classList.toggle('active', item.id === id);
+      });
+      nav.querySelectorAll('button[data-page]').forEach(button => {
+        const active = button.dataset.page === id;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-current', active ? 'page' : 'false');
+      });
+      if (!isOverview) {
+        const page = document.getElementById('modulePage-'+id);
+        if (page) page.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+      }
+    }
+    nav.querySelectorAll('button[data-page]').forEach(button => button.addEventListener('click', () => activate(button.dataset.page)));
+    activate('overview');
+  }
+
   async function chooseServer(server) {
     selected = server;
     renderServers();
@@ -782,6 +870,7 @@
     try {
       const data = await api('/api/guild/' + encodeURIComponent(server.id) + '/overview');
       renderOverview(data);
+      setupModuleNavigation();
       await loadSecurity(server);
       await loadWelcome(server);
       await loadSelfRoles(server);
