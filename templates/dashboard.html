@@ -798,7 +798,8 @@
   function setupModuleNavigation() {
     const host = document.querySelector('.server-panel');
     const root = document.getElementById('overview');
-    if (!host || !root || document.getElementById('moduleNav')) return;
+    if (!host || !root) return;
+    document.getElementById('moduleNav')?.remove();
 
     const navItems = [
       {id:'overview',label:'Overview',icon:'⌂',desc:'Server health and module status'},
