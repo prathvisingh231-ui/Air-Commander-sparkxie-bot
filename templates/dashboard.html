@@ -92,6 +92,30 @@
     @media(max-width:520px){.module-nav{grid-template-columns:1fr 1fr}.module-nav button{font-size:12px;padding:9px}.module-nav .nav-icon{width:18px}}
     @media(prefers-reduced-motion:reduce){.module-page{animation:none}.module-nav button{transition:none}}
 
+  
+    /* Landing-first server directory and per-server configure flow */
+    .layout{display:block;max-width:none}
+    .server-panel{position:static;max-height:none;padding:22px;margin-bottom:20px}
+    .server-list{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px;max-height:none;overflow:visible}
+    .server-item{min-width:0;min-height:164px;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:12px;padding:16px;border:1px solid #214257;background:linear-gradient(145deg,#0d2232,#091724);border-radius:16px;transition:transform .16s,border-color .16s,box-shadow .16s}
+    .server-item:hover{transform:translateY(-3px);border-color:#28d4e8;box-shadow:0 12px 28px #0003}
+    .server-item .server-icon{width:52px;height:52px;border-radius:15px;border:1px solid #254c61}
+    .server-card-name{display:block;font-size:13px;font-weight:750;line-height:1.4;min-height:36px;overflow-wrap:anywhere;color:#e8f4ff}
+    .server-state{font-size:11px;color:#8eabba}
+    .server-config-btn{display:block;width:100%;margin-top:auto;padding:9px 10px;text-align:center;border-radius:9px;background:linear-gradient(100deg,#14b8d0,#22d3ee);color:#03131e;font-size:12px;font-weight:800;border:0}
+    .server-config-btn.missing{background:#102b3c;color:#9bb7c9;border:1px solid #294b60}
+    .server-item:hover .server-config-btn{filter:brightness(1.08)}
+    body.config-mode .command-hero,body.config-mode #serverDirectory{display:none}
+    body.config-mode .layout{display:block}
+    body.config-mode .main-panel{display:block}
+    .main-panel{display:none}
+    .back-servers{margin-bottom:16px}
+    #overview .module-nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:16px;padding:12px;border:1px solid #214257;border-radius:14px;background:#091724}
+    #overview .module-nav-title{grid-column:1/-1}
+    @media(max-width:1250px){.server-list{grid-template-columns:repeat(4,minmax(0,1fr))}}
+    @media(max-width:850px){.server-list{grid-template-columns:repeat(3,minmax(0,1fr))}.server-item{min-height:150px}}
+    @media(max-width:600px){.server-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.server-item{padding:12px;min-height:145px}.server-item .server-icon{width:44px;height:44px}#overview .module-nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
   </style>
 </head>
 <body>
@@ -136,14 +160,14 @@
     </div>
   </section>
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
-  <div class="layout">
+  <div id="serverDirectory"><div class="layout">
     <aside class="panel server-panel">
       <div class="section-heading"><h2>Your servers</h2><span class="count" id="serverCount">…</span></div>
       <div class="server-list" id="serverList"><div class="loading">Loading servers…</div></div>
     </aside>
     <section class="main-panel" id="overview"><div class="panel loading">Loading your dashboard…</div></section>
   </div>
-  <div class="footer">Air Commander · Server permissions are checked by the server on every request.</div>
+  </div><div class="footer">Air Commander · Server permissions are checked by the server on every request.</div>
 </main>
 <script>
 (() => {
@@ -177,11 +201,12 @@
       return;
     }
     serverList.innerHTML = servers.map(server => {
-      const active = selected && selected.id === server.id;
-      return '<button class="server-item ' + (active ? 'active' : '') + '" data-id="' + esc(server.id) + '">' +
-        avatar(server) + '<span style="min-width:0;flex:1"><span class="server-name" style="display:block">' + esc(server.name) + '</span>' +
-        '<span class="server-state"><span class="dot ' + (server.bot_present ? 'good' : '') + '"></span>' +
-        (server.bot_present ? 'Bot connected' : 'Bot not invited') + '</span></span></button>';
+      const status = server.bot_present ? 'Bot connected' : 'Bot not invited';
+      return '<button class="server-item" data-id="' + esc(server.id) + '" aria-label="Configure ' + esc(server.name) + '">' +
+        avatar(server) +
+        '<span style="min-width:0;width:100%"><span class="server-card-name">' + esc(server.name) + '</span>' +
+        '<span class="server-state"><span class="dot ' + (server.bot_present ? 'good' : '') + '"></span>' + status + '</span></span>' +
+        '<span class="server-config-btn ' + (server.bot_present ? '' : 'missing') + '">' + (server.bot_present ? '⚙ Configure' : '+ Invite Bot') + '</span></button>';
     }).join('');
     serverList.querySelectorAll('[data-id]').forEach(button => button.addEventListener('click', () => {
       const next = servers.find(item => item.id === button.dataset.id);
@@ -796,8 +821,8 @@
 
 
   function setupModuleNavigation() {
-    const host = document.querySelector('.server-panel');
     const root = document.getElementById('overview');
+    const host = root;
     if (!host || !root) return;
     document.getElementById('moduleNav')?.remove();
 
@@ -817,12 +842,12 @@
     nav.innerHTML = '<div class="module-nav-title">COMMAND MODULES</div>' + navItems.map(item =>
       '<button type="button" data-page="'+item.id+'" title="'+item.desc+'"><span class="nav-icon">'+item.icon+'</span><span>'+item.label+'</span>'+(item.panels ? '<span class="nav-count">'+item.panels.length+'</span>' : '')+'</button>'
     ).join('');
-    host.appendChild(nav);
+    root.prepend(nav);
 
     const summary = document.createElement('div');
     summary.className = 'overview-summary';
     summary.id = 'overviewSummary';
-    const original = Array.from(root.children);
+    const original = Array.from(root.children).filter(node => node !== nav && node.id !== 'backServers');
     original.slice(0,3).forEach(node => summary.appendChild(node));
     root.prepend(summary);
 
@@ -861,15 +886,18 @@
 
   async function chooseServer(server) {
     selected = server;
+    document.body.classList.add('config-mode');
     renderServers();
     if (!server.bot_present) {
-      overview.innerHTML = '<div class="panel empty"><h2 style="margin-bottom:8px">Invite Air Commander</h2>This bot is not in this server yet. Use the Invite bot link in the top-right, then refresh this page.</div>';
+      overview.innerHTML = '<button class="secondary back-servers" id="backServers">← All servers</button><div class="panel empty"><h2 style="margin-bottom:8px">Invite Air Commander</h2>This bot is not in this server yet. Use the Invite bot link in the top-right, then refresh this page.</div>';
+      document.getElementById('backServers')?.addEventListener('click', showServerDirectory);
       return;
     }
     overview.innerHTML = '<div class="panel loading">Loading ' + esc(server.name) + '…</div>';
     try {
       const data = await api('/api/guild/' + encodeURIComponent(server.id) + '/overview');
       renderOverview(data);
+      const back = document.createElement('button'); back.type='button'; back.className='secondary back-servers'; back.id='backServers'; back.textContent='← All servers'; back.addEventListener('click', showServerDirectory); overview.prepend(back);
       setupModuleNavigation();
       await loadSecurity(server);
       await loadWelcome(server);
@@ -883,9 +911,16 @@
       await loadBackups(server);
       await loadCommandPermissions(server);
     } catch (error) {
-      overview.innerHTML = '<div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
+      overview.innerHTML = '<button class="secondary back-servers" id="backServers">← All servers</button><div class="panel empty"><h2>Could not load server</h2><p>' + esc(error.message) + '</p><button class="secondary" id="retryBtn">Try again</button></div>';
+      document.getElementById('backServers')?.addEventListener('click', showServerDirectory);
       document.getElementById('retryBtn')?.addEventListener('click', () => chooseServer(server));
     }
+  }
+
+  function showServerDirectory() {
+    document.body.classList.remove('config-mode');
+    selected = null;
+    renderServers();
   }
 
   async function init() {
@@ -895,10 +930,7 @@
       const data = await api('/api/guilds');
       servers = data.guilds || [];
       renderServers();
-      if (servers.length) {
-        const stillThere = servers.find(server => selected && server.id === selected.id);
-        await chooseServer(stillThere || servers.find(server => server.bot_present) || servers[0]);
-      }
+      showServerDirectory();
     } catch (error) {
       serverList.innerHTML = '<div class="empty">' + esc(error.message) + '</div>';
       overview.innerHTML = '<div class="panel empty">Refresh to retry.</div>';
