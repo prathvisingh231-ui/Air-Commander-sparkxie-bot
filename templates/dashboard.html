@@ -847,7 +847,7 @@
     const summary = document.createElement('div');
     summary.className = 'overview-summary';
     summary.id = 'overviewSummary';
-    const original = Array.from(root.children);
+    const original = Array.from(root.children).filter(node => node !== nav && node.id !== 'backServers');
     original.slice(0,3).forEach(node => summary.appendChild(node));
     root.prepend(summary);
 
