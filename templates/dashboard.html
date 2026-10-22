@@ -116,6 +116,30 @@
     @media(max-width:850px){.server-list{grid-template-columns:repeat(3,minmax(0,1fr))}.server-item{min-height:150px}}
     @media(max-width:600px){.server-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.server-item{padding:12px;min-height:145px}.server-item .server-icon{width:44px;height:44px}#overview .module-nav{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
+    /* Server configuration workspace: persistent navigation + focused module canvas */
+    body.config-mode #overview{display:grid;grid-template-columns:246px minmax(0,1fr);grid-template-rows:auto 1fr;align-items:start;gap:18px;max-width:none}
+    body.config-mode #overview>.back-servers{grid-column:1/-1;grid-row:1}
+    body.config-mode #overview .module-nav{grid-column:1;grid-row:2;position:sticky;top:18px;display:flex;flex-direction:column;gap:5px;margin:0;padding:12px;border:1px solid #214257;border-radius:16px;background:linear-gradient(180deg,#0b1d2b,#081521);box-shadow:0 18px 50px #0002}
+    body.config-mode #overview .module-nav-title{padding:8px 10px 12px;color:#6f9db8;font-size:10px;font-weight:850;letter-spacing:.18em}
+    body.config-mode #overview .module-nav button{display:flex;align-items:center;gap:11px;width:100%;min-height:43px;padding:10px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#a8c0d1;text-align:left;font-weight:650;font-size:12px;cursor:pointer;transition:background .18s,border-color .18s,color .18s}
+    body.config-mode #overview .module-nav button:hover{background:#102b3b;color:#e6f8ff}
+    body.config-mode #overview .module-nav button.active{background:linear-gradient(100deg,#103d50,#102b40);border-color:#1b6075;color:#e9fbff;box-shadow:inset 3px 0 #22d3ee}
+    body.config-mode #overview .module-nav .nav-icon{display:inline-grid;place-items:center;width:20px;flex:none;font-size:17px;color:#50d9eb}
+    body.config-mode #overview .module-nav .nav-count{margin-left:auto;padding:3px 7px;border-radius:999px;background:#18364a;color:#8ec9db;font-size:10px}
+    body.config-mode #overview>.overview-summary,body.config-mode #overview>.module-page{grid-column:2;grid-row:2;min-width:0}
+    body.config-mode #overview>.overview-summary{grid-row:2}
+    body.config-mode #overview>.module-page{display:none}
+    body.config-mode #overview>.module-page.active{display:block;animation:moduleFadeIn .22s ease-out}
+    body.config-mode #overview .module-page-heading{margin-bottom:16px;padding:24px 26px;border:1px solid #1e4055;border-radius:17px;background:radial-gradient(ellipse at 100% 0%,#12445a66,transparent 50%),linear-gradient(115deg,#0d2637,#0a1726)}
+    body.config-mode #overview .module-page-heading h2{margin:8px 0 6px;color:#eafaff;font-size:25px;letter-spacing:-.035em}
+    body.config-mode #overview .module-page-heading p{margin:0;color:#8caabd;font-size:13px}
+    body.config-mode #overview .module-page>.features{margin-bottom:15px}
+    body.config-mode #overview .setting-toggle,body.config-mode #overview input[type=checkbox]{accent-color:#22d3ee}
+    @keyframes moduleFadeIn{from{opacity:.55;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+    @media(max-width:900px){body.config-mode #overview{grid-template-columns:205px minmax(0,1fr);gap:12px}body.config-mode #overview .module-nav{padding:8px}body.config-mode #overview .module-nav button{font-size:11px;padding:9px}}
+    @media(max-width:650px){body.config-mode #overview{display:flex;flex-direction:column}body.config-mode #overview .module-nav{position:static;width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}body.config-mode #overview .module-nav-title{grid-column:1/-1}body.config-mode #overview>.overview-summary,body.config-mode #overview>.module-page{width:100%}body.config-mode #overview .module-page-heading{padding:18px}}
+
+
   </style>
 </head>
 <body>
