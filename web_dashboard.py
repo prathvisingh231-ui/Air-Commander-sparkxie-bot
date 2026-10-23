@@ -367,6 +367,9 @@ def register_dashboard(app, bot) -> None:
                     "window": int(anti.get("window", 10)),
                     "log_channel_id": anti.get("log_channel_id"),
                     "thresholds": anti.get("thresholds", {}),
+                    "modules": {key: bool(value) for key, value in anti.get("modules", {}).items()},
+                    "whitelist_users": anti.get("whitelist_users", []),
+                    "whitelist_roles": anti.get("whitelist_roles", []),
                 },
             })
 
@@ -469,6 +472,13 @@ def register_dashboard(app, bot) -> None:
                     for key, value in thresholds.items():
                         if key not in allowed: raise ValueError
                         cfg.setdefault("thresholds", {})[key] = bounded_int(value, 1, 20)
+                if "modules" in incoming:
+                    modules = incoming["modules"]
+                    if not isinstance(modules, dict): raise ValueError
+                    allowed_modules = set(cfg.get("modules", {}))
+                    for key, value in modules.items():
+                        if key not in allowed_modules or not isinstance(value, bool): raise ValueError
+                        cfg.setdefault("modules", {})[key] = value
                 if not automation.antinuke_save_all():
                     return jsonify({"error": "save_failed", "message": "Could not save AntiNuke settings."}), 500
         except (ValueError, TypeError, KeyError):
