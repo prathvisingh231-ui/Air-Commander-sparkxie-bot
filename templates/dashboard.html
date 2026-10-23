@@ -913,6 +913,7 @@
         if (available.length > 1) {
           const tabs = document.createElement('div');
           tabs.className = 'module-phase-tabs';
+          tabs.style.display = 'flex';
           tabs.setAttribute('role','tablist');
           tabs.setAttribute('aria-label', item.label + ' phases');
           const labelFor = (panel, index) => {
@@ -935,11 +936,16 @@
                 other.classList.toggle('active', active);
                 other.setAttribute('aria-selected', active ? 'true' : 'false');
               });
-              available.forEach(target => target.classList.toggle('active', target === panel));
+              available.forEach(target => {
+                const active = target === panel;
+                target.classList.toggle('active', active);
+                target.style.display = active ? 'block' : 'none';
+              });
             });
             tabs.appendChild(tab);
             panel.setAttribute('role','tabpanel');
             panel.classList.toggle('active', index === 0);
+            panel.style.display = index === 0 ? 'block' : 'none';
           });
           page.appendChild(tabs);
           page.insertBefore(tabs, available[0]);
