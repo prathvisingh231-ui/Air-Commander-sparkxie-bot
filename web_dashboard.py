@@ -370,6 +370,8 @@ def register_dashboard(app, bot) -> None:
                     "modules": {key: bool(value) for key, value in anti.get("modules", {}).items()},
                     "whitelist_users": anti.get("whitelist_users", []),
                     "whitelist_roles": anti.get("whitelist_roles", []),
+                    "extra_owners": anti.get("extra_owners", []),
+                    "is_guild_owner": str(guild.owner_id) == str((auth or {}).get("user", {}).get("id", "")),
                 },
             })
 
@@ -472,6 +474,28 @@ def register_dashboard(app, bot) -> None:
                     for key, value in thresholds.items():
                         if key not in allowed: raise ValueError
                         cfg.setdefault("thresholds", {})[key] = bounded_int(value, 1, 20)
+                if "whitelist_users" in incoming:
+                    users = incoming["whitelist_users"]
+                    if not isinstance(users, list) or len(users) > 100: raise ValueError
+                    if any(not isinstance(item, str) or not item.isdigit() or not (15 <= len(item) <= 22) for item in users): raise ValueError
+                    cfg["whitelist_users"] = list(dict.fromkeys(int(item) for item in users))
+                if "whitelist_roles" in incoming:
+                    roles = incoming["whitelist_roles"]
+                    if not isinstance(roles, list) or len(roles) > 100: raise ValueError
+                    parsed_roles = []
+                    for item in roles:
+                        if not isinstance(item, str) or not item.isdigit() or not (15 <= len(item) <= 22): raise ValueError
+                        role = guild.get_role(int(item))
+                        if role is None or role.is_default(): raise ValueError
+                        parsed_roles.append(role.id)
+                    cfg["whitelist_roles"] = list(dict.fromkeys(parsed_roles))
+                if "extra_owners" in incoming:
+                    if str(guild.owner_id) != str((auth or {}).get("user", {}).get("id", "")):
+                        return jsonify({"error": "owner_only", "message": "Only the Discord server owner can manage Extra Owners."}), 403
+                    owners = incoming["extra_owners"]
+                    if not isinstance(owners, list) or len(owners) > 25: raise ValueError
+                    if any(not isinstance(item, str) or not item.isdigit() or not (15 <= len(item) <= 22) for item in owners): raise ValueError
+                    cfg["extra_owners"] = list(dict.fromkeys(int(item) for item in owners if int(item) != guild.owner_id))
                 if "modules" in incoming:
                     modules = incoming["modules"]
                     if not isinstance(modules, dict): raise ValueError
