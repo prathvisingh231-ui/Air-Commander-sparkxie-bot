@@ -56,6 +56,7 @@
     .status{display:inline-flex;align-items:center;gap:6px}.status.on:before{content:"";width:5px;height:5px;border-radius:50%;background:#35e6a4;box-shadow:0 0 8px #35e6a466}.status.off:before{content:"";width:5px;height:5px;border-radius:50%;background:#7890a2}
     .config-columns{align-items:start}.config-sub{background:linear-gradient(145deg,#0c2130,#091925);border-radius:13px;transition:border-color .18s ease}.config-sub:hover{border-color:#28566b}.config-sub h3{display:flex;align-items:center;gap:9px;padding-bottom:10px;border-bottom:1px solid #1c394b;letter-spacing:-.015em}.config-sub h3:before{content:"";width:4px;height:16px;border-radius:4px;background:#22d3ee;box-shadow:0 0 12px #22d3ee30}
     .setting-field{line-height:1.4;gap:7px}.setting-field input,.setting-field select{min-height:42px;transition:border-color .18s ease,box-shadow .18s ease;background:#061522;border-color:#244357;border-radius:10px}.setting-field input:hover,.setting-field select:hover{border-color:#35647a}.setting-field input:focus,.setting-field select:focus{outline:none;box-shadow:0 0 0 3px #22d3ee15;border-color:#22d3ee}
+    .rule-group-title{grid-column:1/-1;margin:14px 0 2px;padding-bottom:8px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}
     .setting-toggle{padding:10px 11px;margin:8px 0;background:#0a1b28;border:1px solid #1e394b;border-radius:10px;line-height:1.45;cursor:pointer}.setting-toggle input{accent-color:#22d3ee;width:16px;height:16px;flex:none}.setting-toggle:has(input:checked){border-color:#236478;background:#0b2634}
     .config-actions{padding-top:14px;border-top:1px solid #1b3547}.config-actions .primary{min-height:41px}.config-actions .secondary{min-height:41px}
     .config-actions button:active,.primary:active,.secondary:active{transform:translateY(1px)}
@@ -301,10 +302,15 @@
         field('Log channel ID (optional)', 'log_channel_id', a.log_channel_id || '', 1, 999999999999999999) +
         '</section><section class="config-sub"><h3>AntiNuke</h3>' +
         toggle('Enable AntiNuke', 'enabled', n.enabled, 'nuke') +
+        '<p class="muted" style="font-size:12px">Toggle individual protections. Only supported audit-log protections are shown here.</p>' +
+        '<h4 class="rule-group-title">Core Actions</h4>' +
+        Object.entries({ban:'Anti Ban',kick:'Anti Kick',bot_add:'Anti Bot Add',channel_create:'Anti Channel Create',channel_delete:'Anti Channel Delete',role_create:'Anti Role Create',role_delete:'Anti Role Delete',webhook_delete:'Anti Webhook',guild_update:'Anti Guild Update',overwrite_update:'Anti Dangerous Permission Update'}).map(([key,label]) => toggle(label,key,(n.modules||{})[key] !== false,'nukemod')).join('') +
+        '<h4 class="rule-group-title">Advanced</h4>' +
+        Object.entries({emoji_create:'Anti Emoji Create',emoji_delete:'Anti Emoji Delete',sticker_create:'Anti Sticker Create',sticker_delete:'Anti Sticker Delete'}).map(([key,label]) => toggle(label,key,(n.modules||{})[key] !== false,'nukemod')).join('') +
         '<label class="setting-field"><span>Response action</span><select data-nuke="action"><option value="ban">Ban</option><option value="kick">Kick</option><option value="timeout">Timeout</option><option value="strip">Strip roles</option></select></label>' +
         field('Detection window (seconds)', 'window', n.window, 3, 60, 'nuke') +
         field('Log channel ID (optional)', 'log_channel_id', n.log_channel_id || '', 1, 999999999999999999, 'nuke') +
-        '<p class="muted" style="font-size:12px">Thresholds remain at their current values for this first panel.</p></section>' +
+        '<p class="muted" style="font-size:12px">Protection flags save with your AntiNuke configuration.</p></section>' +
         '<section class="config-sub"><h3>AntiLink</h3>' +
         toggle('Enable AntiLink', 'enabled', l.enabled, 'link') +
         toggle('Delete detected links', 'delete_enabled', l.delete_enabled, 'link') +
@@ -324,8 +330,11 @@
           spam_messages:Number(val('auto','spam_messages')),spam_window:Number(val('auto','spam_window')),
           mention_limit:Number(val('auto','mention_limit')),duplicate_limit:Number(val('auto','duplicate_limit')),
           log_channel_id:val('auto','log_channel_id') || null};
+        const nukeModules = {};
+        editor.querySelectorAll('[data-nukemod]').forEach(el => { nukeModules[el.dataset.nukemod] = el.checked; });
         const nuke = {enabled:checked('nuke','enabled'),action:val('nuke','action'),
-          window:Number(val('nuke','window')),log_channel_id:val('nuke','log_channel_id') || null};
+          window:Number(val('nuke','window')),log_channel_id:val('nuke','log_channel_id') || null,
+          modules:nukeModules};
         const linkTypes = {};
         editor.querySelectorAll('[data-linktype]').forEach(el => { linkTypes[el.dataset.linktype] = el.checked; });
         const antilink = {enabled:checked('link','enabled'),delete_enabled:checked('link','delete_enabled'),
