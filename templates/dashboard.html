@@ -81,6 +81,7 @@
     .module-nav button:hover{background:#102d40;color:#e8f8ff}.module-nav button.active{color:#05202a;background:linear-gradient(100deg,#21c9df,#54e4f1);box-shadow:0 6px 20px #22d3ee20}
     .module-nav .nav-icon{width:24px;text-align:center;font-size:16px}.module-nav .nav-count{margin-left:auto;font-size:10px;opacity:.75}
     .module-page{display:none;animation:module-in .18s ease-out}.module-page.active{display:block}
+    .module-phase-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}.module-phase-tab{border:1px solid #24475b;background:#0b2030;color:#91a8bd;border-radius:10px;padding:10px 13px;font-weight:750;cursor:pointer}.module-phase-tab.active{color:#03131e;background:linear-gradient(110deg,#16b8d0,#22d3ee);border-color:#22d3ee}.module-phase-panel{display:none}.module-phase-panel.active{display:block}.module-phase-panel>.panel,.module-phase-panel>.features{margin-bottom:16px}.module-phase-panel>.config-sub{margin-bottom:16px}
     .module-page>.features{margin-bottom:16px}.module-page-heading{padding:22px 24px;margin-bottom:16px;border:1px solid #21465a;border-radius:16px;background:linear-gradient(110deg,#0c2a3d,#0b1a2a)}
     .module-page-heading .eyebrow{font-size:10px;letter-spacing:.18em}.module-page-heading h2{font-size:26px;margin:8px 0}.module-page-heading p{margin:0;color:#91aabd;font-size:13px}
     .module-page .features{background:linear-gradient(145deg,#0c1e2d,#091724);border-color:#1e3b50}
@@ -906,6 +907,44 @@
         const panel = document.getElementById(id);
         if (panel) page.appendChild(panel);
       });
+      // Turn each existing module panel into a selectable phase without changing its API or save logic.
+      if (item.id !== 'security' && item.panels.length > 1) {
+        const available = item.panels.map(id => document.getElementById(id)).filter(Boolean);
+        if (available.length > 1) {
+          const tabs = document.createElement('div');
+          tabs.className = 'module-phase-tabs';
+          tabs.setAttribute('role','tablist');
+          tabs.setAttribute('aria-label', item.label + ' phases');
+          const labelFor = (panel, index) => {
+            const heading = panel.querySelector('h2,h3,.section-heading h2');
+            const raw = heading ? heading.textContent.trim() : '';
+            const cleaned = raw.replace(/\\s+/g,' ');
+            return (cleaned || panel.id.replace(/Panel$/,'').replace(/([A-Z])/g,' $1').trim()) || ('Phase ' + (index + 1));
+          };
+          available.forEach((panel,index) => {
+            panel.classList.add('module-phase-panel');
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'module-phase-tab' + (index === 0 ? ' active' : '');
+            tab.setAttribute('role','tab');
+            tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+            tab.textContent = 'PHASE ' + (index + 1) + ' · ' + labelFor(panel,index);
+            tab.addEventListener('click', () => {
+              tabs.querySelectorAll('.module-phase-tab').forEach(other => {
+                const active = other === tab;
+                other.classList.toggle('active', active);
+                other.setAttribute('aria-selected', active ? 'true' : 'false');
+              });
+              available.forEach(target => target.classList.toggle('active', target === panel));
+            });
+            tabs.appendChild(tab);
+            panel.setAttribute('role','tabpanel');
+            panel.classList.toggle('active', index === 0);
+          });
+          page.appendChild(tabs);
+          page.insertBefore(tabs, available[0]);
+        }
+      }
       root.appendChild(page);
     });
 
