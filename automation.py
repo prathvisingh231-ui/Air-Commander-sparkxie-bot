@@ -332,6 +332,9 @@ def automode_is_whitelisted(member, config):
     if member is None:
         return False
 
+    if member.id in config.get("extra_owners", []):
+        return True
+
     if member.id in config.get(
         "whitelist_users",
         []
