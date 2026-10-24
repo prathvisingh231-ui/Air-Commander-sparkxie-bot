@@ -16,7 +16,7 @@ from openai import AsyncOpenAI
 import discord
 from discord import app_commands
 from discord.ext import commands
-from flask import Flask, redirect
+from flask import Flask
 
 import db
 import games
@@ -60,7 +60,7 @@ app = Flask(__name__)
 
 @app.get("/")
 def home():
-    return redirect("/dashboard")
+    return "✈️ Air Commander is online!", 200
 
 
 @app.get("/health")
