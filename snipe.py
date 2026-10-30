@@ -1056,7 +1056,8 @@ class TicketSystem(commands.Cog):
 
         parent = None
 
-        parent_id = config.get(
+        # Prefer this category's Discord category, then fall back to the old global setting.
+        parent_id = category_data.get("ticket_category_id") or config.get(
             "ticket_category_id"
         )
 
@@ -1129,6 +1130,9 @@ class TicketSystem(commands.Cog):
 
             "claimed_by":
                 None,
+
+            "claimed_only":
+                bool(category_data.get("claimed_only", False)),
 
             "added_users":
                 []
@@ -2282,6 +2286,64 @@ class TicketSystem(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ========================================================
+    # CATEGORY-SPECIFIC SETTINGS
+    # ========================================================
+
+    @category.command(
+        name="config",
+        description="Configure one category's staff role, channel category and claim privacy."
+    )
+    @app_commands.describe(
+        category_key="Exact key from /ticket category list",
+        support_role="Staff role assigned to this category",
+        ticket_category="Discord category where this category's tickets are created",
+        claimed_only="If true, hide staff-role access after one staff member claims the ticket"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def category_config(
+        self,
+        interaction: discord.Interaction,
+        category_key: str,
+        support_role: discord.Role = None,
+        ticket_category: discord.CategoryChannel = None,
+        claimed_only: bool = None
+    ):
+        if not interaction.guild:
+            return await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
+            )
+
+        data = load_data()
+        guild_data = ensure_guild(data, interaction.guild.id)
+        matched_key, category_data = find_category(guild_data, category_key)
+        if not matched_key:
+            available = ", ".join(guild_data["categories"].keys()) or "none"
+            return await interaction.response.send_message(
+                f"Category not found. Available keys: {available}", ephemeral=True
+            )
+
+        if support_role is not None:
+            category_data["support_role_id"] = support_role.id
+        if ticket_category is not None:
+            category_data["ticket_category_id"] = ticket_category.id
+        if claimed_only is not None:
+            category_data["claimed_only"] = claimed_only
+
+        save_data(data)
+        role_id = category_data.get("support_role_id")
+        role_obj = interaction.guild.get_role(int(role_id)) if role_id else None
+        parent_id = category_data.get("ticket_category_id")
+        parent_obj = interaction.guild.get_channel(int(parent_id)) if parent_id else None
+        privacy = bool(category_data.get("claimed_only", False))
+        await interaction.response.send_message(
+            f"Settings saved for {category_data.get('name', matched_key)} ({matched_key}).\n"
+            f"Support role: {role_obj.mention if role_obj else 'Not set'}\n"
+            f"Ticket channel category: {parent_obj.name if isinstance(parent_obj, discord.CategoryChannel) else 'Global default'}\n"
+            f"Only claimant has staff access after claiming: {'ON' if privacy else 'OFF'}",
+            ephemeral=True
+        )
+
+    # ========================================================
     # CONFIG
     # ========================================================
 
@@ -2524,58 +2586,60 @@ class TicketSystem(commands.Cog):
         self,
         interaction: discord.Interaction
     ):
-
         if not interaction.guild:
-            await interaction.response.send_message(
-                "❌ This command can only be used in a server."
+            return await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True
             )
-            return
 
         data = load_data()
-
-        guild_data = ensure_guild(
-            data,
-            interaction.guild.id
-        )
-
-        _, ticket = find_ticket(
-            guild_data,
-            interaction.channel.id
-        )
-
+        guild_data = ensure_guild(data, interaction.guild.id)
+        _, ticket = find_ticket(guild_data, interaction.channel.id)
         if not ticket:
-
-            await interaction.response.send_message(
-                "❌ This is not a ticket channel."
+            return await interaction.response.send_message(
+                "This is not a ticket channel.", ephemeral=True
             )
 
-            return
+        claimed_by = ticket.get("claimed_by")
+        if claimed_by:
+            message = (
+                "You have already claimed this ticket."
+                if int(claimed_by) == interaction.user.id
+                else f"This ticket has already been claimed by <@{claimed_by}>."
+            )
+            return await interaction.response.send_message(message, ephemeral=True)
 
+        category_data = guild_data["categories"].get(ticket.get("category"), {})
         if not is_admin(interaction.user):
             global_role_id = guild_data["config"].get("support_role_id")
-            category_key = ticket.get("category")
-            category_data = guild_data["categories"].get(category_key, {})
             category_role_id = category_data.get("support_role_id")
             member_role_ids = {role.id for role in interaction.user.roles}
             is_global_staff = bool(global_role_id and int(global_role_id) in member_role_ids)
             is_category_staff = bool(category_role_id and int(category_role_id) in member_role_ids)
-
             if not (is_global_staff or is_category_staff):
-                await interaction.response.send_message(
-                    "❌ You are not assigned to this ticket category's staff team.",
+                return await interaction.response.send_message(
+                    "You are not assigned to this ticket category's staff team.",
                     ephemeral=True
                 )
-                return
 
-        ticket["claimed_by"] = (
-            interaction.user.id
-        )
-
+        ticket["claimed_by"] = interaction.user.id
         save_data(data)
+        if ticket.get("claimed_only", category_data.get("claimed_only", False)):
+            staff_role_ids = {
+                guild_data["config"].get("support_role_id"),
+                category_data.get("support_role_id"),
+            }
+            for role_id in staff_role_ids:
+                if role_id:
+                    role = interaction.guild.get_role(int(role_id))
+                    if role:
+                        await interaction.channel.set_permissions(role, view_channel=False)
+            await interaction.channel.set_permissions(
+                interaction.user, view_channel=True, send_messages=True,
+                read_message_history=True, attach_files=True, embed_links=True
+            )
 
-        await interaction.response.send_message(
-            f"🙋 Ticket claimed by "
-            f"{interaction.user.mention}."
+        return await interaction.response.send_message(
+            f"Ticket claimed by {interaction.user.mention}."
         )
 
     # ========================================================
@@ -3403,52 +3467,49 @@ class TicketSystem(commands.Cog):
         self,
         ctx
     ):
+        if not ctx.guild:
+            return await ctx.send("This command can only be used in a server.")
 
         data = load_data()
-
-        guild_data = ensure_guild(
-            data,
-            ctx.guild.id
-        )
-
-        _, ticket = find_ticket(
-            guild_data,
-            ctx.channel.id
-        )
-
+        guild_data = ensure_guild(data, ctx.guild.id)
+        _, ticket = find_ticket(guild_data, ctx.channel.id)
         if not ticket:
+            return await ctx.send("This is not a ticket.")
 
-            await ctx.send(
-                "❌ This is not a ticket."
-            )
+        claimed_by = ticket.get("claimed_by")
+        if claimed_by:
+            if int(claimed_by) == ctx.author.id:
+                return await ctx.send("You have already claimed this ticket.")
+            return await ctx.send(f"This ticket has already been claimed by <@{claimed_by}>.")
 
-            return
-
+        category_data = guild_data["categories"].get(ticket.get("category"), {})
         if not is_admin(ctx.author):
             global_role_id = guild_data["config"].get("support_role_id")
-            category_key = ticket.get("category")
-            category_data = guild_data["categories"].get(category_key, {})
             category_role_id = category_data.get("support_role_id")
             member_role_ids = {role.id for role in ctx.author.roles}
             is_global_staff = bool(global_role_id and int(global_role_id) in member_role_ids)
             is_category_staff = bool(category_role_id and int(category_role_id) in member_role_ids)
-
             if not (is_global_staff or is_category_staff):
-                await ctx.send(
-                    "❌ You are not assigned to this ticket category's staff team."
-                )
-                return
+                return await ctx.send("You are not assigned to this ticket category's staff team.")
 
-        ticket[
-            "claimed_by"
-        ] = ctx.author.id
-
+        ticket["claimed_by"] = ctx.author.id
         save_data(data)
+        if ticket.get("claimed_only", category_data.get("claimed_only", False)):
+            staff_role_ids = {
+                guild_data["config"].get("support_role_id"),
+                category_data.get("support_role_id"),
+            }
+            for role_id in staff_role_ids:
+                if role_id:
+                    role = ctx.guild.get_role(int(role_id))
+                    if role:
+                        await ctx.channel.set_permissions(role, view_channel=False)
+            await ctx.channel.set_permissions(
+                ctx.author, view_channel=True, send_messages=True,
+                read_message_history=True, attach_files=True, embed_links=True
+            )
 
-        await ctx.send(
-            f"🙋 Ticket claimed by "
-            f"{ctx.author.mention}."
-        )
+        return await ctx.send(f"Ticket claimed by {ctx.author.mention}.")
 
     # ========================================================
     # PREFIX RENAME
@@ -3798,68 +3859,60 @@ class TicketControlView(
         interaction: discord.Interaction,
         button: discord.ui.Button
     ):
-
         if not interaction.guild:
-
-            await interaction.response.send_message(
-                "❌ This can only be used in a server."
+            return await interaction.response.send_message(
+                "This can only be used in a server.", ephemeral=True
             )
-
-            return
 
         data = load_data()
-
-        guild_data = ensure_guild(
-            data,
-            interaction.guild.id
-        )
-
-        _, ticket = find_ticket(
-            guild_data,
-            interaction.channel.id
-        )
-
+        guild_data = ensure_guild(data, interaction.guild.id)
+        _, ticket = find_ticket(guild_data, interaction.channel.id)
         if not ticket:
-
-            await interaction.response.send_message(
-                "❌ This is not a ticket."
+            return await interaction.response.send_message(
+                "This is not a ticket.", ephemeral=True
             )
 
-            return
-
-        if not is_admin(
-            interaction.user
-        ):
-
-            role_id = (
-                guild_data["config"].get(
-                    "support_role_id"
-                )
+        claimed_by = ticket.get("claimed_by")
+        if claimed_by:
+            message = (
+                "You have already claimed this ticket."
+                if int(claimed_by) == interaction.user.id
+                else f"This ticket has already been claimed by <@{claimed_by}>."
             )
+            return await interaction.response.send_message(message, ephemeral=True)
 
-            if (
-                not role_id
-                or not any(
-                    role.id == int(role_id)
-                    for role in interaction.user.roles
+        category_data = guild_data["categories"].get(ticket.get("category"), {})
+        if not is_admin(interaction.user):
+            global_role_id = guild_data["config"].get("support_role_id")
+            category_role_id = category_data.get("support_role_id")
+            member_role_ids = {role.id for role in interaction.user.roles}
+            is_global_staff = bool(global_role_id and int(global_role_id) in member_role_ids)
+            is_category_staff = bool(category_role_id and int(category_role_id) in member_role_ids)
+            if not (is_global_staff or is_category_staff):
+                return await interaction.response.send_message(
+                    "You are not assigned to this ticket category's staff team.",
+                    ephemeral=True
                 )
-            ):
 
-                await interaction.response.send_message(
-                    "❌ You are not support staff."
-                )
-
-                return
-
-        ticket[
-            "claimed_by"
-        ] = interaction.user.id
-
+        ticket["claimed_by"] = interaction.user.id
         save_data(data)
+        if ticket.get("claimed_only", category_data.get("claimed_only", False)):
+            staff_role_ids = {
+                guild_data["config"].get("support_role_id"),
+                category_data.get("support_role_id"),
+            }
+            for role_id in staff_role_ids:
+                if role_id:
+                    role = interaction.guild.get_role(int(role_id))
+                    if role:
+                        await interaction.channel.set_permissions(role, view_channel=False)
+            await interaction.channel.set_permissions(
+                interaction.user, view_channel=True, send_messages=True,
+                read_message_history=True, attach_files=True, embed_links=True
+            )
 
-        await interaction.response.send_message(
-            f"🙋 Ticket claimed by "
-            f"{interaction.user.mention}."
+        return await interaction.response.send_message(
+            f"Ticket claimed by {interaction.user.mention}."
         )
 
     # ========================================================
