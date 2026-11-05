@@ -12,7 +12,7 @@ async def _is_owner(bot, user):
 async def _make_report(bot, detailed=False):
     status = await db.database_status()
     loaded = sorted(getattr(bot, "_air_loaded_feature_modules", set()))
-    expected = {"autorolesetup", "automation", "cmdmaker", "command_permissions", "embed_builder", "giveaways", "leveling", "snipe", "welcome_autorole", "youtube_alerts", "config_dashboard", "diagnostics", "backup_system", "modlog"}
+    expected = {"autorolesetup", "automation", "cmdmaker", "command_permissions", "embed_builder", "giveaways", "leveling", "snipe", "welcome_autorole", "youtube_alerts", "config_dashboard", "diagnostics", "backup_system", "modlog", "voice_leveling"}
     missing = sorted(expected - set(loaded))
     e = discord.Embed(title="Air Commander • Diagnostics", colour=discord.Colour.blurple(), timestamp=discord.utils.utcnow())
     e.add_field(name="PostgreSQL", value="Connected" if status.get("connected") else "DISCONNECTED", inline=True)
