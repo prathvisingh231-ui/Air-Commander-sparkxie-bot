@@ -273,7 +273,9 @@ def setup(bot: commands.Bot):
 
     @prefix_voicelevel.command(name="xp")
     @commands.has_guild_permissions(manage_guild=True)
-    async def prefix_xp(ctx, amount: commands.Range[int, 1, 100]):
+    async def prefix_xp(ctx, amount: int):
+        if amount < 1 or amount > 100:
+            return await ctx.send("XP amount must be between 1 and 100.")
         config(ctx.guild.id)["xp_per_minute"] = int(amount)
         save_data()
         await ctx.send(f"✅ Voice XP set to {amount} per minute.")
