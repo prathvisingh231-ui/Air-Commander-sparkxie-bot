@@ -39,6 +39,7 @@ import diagnostics
 import backup_system
 import modlog
 import verification
+import voice_leveling
 from web_dashboard import register_dashboard
 
 # CONFIGURATION
@@ -2872,7 +2873,7 @@ async def _air_startup_loader(bot):
                 try:
                     await db.restore_json_snapshots()
                     _air_autoresponder_load()
-                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog, verification):
+                    for module in (autorolesetup, automation, cmdmaker, command_permissions, embed_builder, giveaways, leveling, snipe, welcome_autorole, youtube_alerts, config_dashboard, diagnostics, backup_system, modlog, verification, voice_leveling):
                         importlib.reload(module)
                     print("♻️ JSON module state restored before feature setup.")
                 except Exception as restore_exc:
@@ -2905,6 +2906,7 @@ async def _air_startup_loader(bot):
         ("backup_system", backup_system),
         ("modlog", modlog),
         ("verification", verification),
+        ("voice_leveling", voice_leveling),
     ]
 
     # Track modules individually: one failed setup must not mark every module loaded.
